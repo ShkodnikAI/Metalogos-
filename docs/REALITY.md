@@ -471,8 +471,8 @@ The §6.x wave-record sections moved to the monthly archive by №810 (the C4-a 
 |---|---|---|
 | [docs/reality/2026-09.md](reality/2026-09.md) | 13 | 6.1 … 6.29 |
 | [docs/reality/2026-10.md](reality/2026-10.md) | 46 | 6.13 … 6.74 |
-| [docs/reality/2026-11.md](reality/2026-11.md) | 5 | 6.76 … 6.80 |
-| **total** | **64** | |
+| [docs/reality/2026-11.md](reality/2026-11.md) | 6 | 6.76 … 6.81 |
+| **total** | **65** | |
 
 <!-- END GENERATED REALITY STUB -->
 

@@ -4,6 +4,28 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- №935 (gh#1879, wave 90 — W-V, №V2, P2, [docs][release][process]): the
+  post-stand/post-release sync of 0.39.0 — the first amended-cycle sync
+  (the №646 form, item 10): the stand verdict GO (the gh#1870 triage:
+  check 37/37 GREEN · e2e 17/20 · sha256 ✓ `8f9b0e20…` · 3 red =
+  stand/environment artifacts byte-for-byte on the v0.38.3 control ·
+  smoke/deploy/logs — the honest «не проверено» mark) into the [0.39.0]
+  stand block on main; the REALITY §6.81 release record — 0.39.0
+  PUBLISHED 2026-11-09T03:44:37Z (the owner's act: the tags v0.39.0 and
+  v0.39.0-rc.1 both on `c70e25af` — the SHA equality verified via the
+  refs API; the four assets with the binary digest `8f9b0e20…` = the
+  stand-verified value, the deterministic `--locked` rebuild; the SLSA
+  provenance + CycloneDX SBOM attestations present on the artifact
+  digest; the author-run `release` event run 42558044663 failed at the
+  train-gate step — the publish-time event context delivered the
+  synthetic ref `untagged-51fea471adfad0586f6e` instead of the tag, the
+  gate refused it fail-closed as designed, the assets delivered by the
+  workflow_dispatch re-run 42558211409, 21/21 steps — the checklist
+  "After the owner publishes" path); the release body PATCHed to the
+  synced [0.39.0] section verbatim (release_notes.py, the №497
+  machine); llms.txt №1–№935; NO DRIFT (docs domain — the
+  tags/SHA-equality untouched, no [0.40.0] section).
+
 - №932 (gh#1871, wave 89 — W-U, №S2 carried from В88, P2, [ci][hygiene]): the nightly soak-parity lane hygiene — the №722 ENOSPC guard extension after the 07.11 RED (run #54 on `c70e25af`: ENOSPC os error 28 in "Build debug binary for doc-tests/examples" AFTER the №722 runner-bloat purge fired — the В48 class returned with the grown tree, and the largest disk consumers are now the incremental caches and the dev-profile debuginfo, which the №722 purge never touches): the job env `CARGO_INCREMENTAL=0` (no incremental caches for a one-shot CI build — test behavior unchanged) + `CARGO_PROFILE_DEV_DEBUG=0` (no dev debuginfo — the soak machine needs no symbols) + the inter-phase df-h checkpoints with `target/debug/incremental` purges between the cargo phases (the №722 df-h hygiene — provable in the log) + the loud pre-doc-tests floor (fail fast with the `::error` label below 2 GiB free instead of a mid-build ENOSPC); soak-parity is not a required lane — the nightly red is the signal (№809); the full acceptance verifies on the next nightly run after the merge. Carries the ledger-revision erratum chain (the №931 revision comment in gh#967 — the primary machine record): the ignore floor is machine-established at **8** `#[ignore = "..."]` attributes = 1 ledger lane (§4 PARKED) + 7 PERMANENT by-design (`golden.rs:377`, `naryad_393_ledger.rs:108`, `run_leak_suite.rs:267`, `metalogos-server/tests/naryad_160_vm_serve_full_verification.rs:594`, `src/llm.rs:3662/3683/3705`) — the R68 count of 5 missed the three `src/llm.rs` credential/endpoint-gated ignores, and the first R69 correction (7, the «naryad_160:594 phantom» claim) was itself wrong: the metalogos-server crate file exists and the root-tests rg scope missed it (git grep over all tracked *.rs is the machine). NO DRIFT (ci domain — grammar/builtins/goldens untouched).
 
 - №931 (gh#967, wave 88 — W-S, №S1, P2-hygiene, [docs][process]): the known-issue ledger dated revision — the 2026-11-08 window (the №639 form): all 7 lanes machine-verified against the live main `0105888e` — the §1/§2/§3/§5/§6/§7 RESOLVED marks stand (the №575/№574/№617/№634/№635/№662+№695 machines, the lane suites green on this PR's CI), the ignore floor = exactly 5 `#[ignore = "..."]` attributes: 1 ledger lane (§4 PARKED, `tests/phase18_compiler_statements.rs:186`, the gh#967 link alive) + 4 PERMANENT by-design outside the ledger (`golden.rs:377` browser-gate, `naryad_393_ledger.rs:108` release-only golden, `run_leak_suite.rs:267` calibration tooling, `metalogos-server/tests/naryad_160_vm_serve_full_verification.rs:594` KV_STORE process-global); the ledger issue STAYS OPEN — the §4 ignore links gh#967 in code and closing it would rot the link (the М3 rule: no wording-only closure); the revision comment carries the per-lane machine table (the dated-revision header 2026-11-08 in the issue body); NO DRIFT (docs domain), no floors moved.
@@ -38,11 +60,18 @@ train (ADR-0221, wave 85 — TERMINAL_STOP 13/13, gate_046); the ADR
 status pass (wave 86 — ten records Proposed → Accepted per their
 executed wave acceptances; the record content re-evaluated by nobody).
 
-Проверено на стенде офиса: not verified — the Sunday stand
-(2026-11-08) is pending at the rc cut; «not verified» = the train does
-not depart (the release-checklist form). The verdict enters this block
-by the post-stand/post-release sync (the №646 form, item 10) — the
-tagged rc commit stays pinned.
+Проверено на стенде офиса: 2026-11-08 — вердикт **GO** (the gh#1870
+triage, 0 candidate defects): `check` 37/37 GREEN (the `mlog check`
+baseline over the rc candidate) · `e2e` 17/20 · sha256 verified
+(`8f9b0e20…` — the final release binary carries the SAME digest, the
+deterministic `--locked` rebuild) · 3 red = the stand/environment
+artifacts, reproduced byte-for-byte on the control binary v0.38.3 (the
+A/B method) · smoke/deploy/logs — «не проверено» (the honest mark: the
+Render/BOT credentials are absent from the executor's sandbox). The
+candidate `v0.39.0-rc.1` on `c70e25af` passed the e2e battery and the
+`mlog check` baseline; the final tag v0.39.0 sits on the same commit
+(the rc↔final SHA equality machine-enforced by `release_train_gate.py`);
+the publication on 2026-11-09 03:44Z is the OWNER act (ADR-0186 §4.5).
 
 ### Added
 

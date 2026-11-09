@@ -1,0 +1,22 @@
+// Наряд №938 (ADR-0182 §3.3 шаг 2): мост Audio — `stt_transcribe` и
+// media-аргумент `omni_ask` принимают Audio-хэндл: полезная нагрузка
+// материализуется через санкционированный read-path store (лениво,
+// запечатанная расшифровывается только внутри санкционированного
+// потребителя — PROCESSING, не byte egress), ответ мока равен ответу
+// строковой формы (оверклоады ДОБАВЛЯЮТ возможность, №493; золотое
+// поведение строк не меняется). Метка хэндла входит в метку результата
+// через №323 (private audio in → private transcript out).
+origin demo_feed { kind: generation, media: audio, label: public }
+pattern Transcribe(_tick: String) -> String {
+  let clip = from demo_feed media_store_audio("clip-bytes", "public")
+  let text = stt_transcribe(clip)
+  let ans = omni_ask("what is said", clip)
+  let _d = media_release(clip)
+  if text == "[MOCK: stt_transcribe | whisper-large-v3-turbo | clip-bytes]" {
+    if ans == "[MOCK: omni_ask | nemotron-3-nano-omni-30b-a3b | what is said | clip-bytes]" {
+      return "bridge-ok"
+    }
+  }
+  return "bridge-broken"
+}
+flow Main { input: String = "tick" -> Transcribe -> output }

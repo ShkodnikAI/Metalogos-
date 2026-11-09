@@ -44,8 +44,15 @@ fn real_mode_refusal(fn_name: &str, weights_id: &str) -> String {
 }
 
 /// `stt_transcribe(audio, model?)` — the STT-class backend call (№334).
-/// `audio` is the audio payload reference (String); `model` defaults to
-/// the registry canon `whisper-turbo` (weights: whisper-large-v3-turbo).
+/// `audio` is the audio payload reference (String) OR an `Audio` media
+/// handle (№938, ADR-0182 §3.3 step 2 — the multi-form overload posture
+/// of №493: the handle form ADDS capability, the String golden behavior
+/// is untouched). A handle materializes through the store's sanctioned
+/// read path (sealed entries decrypt only inside the sanctioned consumer
+/// — the PROCESSING posture, not byte egress); the handle's static label
+/// joins the result's label through the existing №323 inference (private
+/// audio in → private transcript out). `model` defaults to the registry
+/// canon `whisper-turbo` (weights: whisper-large-v3-turbo).
 pub(crate) fn builtin_stt_transcribe(args: &[Value]) -> Result<Value, String> {
     let fn_name = "stt_transcribe";
     if args.is_empty() || args.len() > 2 {
@@ -102,8 +109,14 @@ pub(crate) fn builtin_stt_transcribe(args: &[Value]) -> Result<Value, String> {
 }
 
 /// `omni_ask(prompt, media?, model?)` — the omni-class backend call
-/// (№334): a prompt with an OPTIONAL media payload reference (String).
-/// Defaults to the registry canon `nemotron-omni`.
+/// (№334): a prompt with an OPTIONAL media payload reference — a String
+/// OR an `Audio` media handle (№938, ADR-0182 §3.3 step 2 — the same
+/// overload posture as `stt_transcribe`: the handle form ADDS
+/// capability, the String golden behavior is untouched; a handle
+/// materializes through the store's sanctioned read path, the call is
+/// PROCESSING, and the handle's static label joins the result's label
+/// through the №323 inference). Defaults to the registry canon
+/// `nemotron-omni`.
 pub(crate) fn builtin_omni_ask(args: &[Value]) -> Result<Value, String> {
     let fn_name = "omni_ask";
     if args.is_empty() || args.len() > 3 {

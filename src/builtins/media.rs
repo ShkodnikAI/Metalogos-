@@ -583,6 +583,138 @@ pub fn ocr_extract_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value,
     crate::vision::ocr::builtin_ocr_extract(&args)
 }
 
+// ── №938 (ADR-0182 §3.3 step 2): the Audio media-input bridge ─────────
+//
+// `stt_transcribe(audio, …)` and `omni_ask(prompt, media?, …)` gain the
+// Audio-handle input form (the №493 multi-form overload posture — the
+// №599 step-1 architecton verbatim): argument 1 of `stt_transcribe` and
+// the OPTIONAL media argument (argument 2) of `omni_ask` may be an
+// `Audio` media handle — materialized through the store's SANCTIONED
+// read path (`MediaStore::materialize` — lazy, sealed entries decrypt
+// only inside the sanctioned consumer) and fed to the SAME stateless
+// call body the String form uses (one body per builtin over the shared
+// registry — ADR-0163's marshaling split; the golden behavior of the
+// String forms is untouched). The call is PROCESSING, not byte egress
+// (the Voice precedent): no likeness/consent credential is required
+// here — the handle's static label joins the RESULT's label through the
+// existing №323 inference (private audio in → private transcript out)
+// and the №325 sink gate keeps governing every real egress. Any OTHER
+// media kind is a LOUD fail-closed refusal.
+
+/// Loud fail-closed refusal for a foreign media kind on the Audio bridge
+/// (№938) — the Audio twin of the №599 image refusal. The handle TYPE is
+/// the language-level truth: an Image handle can never name an Audio
+/// entry through a sanctioned construction.
+fn audio_kind_refusal(fn_name: &str, arg_role: &str, handle: crate::media::MediaHandle) -> String {
+    format!(
+        "{}: {} must be an Audio handle (or a String payload reference), got {} {} — \
+         the Image input is the vision builtins' surface (№599); the VideoFrame input \
+         joins in the following naryad of the ADR-0182 line (№939)",
+        fn_name,
+        arg_role,
+        handle.kind().type_name(),
+        handle
+    )
+}
+
+/// Materialize an `Audio` handle through the sanctioned read path and
+/// replace the argument at `idx` with the payload string (№938). The
+/// defense-in-depth entry-kind check refuses a forged Audio-typed handle
+/// naming a non-Audio entry (a direct store misuse cannot launder); the
+/// UTF-8 posture is the №599 one (the sanctioned constructions carry
+/// String payloads; a non-UTF-8 payload is a LOUD refusal, never a
+/// silent lossy rewrite).
+fn materialize_audio_arg(
+    fn_name: &str,
+    store: &MediaStore,
+    handle: crate::media::MediaHandle,
+    args: &[Value],
+    idx: usize,
+) -> Result<Vec<Value>, String> {
+    // Defense-in-depth: the entry behind the handle must be an Audio
+    // entry too.
+    let entry_kind = store.entry(handle)?.kind;
+    if entry_kind != crate::media::MediaKind::Audio {
+        return Err(format!(
+            "{}: media entry behind {} is kind '{}', not audio — refusing loudly \
+             (fail-closed, №938)",
+            fn_name,
+            handle,
+            entry_kind.slug()
+        ));
+    }
+    let bytes = store.materialize(handle)?;
+    let payload = String::from_utf8(bytes.to_vec()).map_err(|_| {
+        format!(
+            "{}: the payload of {} is not valid UTF-8 text — the sanctioned \
+             media constructions carry String payloads only; binary media \
+             ingestion is the real-inference path (PARKED by hardware, №294)",
+            fn_name, handle
+        )
+    })?;
+    let mut resolved = args.to_vec();
+    resolved[idx] = Value::String(payload);
+    Ok(resolved)
+}
+
+/// Resolve the `audio` argument (the first argument) of `stt_transcribe`
+/// (№938). The String form passes through untouched (the golden path);
+/// the `MediaHandle::Audio` form materializes through the store; any
+/// other media kind refuses loudly (fail-closed). The store's own
+/// "unknown handle" error surfaces for evicted/never-stored handles.
+fn resolve_stt_audio_input(
+    fn_name: &str,
+    store: &MediaStore,
+    args: &[Value],
+) -> Result<Vec<Value>, String> {
+    let Some(Value::Media(handle)) = args.first() else {
+        // String form (or an arity error the call body owns) — unchanged.
+        return Ok(args.to_vec());
+    };
+    if handle.kind() != crate::media::MediaKind::Audio {
+        return Err(audio_kind_refusal(fn_name, "audio input", *handle));
+    }
+    materialize_audio_arg(fn_name, store, *handle, args, 0)
+}
+
+/// Resolve the OPTIONAL media argument (the second argument, store
+/// index 1) of `omni_ask` (№938). Absent or String — unchanged; an
+/// `Audio` handle materializes through the store; any other media kind
+/// refuses loudly (fail-closed).
+fn resolve_omni_media_input(
+    fn_name: &str,
+    store: &MediaStore,
+    args: &[Value],
+) -> Result<Vec<Value>, String> {
+    let Some(Value::Media(handle)) = args.get(1) else {
+        // No media argument, the String media form, or a prompt-type
+        // error the call body owns — unchanged.
+        return Ok(args.to_vec());
+    };
+    if handle.kind() != crate::media::MediaKind::Audio {
+        return Err(audio_kind_refusal(fn_name, "media input", *handle));
+    }
+    materialize_audio_arg(fn_name, store, *handle, args, 1)
+}
+
+/// `stt_transcribe(audio, model?)` — the store-backed input bridge
+/// (№938): resolves the Audio-handle form through the store, then runs
+/// the stateless call body (the SSOT of the call contract). The String
+/// form routes through unchanged — the golden surface is shared.
+pub fn stt_transcribe_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, String> {
+    let args = resolve_stt_audio_input("stt_transcribe", store, args)?;
+    crate::voice::backend::builtin_stt_transcribe(&args)
+}
+
+/// `omni_ask(prompt, media?, model?)` — the store-backed input bridge
+/// (№938): the omni twin of `stt_transcribe_dispatch` (one body per
+/// builtin, both backends route here); only the OPTIONAL media argument
+/// accepts the handle form.
+pub fn omni_ask_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, String> {
+    let args = resolve_omni_media_input("omni_ask", store, args)?;
+    crate::voice::backend::builtin_omni_ask(&args)
+}
+
 // ── Registry last-resort handlers (лекало vision stubs) ──────────────
 //
 // The real paths are state-carrying: interpreter and VM intercept these

@@ -1846,6 +1846,44 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
             }
             Some(out)
         }
+        // №938 (ADR-0182 §3.3 step 2): the Audio media-input bridge — the
+        // same carrier rationale as the №599 image arm above: `stt_
+        // transcribe`'s result label is the AUDIO argument's label (the
+        // audio is the DATA carrier, so its conf, integrity AND consent
+        // scope ride into the transcript — «private audio in → private
+        // transcript out»), while the text parameter (model) contributes
+        // its conf and integrity conservatively but NOT its consent
+        // scope. Pinned by the naryad-938 consent test; the string
+        // form's labels are unchanged — its literals carry bottom anyway.
+        "stt_transcribe" => {
+            let mut out = args
+                .first()
+                .map(|a| expr_label(a, env))
+                .unwrap_or_else(Label::bottom);
+            for a in args.iter().skip(1) {
+                let l = expr_label(a, env);
+                out.conf = out.conf.join(l.conf);
+                out.integrity = out.integrity.join(l.integrity);
+            }
+            Some(out)
+        }
+        // `omni_ask` (№938): the carrier is the OPTIONAL media argument
+        // (the second one, §3.3.2) — the rule engages only when it is
+        // present; the 1-argument text form keeps the generic join (no
+        // rule). The prompt/model text parameters contribute their conf
+        // and integrity conservatively, NOT their consent scopes.
+        "omni_ask" if args.len() >= 2 => {
+            let mut out = expr_label(&args[1], env);
+            for (i, a) in args.iter().enumerate() {
+                if i == 1 {
+                    continue;
+                }
+                let l = expr_label(a, env);
+                out.conf = out.conf.join(l.conf);
+                out.integrity = out.integrity.join(l.integrity);
+            }
+            Some(out)
+        }
         _ => None,
     }
 }

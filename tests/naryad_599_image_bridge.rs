@@ -74,6 +74,7 @@ fn capability_descriptors_pin_the_image_inputs() {
     use metalogos::media::MediaKind;
 
     let image_inputs = [MediaKind::Image];
+    let audio_inputs = [MediaKind::Audio];
     for entry in BACKEND_REGISTRY {
         match entry.class {
             BackendClass::VisionUnderstanding | BackendClass::Ocr => {
@@ -85,8 +86,19 @@ fn capability_descriptors_pin_the_image_inputs() {
                     entry.class.as_str()
                 );
             }
-            // The №600+ steps (Audio, VideoFrame) evolve this pin when
-            // they land; today every other record is text-only.
+            // №938 (ADR-0182 §3.3 step 2): the STT/Omni records consume
+            // an Audio handle (the stt_transcribe/omni_ask bridge).
+            BackendClass::Stt | BackendClass::Omni => {
+                assert_eq!(
+                    entry.inputs,
+                    audio_inputs,
+                    "record '{}' ({}) must declare exactly [Audio] (№938 step 2)",
+                    entry.name,
+                    entry.class.as_str()
+                );
+            }
+            // The №939 step (VideoFrame) evolves the remaining pin when
+            // it lands; today every other record is text-only.
             _ => {
                 assert!(
                     entry.inputs.is_empty(),

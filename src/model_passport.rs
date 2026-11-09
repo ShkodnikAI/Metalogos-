@@ -162,9 +162,23 @@ struct PassportMeta {
 /// class, note, and pin state against the live tree).
 const PIN_VERIFIED_AT: &str = "2026-09-16";
 const MIGRATION_VERIFIED_AT: &str = "2026-10-29";
+/// The №940 registration date: the Llm-class rows were verified at THIS
+/// registry-registration act (the §7.5 closure, В94). The machine dates
+/// are UTC (the `today_utc()` convention): the act landed 2026-11-10
+/// MSK = 2026-11-09 UTC.
+const REGISTRATION_VERIFIED_AT: &str = "2026-11-09";
 
 const PENDING_SOURCE: &str = "external-weights (manifest pending, №334 lane)";
 const IN_TREE_SOURCE: &str = "in-tree (no external weights artifact exists)";
+/// The №940 source shape: an API-served model has NO downloadable
+/// weights artifact at all — no №334 manifest exists or will exist
+/// (distinct from PENDING_SOURCE, where the manifest is pending).
+const API_SOURCE: &str =
+    "provider API (the weights are not downloadable — no №334 manifest exists for an API-served model)";
+/// The №940 source shape for the Ollama rung: the weights are managed
+/// by the Ollama runtime, not vendored in-tree.
+const OLLAMA_SOURCE: &str =
+    "ollama library (the weights are managed by the Ollama runtime — not vendored in-tree)";
 
 const PASSPORT_META: &[PassportMeta] = &[
     PassportMeta {
@@ -232,6 +246,31 @@ const PASSPORT_META: &[PassportMeta] = &[
         version: "main",
         source: "OpenGVLab/InternVL3-8B",
         verified_at: PIN_VERIFIED_AT,
+    },
+    // №940 (wave 94 — W-Z, №Z1; ADR-0182 §7.5): the Llm-class passports.
+    // The source strings are the HONEST shapes: an API-served model has
+    // NO downloadable weights artifact at all (no №334 manifest exists
+    // or will exist — API_SOURCE), the Ollama rung's weights are managed
+    // by the Ollama runtime (OLLAMA_SOURCE) — both distinct from
+    // PENDING_SOURCE (a manifest that the №334 lane will fill) and from
+    // IN_TREE_SOURCE (in-tree code).
+    PassportMeta {
+        weights_id: "claude-sonnet-4-20250514",
+        version: "sonnet-4-20250514",
+        source: API_SOURCE,
+        verified_at: REGISTRATION_VERIFIED_AT,
+    },
+    PassportMeta {
+        weights_id: "gpt-4o",
+        version: "4o",
+        source: API_SOURCE,
+        verified_at: REGISTRATION_VERIFIED_AT,
+    },
+    PassportMeta {
+        weights_id: "llama3",
+        version: "llama3",
+        source: OLLAMA_SOURCE,
+        verified_at: REGISTRATION_VERIFIED_AT,
     },
     PassportMeta {
         weights_id: "in-tree-kinematics-sim",

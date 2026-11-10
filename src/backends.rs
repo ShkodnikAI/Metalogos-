@@ -40,6 +40,17 @@
 //! The field is the compile-time documentation of the media-input
 //! surface; record drift is caught by the table tests (naryad-599,
 //! naryad-938).
+//!
+//! ## The Llm class (№940, ADR-0182 §7.5)
+//!
+//! The `Llm` entries are REGISTRATION rows behind the ALREADY-BUILT
+//! `llm` builtin surface (the §7.5 owner answer 2026-10-05: real
+//! LLM-class registry entries FIRST, not a new serving backend line; the
+//! owner's sequencing directive r74 landed the line after the bridge).
+//! They add ACCOUNTING, not behavior: the `llm` builtin specs, the env
+//! routing (METALOGOS_LLM_PROVIDER), the endpoints and the retry ladder
+//! (№879) are untouched (№493). The class consumes no media input —
+//! every Llm record stays text-only (`inputs: &[]`, §3.2).
 
 use crate::media::MediaKind;
 
@@ -329,6 +340,55 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         // a target of this step (the naryad's explicit roster) — it
         // stays text-only-declared until its own line.
         inputs: &[MediaKind::VideoFrame],
+    },
+    // №940 (wave 94 — W-Z, №Z1; ADR-0182 §7.5): the Llm class joins the
+    // registry — the §7.5 class-fact closure. The fact was machine-
+    // verified by R74: `BackendClass::Llm` existed with ZERO entries
+    // while the `llm` builtin surface was ALREADY built (call_llm/
+    // call_claude, the Provider enum Anthropic/OpenAI/Ollama, the env
+    // routing METALOGOS_LLM_PROVIDER, the retry ladder №879). These
+    // three entries close the fact by REGISTERING the provider defaults
+    // behind that built surface — NOT a new serving line (the §7.5
+    // owner answer 2026-10-05: registry entries FIRST, the surface
+    // unchanged; №493 — the golden specs, the endpoints and the retry
+    // ladder are as they were; selection `backend_select("llm", …)`
+    // rides the SAME fail-closed ladder as every other class).
+    // Honest pins: API-served weights are never vendored in-tree —
+    // ShaPin::PendingNo334 ×3 (never a fabricated hash; №334 replaces
+    // the variant with a real pin and refuses to load it). Honest
+    // license classes per the ACTUAL declaration (ADR-0163 §2.1):
+    // llama3 → NonOsi (the Llama Community License is NOT OSI-approved
+    // — the nemotron-omni MDL-3 precedent), claude/gpt-4o → Restrictive
+    // (closed commercial API models — default-deny; NEVER a fabricated
+    // Osi). Text-only: `inputs: &[]` (§3.2 «empty = text-only») — the
+    // class consumes no media input (the ADR-0182 §3.3 bridge filled
+    // Stt/Omni/Vision/Ocr/Video, NOT Llm).
+    BackendEntry {
+        name: "claude-sonnet-4-20250514",
+        class: BackendClass::Llm,
+        weights_id: "claude-sonnet-4-20250514",
+        pin: ShaPin::PendingNo334,
+        license: LicenseClass::Restrictive,
+        license_note: "Claude Sonnet 4 (Anthropic) — closed commercial API model (restrictive; the provider's commercial terms govern, no open license record exists — default-deny, ADR-0163 §2.1)",
+        inputs: &[],
+    },
+    BackendEntry {
+        name: "gpt-4o",
+        class: BackendClass::Llm,
+        weights_id: "gpt-4o",
+        pin: ShaPin::PendingNo334,
+        license: LicenseClass::Restrictive,
+        license_note: "GPT-4o (OpenAI) — closed commercial API model (restrictive; the provider's commercial terms govern, no open license record exists — default-deny, ADR-0163 §2.1)",
+        inputs: &[],
+    },
+    BackendEntry {
+        name: "llama3",
+        class: BackendClass::Llm,
+        weights_id: "llama3",
+        pin: ShaPin::PendingNo334,
+        license: LicenseClass::NonOsi,
+        license_note: "Llama 3 (Meta) — Llama Community License (non-osi; NOT OSI-approved — the nemotron-omni MDL-3 precedent); the weights are managed by the Ollama runtime, not vendored in-tree",
+        inputs: &[],
     },
     // №355 (wave 10, registry В5 — Phase 5 «Embodied, sim-only»,
     // ADR-0159): the embodied-sim class joins the registry — the sim/

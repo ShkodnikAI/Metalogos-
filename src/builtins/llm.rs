@@ -687,6 +687,9 @@ mod n943_tts_sidecar_tests {
     /// egress is the returned path, so no successful call can ship
     /// audio without its manifest.
     #[test]
+    // The global serial queue: the n131 io tests chdir the process (the
+    // sandbox root is the CWD) — this fixture must not race them.
+    #[serial_test::serial]
     #[allow(clippy::disallowed_methods)] // the fixture is test-only raw fs
     fn n943_sidecar_failure_is_loud_refusal() {
         let fname = format!("tts_n943_{}.mp3", std::process::id());

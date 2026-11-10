@@ -191,6 +191,10 @@ fn n279_tts_generate_mock_file_bytes_tw_and_vm() {
 
     let _ = std::fs::remove_file(&fname_tw);
     let _ = std::fs::remove_file(&fname_vm);
+    // №943 (ADR-0222): tts_generate now writes the sidecar manifest next
+    // to the audio — the fixture must not leak it either.
+    let _ = std::fs::remove_file(format!("{}.manifest.json", fname_tw));
+    let _ = std::fs::remove_file(format!("{}.manifest.json", fname_vm));
     restore_tts_env(prev);
 }
 

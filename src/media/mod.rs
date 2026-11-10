@@ -555,6 +555,70 @@ pub fn manifest_sidecar_json(manifest: &MediaManifest) -> Result<String, String>
         .map_err(|e| format!("media manifest: serialization failed: {}", e))
 }
 
+/// The generation-event sidecar of the audio synthesis path (ADR-0222,
+/// naryad №943): the fixed №706 `MediaManifest` base EXTENDED by the
+/// additive generation-event fields `provider` / `model` / `voice` —
+/// the same fact class the VisionManifest records as `model_id`/`seed`
+/// for the vision generation event. The schemas stay SEPARATE (the
+/// ADR-0166 §2.5 continuity — separate schemas, shared vocabulary:
+/// the base 6 fields carry the same №241/№706 dictionary, the event
+/// fields are additive); `MediaManifest` carries no
+/// `deny_unknown_fields`, so `media_manifest_read` reads this sidecar
+/// as the 6-field base with the additive fields ignored by the serde
+/// posture (pinned by the №943 test). The writer is crate-internal
+/// beside the store's own sidecar form — the media domain stays the
+/// SSOT of the sidecar vocabulary (ADR-0207 §5).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct GenerationEventManifest {
+    /// The fixed №706 base (kind / origin / conf / bytes_sha256 /
+    /// synthetic / timestamp) — serialized in place, field order kept.
+    #[serde(flatten)]
+    pub base: MediaManifest,
+    /// The actual call argument as the builtin resolved it (the
+    /// default "openai" included).
+    pub provider: String,
+    /// The actual call argument (the default "tts-1" included).
+    pub model: String,
+    /// The actual call argument (required, no default).
+    pub voice: String,
+}
+
+/// Build + serialize the `tts_generate` generation-event sidecar
+/// (ADR-0222 §2.1): `kind: "tts_generate"` — the record describes the
+/// GENERATION EVENT, not a store entry; `origin: ""` — no handle exists
+/// at synthesis time (the №332 origin chain does not apply); `conf:
+/// "unspecified"` — the ADR-0125 policy-relax honest marker (the
+/// confidentiality of the source text is the label lattice / №325's
+/// job, the manifest records ORIGIN); `synthetic: true` BY
+/// CONSTRUCTION — the only writer of this sidecar is the generation
+/// path; `bytes_sha256` — the caller's SHA-256 of the plaintext bytes
+/// held IN MEMORY, computed BEFORE any write (the ADR-0166 §2.1
+/// posture — there is no store ciphering on this path at all);
+/// `timestamp` — wall-clock RFC 3339 UTC (not pinned in tests, as in
+/// both sibling manifests). Pretty JSON — the №241 form.
+pub fn tts_generation_sidecar_json(
+    bytes_sha256: &str,
+    provider: &str,
+    model: &str,
+    voice: &str,
+) -> Result<String, String> {
+    let manifest = GenerationEventManifest {
+        base: MediaManifest {
+            kind: "tts_generate".to_string(),
+            origin: String::new(),
+            conf: "unspecified".to_string(),
+            bytes_sha256: bytes_sha256.to_string(),
+            synthetic: true,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        },
+        provider: provider.to_string(),
+        model: model.to_string(),
+        voice: voice.to_string(),
+    };
+    serde_json::to_string_pretty(&manifest)
+        .map_err(|e| format!("media manifest: serialization failed: {}", e))
+}
+
 /// Read path for a media sidecar (№337; the №320 `sidecar_read_report`
 /// posture): empty/corrupt JSON is a loud `Err`, and `synthetic` is
 /// conservatively defaulted to `true` for pre-№337 manifests.

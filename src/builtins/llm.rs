@@ -466,6 +466,13 @@ pub(crate) fn builtin_whisper_transcribe(args: &[Value]) -> Result<Value, String
 /// `/audio/speech` suffix is appended (mock servers, self-host proxies).
 /// Response format: the provider default (MP3 for OpenAI tts-*), extension
 /// `.mp3`. Delivery (Telegram sendVoice/sendAudio) is tts_send's job.
+/// ADR-0222 (naryad №943): the egress is PROVENANCE-BEARING — next to the
+/// audio bytes the sidecar `tts_{ts}.mp3.manifest.json` (the №241 naming)
+/// records the generation event (the №706 base + provider/model/voice,
+/// `synthetic: true` by construction); the write order is hash → audio →
+/// sidecar (§2.2 — the ONE posture of both siblings), and a failed
+/// sidecar write is a LOUD error: a manifest-less media egress cannot
+/// happen through `tts_generate` (the returned path is the egress).
 pub(crate) fn builtin_tts_generate(args: &[Value]) -> Result<Value, String> {
     let text = expect_string_arg("tts_generate", args, 0)?;
     let voice = expect_string_arg("tts_generate", args, 1)?;
@@ -485,6 +492,13 @@ pub(crate) fn builtin_tts_generate(args: &[Value]) -> Result<Value, String> {
     }
     let audio_bytes = tts_synth(&text, &voice, &model)?;
 
+    // ADR-0222 §2.1: the SHA-256 of the plaintext audio bytes held IN
+    // MEMORY, computed BEFORE any write — the byte identity (the
+    // ADR-0166 §2.1 posture transfers verbatim: there is no store
+    // ciphering on this path at all; the hashing path is the one the
+    // media store itself runs for its entries).
+    let bytes_sha256 = crate::vision::provenance::sha256_hex(&audio_bytes);
+
     // Write into the file sandbox with the EXACT write_file semantics
     // (Naryad #252): sandbox-resolve, create parent dirs, symlink-safe open.
     let ts = std::time::SystemTime::now()
@@ -500,7 +514,47 @@ pub(crate) fn builtin_tts_generate(args: &[Value]) -> Result<Value, String> {
     std::io::Write::write_all(&mut file, &audio_bytes)
         .map_err(|e| format!("tts_generate(): failed to write audio file: {}", e))?;
 
+    // ADR-0222 §2.2: hash → audio → sidecar — the ONE posture of both
+    // siblings (vision_export: bytes, then sidecar; media_save: bytes,
+    // then sidecar). The sidecar write is part of the SINK: the loud
+    // refusal below means the program never receives the path, so no
+    // successful call can ship audio without its manifest.
+    tts_write_generation_sidecar(&fname, &bytes_sha256, &provider, &model, &voice)?;
+
     Ok(Value::String(fname))
+}
+
+/// ADR-0222 §2.2: the sidecar write is part of the SINK — a failed
+/// sidecar write is a LOUD error (`tts_generate(): …`), verbatim the
+/// ADR-0166 §2.2 wording: a manifest-less media egress cannot happen
+/// through `tts_generate`. The sidecar `<fname>.manifest.json` (the
+/// №241 naming — the same continuity vision_export and media_save run)
+/// goes through the SAME fs_gate №475 facade with the №252 write
+/// semantics (sandbox-resolve, symlink-safe, the hard write-deny and
+/// the deny-list stay — the gate is not weakened for the derived file:
+/// it sits next to the gated main file, the same mechanics `media_save`
+/// runs for its sidecar). No opt-out, no optional flag: the №320
+/// Art. 50 posture is marking by default (ADR-0166 §2.5 verbatim).
+pub(crate) fn tts_write_generation_sidecar(
+    fname: &str,
+    bytes_sha256: &str,
+    provider: &str,
+    model: &str,
+    voice: &str,
+) -> Result<(), String> {
+    let sidecar_name = format!("{}.manifest.json", fname);
+    let json = crate::media::tts_generation_sidecar_json(bytes_sha256, provider, model, voice)?;
+    let loud = |e: String| {
+        format!(
+            "tts_generate(): sidecar write failed for '{}': {} — a manifest-less \
+             media egress cannot happen (ADR-0222 §2.2)",
+            sidecar_name, e
+        )
+    };
+    let mut sidecar =
+        crate::fs_gate::open_write(&sidecar_name, "tts_generate", false).map_err(loud)?;
+    std::io::Write::write_all(&mut sidecar, json.as_bytes()).map_err(|e| loud(e.to_string()))?;
+    Ok(())
 }
 
 /// Shared synthesis HTTP exchange for tts_generate/tts_send (Naryad #279).
@@ -617,4 +671,64 @@ pub(crate) fn builtin_tts_send(args: &[Value]) -> Result<Value, String> {
     }
 
     Ok(Value::String(tg_body))
+}
+
+// ═══ ADR-0222 (naryad №943): the generation-path egress sidecar ═════
+#[cfg(test)]
+mod n943_tts_sidecar_tests {
+    use super::*;
+
+    /// ADR-0222 §5 negative: the sidecar path UNAVAILABLE → the loud
+    /// `tts_generate(): …` refusal — the manifest-less egress posture
+    /// verified по механике §2.2 (the sidecar write is part of the
+    /// SINK). The sidecar name is pre-taken by a DIRECTORY: the gated
+    /// open fails through the SAME facade the audio write ran, and the
+    /// caller (builtin_tts_generate) never receives the path — the
+    /// egress is the returned path, so no successful call can ship
+    /// audio without its manifest.
+    #[test]
+    // The global serial queue: the n131 io tests chdir the process (the
+    // sandbox root is the CWD) — this fixture must not race them.
+    #[serial_test::serial]
+    #[allow(clippy::disallowed_methods)] // the fixture is test-only raw fs
+    fn n943_sidecar_failure_is_loud_refusal() {
+        let fname = format!("tts_n943_{}.mp3", std::process::id());
+        let sidecar_name = format!("{}.manifest.json", fname);
+        // The sidecar path is unavailable: a directory sits at the name
+        // (unique per test process — parallel suites must not race).
+        std::fs::create_dir_all(&sidecar_name).expect("pre-create the sidecar directory");
+        let res = tts_write_generation_sidecar(&fname, "aa55", "openai", "tts-1", "alloy");
+        // Cleanup BEFORE asserting — the fixture must not leak.
+        let _ = std::fs::remove_dir(&sidecar_name);
+        let err = res.expect_err("the sidecar failure must be a LOUD error");
+        assert!(
+            err.starts_with("tts_generate():"),
+            "the loud error names the builtin, got: {}",
+            err
+        );
+        assert!(
+            err.contains("manifest-less"),
+            "the loud error carries the ADR-0222 §2.2 posture, got: {}",
+            err
+        );
+        // Sanity on the happy path of the builder: the same helper with
+        // an available name succeeds and the sidecar lands next to the
+        // (absent-here) audio file — the sink writes the manifest.
+        let ok_name = format!("tts_n943_ok_{}.mp3", std::process::id());
+        tts_write_generation_sidecar(&ok_name, "aa55", "openai", "tts-1", "alloy")
+            .expect("the sidecar write succeeds on an available path");
+        let sidecar_ok = format!("{}.manifest.json", ok_name);
+        let json = std::fs::read_to_string(&sidecar_ok).expect("sidecar exists next to the file");
+        let _ = std::fs::remove_file(&sidecar_ok);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json).expect("the sidecar is valid JSON");
+        assert_eq!(parsed["kind"], "tts_generate");
+        assert_eq!(parsed["synthetic"], true);
+        assert_eq!(parsed["origin"], "");
+        assert_eq!(parsed["conf"], "unspecified");
+        assert_eq!(parsed["bytes_sha256"], "aa55");
+        assert_eq!(parsed["provider"], "openai");
+        assert_eq!(parsed["model"], "tts-1");
+        assert_eq!(parsed["voice"], "alloy");
+    }
 }

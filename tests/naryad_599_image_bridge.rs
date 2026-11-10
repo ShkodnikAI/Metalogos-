@@ -13,8 +13,11 @@
 //
 // Red/green corpus:
 //   (1) the capability table — VisionUnderstanding/Ocr records carry
-//       exactly [Image]; every other record stays text-only (drift =
-//       failure; the №600+ steps evolve this pin);
+//       exactly [Image]; the Stt/Omni records carry [Audio] (№938);
+//       the video-understanding records carry [VideoFrame] (№939; the
+//       qwen25-vl-7b completion is №941/r74); every other record stays
+//       text-only (drift = failure; the per-step pins evolve with the
+//       ADR-0182 line);
 //   (2) the handle input returns the SAME answer as the String
 //       equivalent on BOTH backends (the golden string surface is
 //       untouched — the overloads ADD capability, №493/§7.2);
@@ -78,20 +81,21 @@ fn capability_descriptors_pin_the_image_inputs() {
     let video_inputs = [MediaKind::VideoFrame];
     for entry in BACKEND_REGISTRY {
         // №939 (ADR-0182 §3.3 step 3): the two named video-understanding
-        // records consume a VideoFrame handle (the class's third record,
-        // qwen25-vl-7b, is outside the step roster — text-only-declared).
-        if matches!(entry.name, "llava-video-7b" | "internvl3-8b") {
+        // records consume a VideoFrame handle; the class's third record,
+        // qwen25-vl-7b, is completed by №941 (В94 — the planner's
+        // decision r74, office main `e8fd8b5`, R74 finding (1): the В93
+        // honest tail — the naryads' fact-bases called it an [Image]
+        // holder since №599, the live tree kept it text-only per the
+        // №939 roster, the completion landed as №941; the №939 roster
+        // history is preserved in that wording).
+        if matches!(
+            entry.name,
+            "llava-video-7b" | "internvl3-8b" | "qwen25-vl-7b"
+        ) {
             assert_eq!(
                 entry.inputs, video_inputs,
-                "record '{}' must declare exactly [VideoFrame] (№939 step 3)",
+                "record '{}' must declare exactly [VideoFrame] (№939 step 3; the qwen25-vl-7b completion is №941/r74)",
                 entry.name
-            );
-            continue;
-        }
-        if entry.name == "qwen25-vl-7b" {
-            assert!(
-                entry.inputs.is_empty(),
-                "qwen25-vl-7b is outside the №939 roster — it must stay text-only-declared"
             );
             continue;
         }

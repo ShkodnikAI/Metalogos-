@@ -35,8 +35,11 @@
 //! step 2 (№938, ADR-0182 §3.3.2) fills the Stt/Omni records with
 //! `Audio`; step 3 (№939, ADR-0182 §3.3.3) fills the two
 //! VideoUnderstanding records llava-video-7b/internvl3-8b with
-//! `VideoFrame` (the class's third record `qwen25-vl-7b` is outside the
-//! step's roster and stays text-only-declared).
+//! `VideoFrame`; the one-line completion (№941, В94 — the honest tail
+//! of В93 by the planner's decision r74, office main `e8fd8b5`, R74
+//! finding (1)) extends the descriptor to the class's third record
+//! `qwen25-vl-7b` — the whole VideoUnderstanding class now declares its
+//! real input.
 //! The field is the compile-time documentation of the media-input
 //! surface; record drift is caught by the table tests (naryad-599,
 //! naryad-938).
@@ -313,7 +316,18 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::Pinned("e97b877e47fde53a6c6e77aafb36e58e91ee9d95c4a3eeac6f1b5c0e6a1c986e"),
         license: LicenseClass::Osi,
         license_note: "Qwen2.5-VL-7B-Instruct (Qwen) — Apache-2.0 (osi; HF cardData + tags)",
-        inputs: &[],
+        // №941 (wave 94 — W-Z, №Z2; ADR-0182 §3.2): the one-line
+        // completion of the В93 honest tail — the planner's decision
+        // r74 (office main `e8fd8b5`, R74 finding (1): the fact-drift
+        // recorded in both В93 acceptances — the naryads' fact-bases
+        // called qwen25-vl-7b an [Image] holder since №599, the live
+        // tree kept it text-only per the №939 explicit roster — landed
+        // as THIS naryad). The model is video-capable (the qwen2.5-vl
+        // vision-language family) and the class consumes a VideoFrame
+        // handle (№939); the Image descriptor is NOT added — the class
+        // does not consume an Image input (the №599 witnesses keep
+        // that axis).
+        inputs: &[MediaKind::VideoFrame],
     },
     BackendEntry {
         name: "llava-video-7b",
@@ -336,9 +350,10 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         license_note: "InternVL3-8B (OpenGVLab) — Apache-2.0 per the HF card declaration (osi; cardData + tags; the naryad's MIT assumption was stale — no separate LICENSE text ships in the repo)",
         // №939: the second video-understanding record of the step — the
         // same VideoFrame capability (the `video_understand` bridge
-        // input). The third record of the class (`qwen25-vl-7b`) is NOT
-        // a target of this step (the naryad's explicit roster) — it
-        // stays text-only-declared until its own line.
+        // input). The third record of the class (`qwen25-vl-7b`) was
+        // NOT a target of this step (the naryad's explicit roster) —
+        // its one-line completion is №941 (В94, the planner's decision
+        // r74; the №939 roster history is preserved there).
         inputs: &[MediaKind::VideoFrame],
     },
     // №940 (wave 94 — W-Z, №Z1; ADR-0182 §7.5): the Llm class joins the

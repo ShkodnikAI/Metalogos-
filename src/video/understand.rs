@@ -278,7 +278,10 @@ mod tests {
 // Red/green corpus:
 //   (1) the capability table — llava-video-7b/internvl3-8b carry
 //       exactly [VideoFrame] (№939); qwen25-vl-7b (the class's third
-//       record, outside the step roster) stays text-only-declared;
+//       record, outside the step roster) is completed to [VideoFrame]
+//       by №941 (В94 — the planner's decision r74, office main
+//       `e8fd8b5`, R74 finding (1); the №939 roster history is
+//       preserved in the pin wording);
 //   (2) the handle input returns the SAME answer as the String
 //       equivalent on BOTH backends (the №706 mock golden untouched —
 //       the overloads ADD capability, №493/§7.2);
@@ -341,27 +344,25 @@ mod bridge_tests {
         for entry in BACKEND_REGISTRY {
             match entry.name {
                 // №939 (this step): the two named video-understanding
-                // records consume a VideoFrame handle.
-                "llava-video-7b" | "internvl3-8b" => {
+                // records consume a VideoFrame handle; the class's third
+                // record joins them by №941 (В94 — the planner's
+                // decision r74, office main `e8fd8b5`, R74 finding (1);
+                // the №939 roster history is preserved in the pin
+                // wording below).
+                "llava-video-7b" | "internvl3-8b" | "qwen25-vl-7b" => {
                     assert_eq!(
                         entry.inputs, video_inputs,
-                        "record '{}' must declare exactly [VideoFrame] (№939 step 3)",
+                        "record '{}' must declare exactly [VideoFrame] (№939 step 3; the qwen25-vl-7b completion is №941/r74)",
                         entry.name
                     );
                 }
                 _ => {}
             }
-            // The step roster is exact: the class's third record
-            // (qwen25-vl-7b) is NOT a target of this step — it stays
-            // text-only-declared until its own line.
-            if entry.name == "qwen25-vl-7b" {
-                assert!(
-                    entry.inputs.is_empty(),
-                    "qwen25-vl-7b is outside the №939 roster — it must stay text-only-declared"
-                );
-            }
-            // The class word is intact for the two targets.
-            if matches!(entry.name, "llava-video-7b" | "internvl3-8b") {
+            // The class word is intact for the three records.
+            if matches!(
+                entry.name,
+                "llava-video-7b" | "internvl3-8b" | "qwen25-vl-7b"
+            ) {
                 assert_eq!(entry.class, BackendClass::VideoUnderstanding);
             }
         }

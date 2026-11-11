@@ -176,6 +176,18 @@ line stays outside the match)
 # fact: the wave-77 kernel module (src/provenance.rs) is NOT a registry
 # row — the counter is registry-based, the share moved with the
 # wave-76/77 registry drift alone.
-# precise: 244
-# total: 530
-# threshold_bp: 4603
+# (superseded) precise: 244 | total: 530 | threshold_bp was 4603
+
+# 2026-11-11 №947 (gh#1911, волна 97 — W-AA): the spec_of row lands
+# parameterized-coarse (the AttestSpec Struct — the declared-fields form,
+# ADR-0223 §2.4) — the total grows 530 → 531 and the precise share
+# dilutes 4603 → 4595 bp. The dilution is compensated IN THE SAME PR per
+# the №591/№757 procedure (the N6 precedent) by the verified precise
+# typing of cal_create ("String" — the single-shape handler fact: the
+# ONLY Ok arm is `Ok(Value::String(uid))`, src/builtins/calendar.rs, the
+# №616 verification procedure). 244/530 → 245/531;
+# (245*10000)//531 = 4613 bp (+10 bp). The floor rises in the same PR;
+# the PRECISE_TYPES definition is untouched.
+# precise: 245
+# total: 531
+# threshold_bp: 4613

@@ -677,7 +677,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Nothing here changed silently; see the card_contacts row twin.
     spec!("cal_events", 3, "calendar"; builtin_cal_events, "String", "stable"), // calendar_id, start, end — №650: the live return is Value::String (the JSON array of event structs, calendar.rs) — a scalar stage-0 type
     spec!("cal_read", 1, "calendar"; builtin_cal_read, "String", "stable"), // event_uid — №650: Value::String (the JSON struct, calendar.rs)
-    spec!("cal_create", 4, 7, "calendar"; builtin_cal_create, "stable"), // cal_id, summary, start, end [,desc, location, attendees_json]
+    spec!("cal_create", 4, 7, "calendar"; builtin_cal_create, "String", "stable"), // cal_id, summary, start, end [,desc, location, attendees_json] // №947 (the №591/№757 dilution-compensation procedure): the precise typing lands in the SAME PR as the spec_of row (ADR-0223) — the verified single-shape handler fact (№616 procedure): the ONLY Ok arm of builtin_cal_create is `Ok(Value::String(uid))` (src/builtins/calendar.rs)
     spec!("cal_update", 2, "calendar"; builtin_cal_update, "String", "stable"), // event_uid, fields_json
     spec!("cal_delete", 1, "calendar"; builtin_cal_delete, "String", "stable"), // event_uid
     spec!("cal_freebusy", 3, "calendar"; builtin_cal_freebusy, "String", "stable"), // calendar_id, start, end

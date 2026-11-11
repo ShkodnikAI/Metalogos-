@@ -1307,6 +1307,9 @@ fn walk_decl(d: &metalogos::ast::Declaration, kinds: &mut Kinds) {
         D::LearnablePattern(_) => {
             kinds.insert("learnable_pattern".to_string());
         }
+        D::Spec(_) => {
+            kinds.insert("spec".to_string());
+        }
         D::Test(t) => {
             kinds.insert("test".to_string());
             walk_stmts(&t.body, kinds);

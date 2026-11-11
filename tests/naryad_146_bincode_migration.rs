@@ -20,6 +20,7 @@ fn minimal_program() -> Program {
         reflex_gen_decls: vec![],
         vision_decls: vec![],
         origin_decls: vec![],
+        spec_decls: vec![],
         deny_handlers: vec![],
         memory_persist_path: None,
         conversation_config: Default::default(),

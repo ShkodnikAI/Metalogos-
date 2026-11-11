@@ -435,6 +435,7 @@ sort|1|1
 sort_by|2|3
 speak_start|2|3
 speak_stop|1|1
+spec_of|1|1
 spectral_peak|1|1
 split|2|2
 split_tokens|0|*

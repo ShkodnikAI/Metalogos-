@@ -197,14 +197,12 @@ pub fn attest_input_from_learnable(
 
 /// The operator word for the canonical spec — the TW side (AST enum).
 pub fn compare_op_word(op: &crate::ast::CompareOp) -> &'static str {
-    match op {
-        crate::ast::CompareOp::Gt => "gt",
-        crate::ast::CompareOp::Lt => "lt",
-        crate::ast::CompareOp::Ge => "ge",
-        crate::ast::CompareOp::Le => "le",
-        crate::ast::CompareOp::Eq => "eq",
-        crate::ast::CompareOp::Ne => "ne",
-    }
+    // №947: the mapping lives beside the enum (`CompareOp::canonical_word`
+    // — the word is the operator's property); this pub surface delegates —
+    // the TW/VM call sites keep their shape, and the bytecode layer reads
+    // the ast method directly (the C4 acyclicity ratchet: no
+    // bytecode→builtins edge).
+    op.canonical_word()
 }
 
 /// The operator word for the canonical spec — the VM side (bytecode

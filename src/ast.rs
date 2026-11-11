@@ -922,6 +922,28 @@ pub enum CompareOp {
     Ne,
 }
 
+impl CompareOp {
+    /// The canonical lowercase operator word — the `AttestSpecInput`
+    /// record vocabulary («lt" | "le" | "gt" | "ge" | "eq" | "ne"»,
+    /// `src/nn/attest.rs:124` — the hash-SSOT record form). The word is a
+    /// property of THE OPERATOR, so the mapping lives beside the enum;
+    /// `builtins/attest.rs::compare_op_word` (the TW lane surface)
+    /// delegates here — the single conversion, no second table. №947
+    /// (ADR-0223 §2.1): the bytecode layer reads THIS method, never
+    /// `builtins` — the C4 acyclicity ratchet keeps the IR layer free of
+    /// runtime-layer edges.
+    pub fn canonical_word(&self) -> &'static str {
+        match self {
+            CompareOp::Gt => "gt",
+            CompareOp::Lt => "lt",
+            CompareOp::Ge => "ge",
+            CompareOp::Le => "le",
+            CompareOp::Eq => "eq",
+            CompareOp::Ne => "ne",
+        }
+    }
+}
+
 impl fmt::Display for CompareOp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

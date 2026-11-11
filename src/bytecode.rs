@@ -968,7 +968,7 @@ pub struct CompiledRoute {
 /// itself is not serde-derived — the hash-SSOT file stays untouched,
 /// ADR-0223 §2.5); `to_input()` is the ONE conversion into the record
 /// both backends hold. The `fallback_if` operator rides as the CANONICAL
-/// word (`compare_op_word` — the single compile-time conversion point,
+/// word (`CompareOp::canonical_word` — the single compile-time conversion point,
 /// ADR-0223 §2.1).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledSpecDecl {
@@ -993,9 +993,10 @@ impl CompiledSpecDecl {
             // The metric name (validated to `confidence` at the semantic
             // check) does NOT enter the record — the AttestSpecInput
             // stores (operator_word, value) — ADR-0223 §2.1/§2.5.
-            fallback_if: d.fallback_if.as_ref().map(|(_metric, op, v)| {
-                (crate::builtins::attest::compare_op_word(op).to_string(), *v)
-            }),
+            fallback_if: d
+                .fallback_if
+                .as_ref()
+                .map(|(_metric, op, v)| (op.canonical_word().to_string(), *v)),
             min_accuracy: d.min_accuracy,
             margin: d.margin,
         }

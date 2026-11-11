@@ -1,6 +1,6 @@
 # ADR-0222: The C2PA contour completion — the generation-path egress manifest
 
-**Status:** Proposed
+**Status:** Accepted (2026-11-11 — the executed wave acceptance: В95 closed completed 2/2, диспатч gh#1902; исполнение — №943, PR #1904 squash 9040425c)
 **Date:** 2026-11-10
 **Naryad:** №942 (issue #1900, Волна 95 — W-Q, №Q1)
 **Depends on:** №320 (ADR-0152 — the `synthetic` vocabulary, the conservative read, the sidecar posture), №337 (ADR-0166 — the media-handle contour, the entry-level manifest facts, the loud sidecar failure), №241 (the sidecar format contract — naming and the pretty JSON form), №279 (the `tts_generate` contract — synthesis without delivery, the returned path), №475 (the fs_gate facade), ADR-0207 §5 (the provenance-layer honest limits), ADR-0125 (the honest `"unspecified"` marker precedent)

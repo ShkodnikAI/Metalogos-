@@ -259,4 +259,4 @@ real ADRs (№309/№320/№412) before the booking.
 | 0219 | Institutional Contour & the Legal Shield — the Institutional-Readiness Fact as a Verified 12-Item Roster (the 8H-1 / C13б Subphase Record) | Accepted** (the wave-83 acceptance |
 | 0220 | Vertical Profiles — the Vertical Contour (Payments + the Public Sector) as a Typed, Fail-Closed, Digest-Pinned Configuration of Mandatory Contours (the 8H-2 / C13а Subphase Record) | Accepted** (the wave-84 acceptance |
 | 0221 | Terminal Stop 1.0 — the 1.0 Assembly Record: the Terminal Stop of the Phase 8 Train, the 1.0 Gate Definition, and the Aggregate Machine Fact TERMINAL_STOP (the W-T Wave Record) | Accepted** (the wave-85 acceptance |
-| 0222 | The C2PA contour completion — the generation-path egress manifest | Proposed |
+| 0222 | The C2PA contour completion — the generation-path egress manifest | Accepted (2026-11-11 |

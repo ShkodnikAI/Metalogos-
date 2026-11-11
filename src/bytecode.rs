@@ -697,6 +697,12 @@ pub struct Program {
     /// declarations are present.
     #[serde(default)]
     pub origin_decls: Vec<CompiledOriginDecl>,
+    /// №947 (ADR-0223, W3 §13.12): compiled `spec` declarations. Processed
+    /// by `Vm::load_program` to seed the VM's own spec registry (name →
+    /// `AttestSpecInput`) — the `reflex_decls` architecton; empty vec when
+    /// no spec declarations are present. The hash SSOT does not move.
+    #[serde(default)]
+    pub spec_decls: Vec<CompiledSpecDecl>,
     /// Наряд №392: compiled `on_deny(<class|*>) { body }` handlers.
     /// Indexed by the deny-armed SinkCheck's `deny.handler`. Empty vec
     /// when the program declares no deny handlers.
@@ -950,6 +956,63 @@ pub struct CompiledRoute {
     pub requires: Vec<String>,
     /// Compiled bytecode for the route body.
     pub code: Vec<Instruction>,
+}
+
+/// №947 (ADR-0223, W3 §13.12): a compiled `spec Name { ... }` declaration.
+///
+/// Stored in `Program::spec_decls` and processed by `Vm::load_program` to
+/// seed the VM's own spec registry — mirroring the interpreter's
+/// `Declaration::Spec(s)` handling in `src/interpreter/execution.rs`
+/// (the `reflex_decls` architecton). The fields are the flat serde-safe
+/// copy of the declared `AttestSpecInput` vocabulary (`AttestSpecInput`
+/// itself is not serde-derived — the hash-SSOT file stays untouched,
+/// ADR-0223 §2.5); `to_input()` is the ONE conversion into the record
+/// both backends hold. The `fallback_if` operator rides as the CANONICAL
+/// word (`compare_op_word` — the single compile-time conversion point,
+/// ADR-0223 §2.1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompiledSpecDecl {
+    pub name: String,
+    pub pattern_name: Option<String>,
+    pub prompt: Option<String>,
+    pub distill_after: Option<usize>,
+    pub fallback_if: Option<(String, f64)>,
+    pub min_accuracy: Option<f64>,
+    pub margin: Option<f64>,
+}
+
+impl CompiledSpecDecl {
+    /// The single conversion from the AST (the fallback_if operator word
+    /// is canonicalized HERE — the compile-time point, ADR-0223 §2.1).
+    pub fn from_ast(d: &crate::ast::SpecDecl) -> Self {
+        Self {
+            name: d.name.clone(),
+            pattern_name: d.pattern_name.clone(),
+            prompt: d.prompt.clone(),
+            distill_after: d.distill_after,
+            // The metric name (validated to `confidence` at the semantic
+            // check) does NOT enter the record — the AttestSpecInput
+            // stores (operator_word, value) — ADR-0223 §2.1/§2.5.
+            fallback_if: d.fallback_if.as_ref().map(|(_metric, op, v)| {
+                (crate::builtins::attest::compare_op_word(op).to_string(), *v)
+            }),
+            min_accuracy: d.min_accuracy,
+            margin: d.margin,
+        }
+    }
+
+    /// The ONE conversion into the registry record both backends hold
+    /// (the `AttestSpecInput` — the hash-SSOT struct, untouched).
+    pub fn to_input(&self) -> crate::nn::attest::AttestSpecInput {
+        crate::nn::attest::AttestSpecInput {
+            pattern_name: self.pattern_name.clone(),
+            prompt: self.prompt.clone(),
+            distill_after: self.distill_after,
+            fallback_if: self.fallback_if.clone(),
+            min_accuracy: self.min_accuracy,
+            margin: self.margin,
+        }
+    }
 }
 
 /// Наряд №199 (ADR-0121): a compiled `reflex Name { ... }` declaration.

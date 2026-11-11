@@ -720,6 +720,7 @@ OVERRIDES = {
     # from the persistent store (the runtime's own DB), no egress, no
     # mutation; Source × Internal × Pure per the naryad.
     "attest_verify": ("Source", "Internal", "Pure", "reads the attestation certificate from the persistent store (ADR-0200, №825)"),
+    "spec_of": ("Source", "Internal", "Pure", "reads the declared attestation spec fields from the program's own spec registry (ADR-0223 §2.4, №947 — the W1/W3 line; the hash is not included — it needs the model part)"),
     "reflex_predict": ("Pure", "Public", "Pure", "local model compute on passed values"),
     "reflex_metrics": ("Pure", "Public", "Pure", "local compute on a passed model handle"),
     "reflex_generate": ("Source", "Internal", "Pure", "ingests untrusted model output (LlmOutput-equivalent per №201)"),

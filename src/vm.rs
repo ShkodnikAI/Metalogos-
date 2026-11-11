@@ -192,6 +192,13 @@ pub struct Vm {
     /// handler to resolve bare-Ident model references like
     /// `reflex_train(TestClassifier, ...)` → `Value::Reflex(id)`.
     reflex_names: HashMap<String, crate::nn::ReflexId>,
+    /// №947 (ADR-0223, W3 §13.12): the declared spec registry — name →
+    /// `AttestSpecInput` (the hash-SSOT record shape; the
+    /// `reflex_registry` architecton). Populated by `load_program` from
+    /// `program.spec_decls`; read by the `spec_of` accessor. No Mutex —
+    /// the VM is single-threaded per request (the reflex_registry note
+    /// verbatim). Cleared + re-seeded by `reset_for_reuse`/`load_program`.
+    spec_registry: HashMap<String, crate::nn::attest::AttestSpecInput>,
     /// Наряд №392: the DenyEvent currently being handled (Some exactly
     /// while an on_deny body runs). deny_event()/deny_reason() read it
     /// inside `call_builtin`; outside a handler both are loud runtime
@@ -431,6 +438,7 @@ impl Vm {
             pattern_stats: std::sync::Mutex::new(HashMap::new()),
             reflex_registry: crate::nn::ReflexRegistry::new(),
             reflex_names: HashMap::new(),
+            spec_registry: HashMap::new(),
             current_deny_event: None,
             deny_handlers: std::sync::Arc::new(Vec::new()),
             vision_registry: crate::vision::VisionRegistry::new(),
@@ -534,6 +542,16 @@ impl Vm {
             let model = crate::builtins::build_reflex_model(decl)?;
             let id = self.reflex_registry.register(model);
             self.reflex_names.insert(decl.name.clone(), id);
+        }
+
+        // №947 (ADR-0223, W3 §13.12): register the declared specs —
+        // name → `AttestSpecInput` (the single `CompiledSpecDecl::to_input`
+        // conversion; the hash SSOT does not move). Mirrors the
+        // interpreter's `Declaration::Spec(sp)` seeding in
+        // `src/interpreter/execution.rs` (the reflex_decls architecton).
+        for decl in &program.spec_decls {
+            self.spec_registry
+                .insert(decl.name.clone(), decl.to_input());
         }
 
         // №495 (Wave 19): the learnable table populates HERE, from the
@@ -786,6 +804,9 @@ impl Vm {
         //      accumulates across pooled generations ──
         self.reflex_registry = crate::nn::ReflexRegistry::new();
         self.reflex_names = HashMap::new();
+        // №947 (ADR-0223): the spec registry — same program-scoped table
+        // discipline (cleared before the reload; load_program re-seeds).
+        self.spec_registry = HashMap::new();
         self.vision_decls = HashMap::new();
         self.origin_decls = HashMap::new();
         // Learnables: cleared then RE-REGISTERED by load_program (№495 —
@@ -3522,6 +3543,17 @@ impl Vm {
                 args,
             ));
         }
+
+        // №947 (ADR-0223, W3 §13.12): spec_of — the declared-spec accessor
+        // (the SAME shared dispatch the interpreter uses; read-only over
+        // the VM's own spec registry — the reflex introspection group
+        // posture; an unknown name is a loud refusal naming the builtin).
+        if name == crate::builtins::NAME_SPEC_OF {
+            return Some(crate::builtins::attest::spec_of_dispatch(
+                &self.spec_registry,
+                args,
+            ));
+        }
         if name == crate::reflex_ops::NAME_REFLEX_GENERATE {
             return Some(crate::builtins::reflex_generate_dispatch(
                 &self.reflex_registry,
@@ -4223,6 +4255,7 @@ impl Vm {
                 rules: Vec::new(),
                 skill_indices: Vec::new(),
                 reflex_decls: Vec::new(),
+                spec_decls: Vec::new(),
                 origin_decls: Vec::new(),
                 reflex_seq_decls: Vec::new(),
                 reflex_gen_decls: Vec::new(),
@@ -4264,6 +4297,7 @@ impl Vm {
                     rules: Vec::new(),
                     skill_indices: Vec::new(),
                     reflex_decls: Vec::new(),
+                    spec_decls: Vec::new(),
                     origin_decls: Vec::new(),
                     reflex_seq_decls: Vec::new(),
                     reflex_gen_decls: Vec::new(),
@@ -4785,6 +4819,14 @@ impl Vm {
             let model = crate::builtins::build_reflex_model(decl)?;
             let id = self.reflex_registry.register(model);
             self.reflex_names.insert(decl.name.clone(), id);
+        }
+
+        // №947 (ADR-0223): the spec declarations seed on the append path
+        // too (the same program-scoped registry discipline — overwrite-
+        // idempotent by name, the declaration-name-keyed semantics).
+        for decl in &program.spec_decls {
+            self.spec_registry
+                .insert(decl.name.clone(), decl.to_input());
         }
         #[cfg(feature = "candle")]
         {
@@ -5427,6 +5469,7 @@ mod n403_reset_tests {
             event_next_id,
             pattern_stats,
             reflex_registry,
+            spec_registry,
             reflex_names,
             current_deny_event,
             deny_handlers,

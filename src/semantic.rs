@@ -604,7 +604,9 @@ pub fn break_outside_loop_violations(declarations: &[Declaration]) -> Vec<Spanne
             | Declaration::Vision(_)
             | Declaration::Profile(_)
             | Declaration::McpPolicy(_)
-            | Declaration::Origin(_) => {}
+            | Declaration::Origin(_)
+            // №947 (ADR-0223): the spec declaration carries no statements.
+            | Declaration::Spec(_) => {}
         }
     }
     errors
@@ -7275,6 +7277,8 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     let mut flow_names: HashSet<String> = HashSet::new();
     // Наряд №238 (Vision R4.1): vision declaration names (duplicate check).
     let mut vision_names: HashSet<String> = HashSet::new();
+    // №947 (ADR-0223, W3 §13.12): spec declaration names (duplicate check).
+    let mut spec_names: HashSet<String> = HashSet::new();
     let builtin_names = crate::builtins::builtin_name_set();
     let mut role_names: HashSet<String> = HashSet::new();
     let mut pattern_param_counts: HashSet<(String, usize)> = HashSet::new();
@@ -7597,6 +7601,17 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     ));
                 }
             }
+            // №947 (ADR-0223, W3 §13.12): duplicate spec declaration names
+            // are a semantic error (ADR-0223 §2.2 guard 1 — the
+            // reflex/vision duplicate-name precedent).
+            Declaration::Spec(sp) => {
+                if !spec_names.insert(sp.name.clone()) {
+                    result.errors.push(with_line_prefix(
+                        decl,
+                        format!("duplicate spec declaration: {}", sp.name),
+                    ));
+                }
+            }
             Declaration::Template(t) => {
                 // №662: the template name collected — the №250 registration
                 // set (the unknown-template refusal reads it). NOTE: the
@@ -7745,6 +7760,67 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                         decl,
                         format!("adapt: learnable pattern '{}' not found", a.pattern_name),
                     ));
+                }
+            }
+            // №947 (ADR-0223, W3 §13.12): the spec guards — each names the
+            // field in the refusal text (ADR-0223 §2.2). The pattern
+            // reference must resolve to a LEARNABLE pattern (the machine
+            // the spec feeds — the mutate/adapt/eval sibling set); the
+            // fallback_if LHS is pinned to `confidence` (the
+            // AttestSpecInput machine truth: the record stores
+            // (operator_word, value), the runtime fallback gate is
+            // confidence-based — learnable.rs «fallback_if: confidence OP
+            // threshold → call LLM if condition is TRUE»); the thresholds
+            // stay finite (the defensive invariant pin — FLOAT_LITERAL is
+            // digit-only today, ADR-0223 §2.2 guard 4).
+            Declaration::Spec(sp) => {
+                if let Some(p) = &sp.pattern_name {
+                    if !learnable_names.contains(p) {
+                        result.errors.push(with_line_prefix(
+                            decl,
+                            format!("spec '{}': learnable pattern '{}' not found", sp.name, p),
+                        ));
+                    }
+                }
+                if let Some((metric, op, v)) = &sp.fallback_if {
+                    let _ = op;
+                    // ADR-0223 §2.2 guard 3: the LHS must be `confidence` —
+                    // the one metric the attested fallback gate carries. A
+                    // non-confidence metric would alias to the same
+                    // (operator_word, value) record and forge a hash across
+                    // different declared intents (the §3 rejected
+                    // alternative's reason).
+                    if metric != "confidence" {
+                        result.errors.push(with_line_prefix(
+                            decl,
+                            format!(
+                                "spec '{}': fallback_if metric '{}' is not the runtime fallback metric — the attested fallback gate is confidence-based (AttestSpecInput: `confidence OP value`); use fallback_if: confidence <op> <value>",
+                                sp.name, metric
+                            ),
+                        ));
+                    }
+                    if !v.is_finite() {
+                        result.errors.push(with_line_prefix(
+                            decl,
+                            format!(
+                                "spec '{}': field 'fallback_if' threshold is not finite (NaN/inf) — refusing loudly (ADR-0223 §2.2 guard 4)",
+                                sp.name
+                            ),
+                        ));
+                    }
+                }
+                for (field, v) in [("min_accuracy", sp.min_accuracy), ("margin", sp.margin)] {
+                    if let Some(v) = v {
+                        if !v.is_finite() {
+                            result.errors.push(with_line_prefix(
+                                decl,
+                                format!(
+                                    "spec '{}': field '{}' is not finite (NaN/inf) — refusing loudly (ADR-0223 §2.2 guard 4)",
+                                    sp.name, field
+                                ),
+                            ));
+                        }
+                    }
                 }
             }
             Declaration::Mutate(m) => {

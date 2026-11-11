@@ -276,6 +276,14 @@ pub struct Interpreter {
     /// №489: wrapped in Arc — the background distill training thread takes
     /// its own handle so the request path never blocks on training.
     pub reflex_registry: std::sync::Arc<std::sync::Mutex<crate::nn::ReflexRegistry>>,
+    /// №947 (ADR-0223, W3 §13.12): the declared spec registry — name →
+    /// `AttestSpecInput` (the hash-SSOT record shape; the `reflex_registry`
+    /// architecton). Seeded from `Declaration::Spec(_)` at the declaration
+    /// pass; read by the `spec_of` accessor on BOTH lanes (the same
+    /// Arc-shared shape as reflex_registry — the `&self` evaluation
+    /// contexts note applies verbatim).
+    pub spec_registry:
+        std::sync::Arc<std::sync::Mutex<HashMap<String, crate::nn::attest::AttestSpecInput>>>,
     /// Наряд №178: name → ReflexId map for lookup.
     pub reflex_names: HashMap<String, crate::nn::ReflexId>,
     /// №489: the background distill-training mailbox. The training thread
@@ -395,6 +403,7 @@ impl Interpreter {
             reflex_registry: std::sync::Arc::new(std::sync::Mutex::new(
                 crate::nn::ReflexRegistry::new(),
             )),
+            spec_registry: std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())),
             reflex_names: HashMap::new(),
             distill_tx,
             distill_results: std::sync::Mutex::new(distill_rx),

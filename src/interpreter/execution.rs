@@ -340,6 +340,21 @@ impl Interpreter {
                 }
                 // Наряд №119: type aliases handled via type_alias_map (built above)
                 Declaration::TypeAlias(_) => {}
+                // №947 (ADR-0223, W3 §13.12): the spec declaration seeds
+                // the interpreter's own spec registry (name →
+                // `AttestSpecInput`) — the `reflex_registry` architecton.
+                // The record conversion is the single
+                // `CompiledSpecDecl::from_ast`/`to_input` point (the
+                // canonical operator word lands there); the hash SSOT does
+                // not move (ADR-0223 §2.5).
+                Declaration::Spec(sp) => {
+                    let compiled = crate::bytecode::CompiledSpecDecl::from_ast(&sp);
+                    let mut reg = self
+                        .spec_registry
+                        .lock()
+                        .map_err(|e| format!("spec registry poisoned: {}", e))?;
+                    reg.insert(compiled.name.clone(), compiled.to_input());
+                }
                 // Наряд №178: reflex declarations are registered at runtime
                 // when the interpreter processes them. The model is built
                 // from the declaration and stored in RuntimeContext.
@@ -584,6 +599,18 @@ impl Interpreter {
         // through invoke_attest_verify below).
         if name == crate::builtins::NAME_ATTEST_VERIFY {
             return self.invoke_attest_verify(args);
+        }
+        // №947 (ADR-0223, W3 §13.12): spec_of — the declared-spec accessor
+        // (read-only; the flow-path arm; the expression path below — the
+        // same shared dispatch the VM uses). The registry is the SSOT of
+        // the declared specs (name → AttestSpecInput); an unknown name is
+        // a loud refusal naming the builtin.
+        if name == crate::builtins::NAME_SPEC_OF {
+            let reg = self
+                .spec_registry
+                .lock()
+                .map_err(|e| format!("spec registry poisoned: {}", e))?;
+            return crate::builtins::attest::spec_of_dispatch(&reg, &args);
         }
         // Наряд №187: reflex_metrics / reflex_list — introspection (read-only).
         // Same dispatch pattern as reflex_predict, but read-only.
@@ -2165,6 +2192,17 @@ impl Interpreter {
                 // provenance verification (tier experimental, поправка (г)).
                 if name == crate::builtins::NAME_ATTEST_VERIFY {
                     return self.invoke_attest_verify(eval_args);
+                }
+                // №947 (ADR-0223, W3 §13.12): spec_of — expression path,
+                // the same shared dispatch as the flow-path arm above (the
+                // read-only accessor over the interpreter's own spec
+                // registry).
+                if name == crate::builtins::NAME_SPEC_OF {
+                    let reg = self
+                        .spec_registry
+                        .lock()
+                        .map_err(|e| format!("spec registry poisoned: {}", e))?;
+                    return crate::builtins::attest::spec_of_dispatch(&reg, &eval_args);
                 }
                 // Наряд №193: reflex_generate — text generation (ADR-0120).
                 if name == crate::reflex_ops::NAME_REFLEX_GENERATE {

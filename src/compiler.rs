@@ -80,6 +80,11 @@ pub struct Compiler {
     /// Populated in pass1 from `Declaration::Reflex(_)`. The VM processes
     /// these in `load_program` to register models in its own ReflexRegistry.
     reflex_decls: Vec<crate::bytecode::CompiledReflexDecl>,
+    /// №947 (ADR-0223, W3 §13.12): compiled `spec` declarations to pass to
+    /// the Program snapshot (the `reflex_decls` architecton). Populated in
+    /// pass1 from `Declaration::Spec(_)`; consumed by `Vm::load_program`
+    /// and the interpreter's declaration pass.
+    spec_decls: Vec<crate::bytecode::CompiledSpecDecl>,
     /// Наряд №204 (ADR-0121 stages 3-4): compiled `reflex_seq` declarations.
     /// Candle-feature-gated — only used when the VM is built with `--features candle`.
     reflex_seq_decls: Vec<crate::bytecode::CompiledReflexSeqDecl>,
@@ -362,6 +367,7 @@ impl Compiler {
             rules: Vec::new(),
             skill_indices: Vec::new(),
             reflex_decls: Vec::new(),
+            spec_decls: Vec::new(),
             reflex_seq_decls: Vec::new(),
             reflex_gen_decls: Vec::new(),
             vision_decls: Vec::new(),
@@ -658,6 +664,7 @@ impl Compiler {
             rules: std::mem::take(&mut self.rules),
             skill_indices: std::mem::take(&mut self.skill_indices),
             reflex_decls: std::mem::take(&mut self.reflex_decls),
+            spec_decls: std::mem::take(&mut self.spec_decls),
             reflex_seq_decls: std::mem::take(&mut self.reflex_seq_decls),
             reflex_gen_decls: std::mem::take(&mut self.reflex_gen_decls),
             vision_decls: std::mem::take(&mut self.vision_decls),
@@ -688,6 +695,15 @@ impl Compiler {
                 // the bytecode carries none of it (the gateway reads it
                 // from the parsed AST at startup).
                 Declaration::McpPolicy(_) => {}
+                // №947 (ADR-0223, W3 §13.12): collect `spec` declarations
+                // for the VM and the interpreter's declaration pass (лекало
+                // reflex_decls — pass1 collection, no bytecode in pass2;
+                // the canonical operator word conversion is the single
+                // `CompiledSpecDecl::from_ast` point).
+                Declaration::Spec(s) => {
+                    self.spec_decls
+                        .push(crate::bytecode::CompiledSpecDecl::from_ast(s));
+                }
                 Declaration::EntityType(e) => {
                     let fields: Vec<String> = e.fields.iter().map(|f| f.name.clone()).collect();
                     self.struct_fields.insert(e.name.clone(), fields);
@@ -1376,7 +1392,15 @@ impl Compiler {
                 // bytecode — registration via `program.origin_decls`
                 // (лекало vision_decls).
                 | Declaration::Vision(_)
-                | Declaration::Origin(_) => {
+                // №332 (ADR-0164): origin declarations carry no bytecode —
+                // registration via `program.origin_decls` (лекало
+                // vision_decls).
+                | Declaration::Origin(_)
+                // №947 (ADR-0223): spec declarations carry no bytecode —
+                // registration via `program.spec_decls` (лекало origin_decls;
+                // pass1 populates, `Vm::load_program` + the interpreter's
+                // declaration pass consume).
+                | Declaration::Spec(_) => {
                     // Наряд №203 Block 1: no bytecode instruction emitted
                     // for reflex declarations in pass2. Dense classification
                     // (Declaration::Reflex) is handled via program.reflex_decls

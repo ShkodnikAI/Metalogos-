@@ -861,6 +861,17 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // on BOTH lanes (TW execution.rs, VM call_reflex_builtin); the stub
     // stays as the shadowed fail-closed fallback (the №748 posture).
     spec!("attest_verify", 1, "reflex"; builtin_attest_verify_stub, "Struct<AttestVerdict>{ok:internal,level:internal,spec_hash:internal,reason:internal}", "experimental"),
+    // ── №947 (ADR-0223, W3 §13.12): the spec_of accessor — поправка (г):
+    // tier `experimental` (the attest_verify sibling — the W1/W3 line);
+    // Source × Internal × Pure in builtins_classification.rs. Same
+    // intercept shape as the reflex group: the live dispatch
+    // (src/builtins/attest.rs `spec_of_dispatch`) precedes the row on
+    // BOTH lanes (TW execution.rs, VM call_reflex_builtin); the stub
+    // stays as the shadowed fail-closed fallback (the №748 posture). The
+    // Struct carries the DECLARED fields (the AttestSpecInput vocabulary
+    // 1:1, absent = Unit) — the hash is NOT included (the honest
+    // boundary: `spec_hash` needs the model part, ADR-0223 §2.4).
+    spec!("spec_of", 1, "reflex"; builtin_spec_of_stub, "Struct<AttestSpec>{name:internal,pattern:internal,prompt:internal,distill_after:internal,fallback_if:internal,min_accuracy:internal,margin:internal}", "experimental"),
     // ── Наряд №193: text generation (ADR-0120) ──
     // №799 (T2, gh#1488): the parked row gates with `candle` (the live Ok
     // arm is candle-gated, №748) — the default build refuses at CHECK via

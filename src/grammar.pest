@@ -5,7 +5,7 @@ COMMENT      = _{ "//" ~ (!("\n" | "\r") ~ ANY)* }
 
 program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
 
-declaration = _{ test_decl | type_alias_decl | context_budget_decl | llm_decl | mcp_policy_decl | mlogserver_decl | template_decl | db_decl | schema_decl | skill_index_decl | memory_decl | import_decl | hook_decl | on_deny_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl | tool_decl | reflex_decl | reflex_seq_decl | reflex_gen_decl | vision_decl | profile_decl | origin_decl }
+declaration = _{ test_decl | type_alias_decl | context_budget_decl | llm_decl | mcp_policy_decl | mlogserver_decl | template_decl | db_decl | schema_decl | skill_index_decl | memory_decl | import_decl | hook_decl | on_deny_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl | tool_decl | reflex_decl | reflex_seq_decl | reflex_gen_decl | vision_decl | spec_decl | profile_decl | origin_decl }
 
 // ── Type Alias (Наряд №119) ──────────────────────────────────────
 // type Token = Secret
@@ -586,6 +586,33 @@ layer_arg     = { INT | IDENT | STRING_LITERAL }
 reflex_labels = { "labels" ~ COLON ~ LBRACKET ~ STRING_LITERAL ~ (COMMA ~ STRING_LITERAL)* ~ RBRACKET }
 reflex_seed   = { "seed" ~ COLON ~ INT }
 REFLEX_KW     = @{ "reflex" }
+
+// ── Наряд №947 (ADR-0223, W3 §13.12): the spec declaration ─────────────
+// `spec AttestName { pattern: P, prompt: "...", distill_after: N,
+//                    fallback_if: confidence > 0.7, min_accuracy: 0.85,
+//                    margin: 0.05 }`
+// ONE new keyword (`spec`, ADR-0223 §2.1). The field set is fixed, the
+// order is free, each field at most once (the №490 form — enforced in
+// parse_spec_decl through the silent spec_field wrapper: the field lines
+// appear directly in spec_body's children, the лекало llm_field/reflex_field).
+// The fields map 1:1 onto AttestSpecInput (src/nn/attest.rs:124 — the
+// hash-SSOT record; the hash canonization does not move, ADR-0223 §2.5).
+// The fallback_if LHS is an IDENT validated to be `confidence` at the
+// semantic check (ADR-0223 §2.2 guard 3 — the AttestSpecInput machine
+// truth; the operator reuses the existing compare_op rule, the №826
+// mutate_rollback twin).
+spec_decl    = { SPEC_KW ~ IDENT ~ LBRACE ~ spec_body ~ RBRACE }
+// Silent body with the COMMA-separated field list (the llm_decl form —
+// the ADR-0223 §2.1 sketch shows commas; no trailing comma).
+spec_body    = _{ (spec_field ~ (COMMA ~ spec_field)*)? }
+spec_field   = _{ spec_pattern_line | spec_prompt_line | spec_distill_after_line | spec_fallback_if_line | spec_min_accuracy_line | spec_margin_line }
+spec_pattern_line       = { "pattern" ~ COLON ~ IDENT }
+spec_prompt_line        = { "prompt" ~ COLON ~ STRING_LITERAL }
+spec_distill_after_line = { "distill_after" ~ COLON ~ INT }
+spec_fallback_if_line   = { "fallback_if" ~ COLON ~ IDENT ~ compare_op ~ FLOAT_LITERAL }
+spec_min_accuracy_line  = { "min_accuracy" ~ COLON ~ FLOAT_LITERAL }
+spec_margin_line        = { "margin" ~ COLON ~ FLOAT_LITERAL }
+SPEC_KW      = @{ "spec" }
 
 // ── Наряд №183 (ADR-0119): reflex_seq — sequence-model declaration ─────
 // Separate declaration from `reflex` (Наряд №178) per ADR-0119: a `reflex`

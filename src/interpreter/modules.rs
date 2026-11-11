@@ -96,6 +96,17 @@ impl Interpreter {
                 // (an imported module's handlers cover its own sink calls
                 // in the importing program too).
                 Declaration::OnDeny(d) => self.deny_handlers.push(d.clone()),
+                // №947 (ADR-0223): the spec declarations seed the same way
+                // as main-program declarations (the merged interpreter owns
+                // one registry — the union semantics of the module merge).
+                Declaration::Spec(sp) => {
+                    let compiled = crate::bytecode::CompiledSpecDecl::from_ast(&sp);
+                    let mut reg = self
+                        .spec_registry
+                        .lock()
+                        .map_err(|e| format!("spec registry poisoned: {}", e))?;
+                    reg.insert(compiled.name.clone(), compiled.to_input());
+                }
                 // №332 (ADR-0164): imported modules register their origin
                 // declarations (same declaration-pass semantics as main).
                 Declaration::Origin(o) => {

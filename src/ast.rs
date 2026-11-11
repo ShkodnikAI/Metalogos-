@@ -163,6 +163,13 @@ pub enum Declaration {
     /// the floating session label (the gateway G2).
     McpPolicy(McpPolicyDecl),
     Origin(OriginDecl),
+    /// `spec Name { pattern: ..., prompt: "...", ... }` (№947, ADR-0223
+    /// — W3 §13.12): the code-level declaration of the attestation spec.
+    /// The fields are the `AttestSpecInput` vocabulary 1:1 (the hash-SSOT
+    /// record — ADR-0223 §2.5: the canonization does not move); NO new
+    /// Value variants (the W1 rule). The compile contract: pass-1 registry
+    /// (the `reflex_decls` architecton) + the `spec_of` accessor.
+    Spec(SpecDecl),
 }
 
 /// A program-level compatibility profile (Наряд №325, ADR-0161).
@@ -261,6 +268,8 @@ impl Declaration {
             Declaration::ReflexSeq(d) => Some(&d.name),
             Declaration::ReflexGen(d) => Some(&d.name),
             Declaration::Vision(d) => Some(&d.name),
+            // №947 (ADR-0223): the spec declares a named attestation spec.
+            Declaration::Spec(d) => Some(&d.name),
             // №332: the origin declares a named provenance source.
             Declaration::Origin(d) => Some(&d.name),
             // №325: the profile names a mode, not a symbol.
@@ -322,6 +331,7 @@ impl Declaration {
             Declaration::Vision(_) => "vision",
             Declaration::Profile(_) => "profile",
             Declaration::Origin(_) => "origin",
+            Declaration::Spec(_) => "spec",
         }
     }
 
@@ -501,6 +511,16 @@ impl Declaration {
             Declaration::McpPolicy(d) => {
                 format!("mcp_policy {{ {} entries }}", d.entries.len())
             }
+            // №947 (ADR-0223): the spec signature is its field vocabulary.
+            Declaration::Spec(d) => {
+                let n = d.pattern_name.is_some() as usize
+                    + d.prompt.is_some() as usize
+                    + d.distill_after.is_some() as usize
+                    + d.fallback_if.is_some() as usize
+                    + d.min_accuracy.is_some() as usize
+                    + d.margin.is_some() as usize;
+                format!("spec {} {{ {}/6 fields }}", d.name, n)
+            }
         }
     }
 
@@ -508,6 +528,7 @@ impl Declaration {
     pub fn span(&self) -> &Span {
         match self {
             Declaration::McpPolicy(d) => &d.span,
+            Declaration::Spec(d) => &d.span,
             Declaration::MlogServer(d) => &d.span,
             Declaration::Template(d) => &d.span,
             Declaration::Db(d) => &d.span,
@@ -1179,6 +1200,34 @@ pub struct ReflexDecl {
     pub layers: Vec<ReflexLayerSpec>,
     pub labels: Vec<String>,
     pub seed: u64,
+}
+
+// ── Spec declaration (№947, ADR-0223 — W3 §13.12) ───────────────────
+
+/// `spec Name { pattern: ..., prompt: "...", distill_after: N,
+/// fallback_if: confidence > 0.7, min_accuracy: 0.85, margin: 0.05 }`
+///
+/// The code-level declaration of the attestation spec (ADR-0223 §2.1):
+/// the fields are the `AttestSpecInput` vocabulary 1:1 (the hash-SSOT
+/// record, `src/nn/attest.rs:124` — the canonization does not move, §2.5).
+/// `fallback_if` carries (the LHS metric IDENT, the AST compare
+/// operator, the threshold) — the metric is validated to be `confidence`
+/// at the semantic check (ADR-0223 §2.2 guard 3 — the AttestSpecInput
+/// machine truth: the record stores the operator word + value, the
+/// runtime fallback gate is confidence-based), and the canonical word
+/// conversion is the single compile-time point (`compare_op_word`).
+/// Every field optional — `AttestSpecInput`'s `Option`s; no new Value
+/// variants (the W1 rule).
+#[derive(Debug, Clone)]
+pub struct SpecDecl {
+    pub span: Span,
+    pub name: String,
+    pub pattern_name: Option<String>,
+    pub prompt: Option<String>,
+    pub distill_after: Option<usize>,
+    pub fallback_if: Option<(String, CompareOp, f64)>,
+    pub min_accuracy: Option<f64>,
+    pub margin: Option<f64>,
 }
 
 /// A single layer specification in a reflex declaration.

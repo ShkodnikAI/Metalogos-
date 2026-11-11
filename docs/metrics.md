@@ -13,8 +13,8 @@ construction.
 | Version | 0.39.0 |
 | Leak Suite | 56 negatives / 27 positives (examples/leak/ — the BLOCKING gate) |
 | Built-in Functions | 531 functions across 47 modules |
-| Typed Signatures | 378/531 (71.18%) — precise 244/531 (45.95%) |
-| Typed Signatures (stable tier — the PRIMARY definition, №809/ADR-0199) | 366/486 (75.30%) — the full-registry figure beside: 378/531 (71.18%) |
+| Typed Signatures | 379/531 (71.37%) — precise 245/531 (46.13%) |
+| Typed Signatures (stable tier — the PRIMARY definition, №809/ADR-0199) | 367/486 (75.51%) — the full-registry figure beside: 379/531 (71.37%) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 354 rules |
 | Architecture Decisions | 211 ADRs |

@@ -260,3 +260,4 @@ real ADRs (№309/№320/№412) before the booking.
 | 0220 | Vertical Profiles — the Vertical Contour (Payments + the Public Sector) as a Typed, Fail-Closed, Digest-Pinned Configuration of Mandatory Contours (the 8H-2 / C13а Subphase Record) | Accepted** (the wave-84 acceptance |
 | 0221 | Terminal Stop 1.0 — the 1.0 Assembly Record: the Terminal Stop of the Phase 8 Train, the 1.0 Gate Definition, and the Aggregate Machine Fact TERMINAL_STOP (the W-T Wave Record) | Accepted** (the wave-85 acceptance |
 | 0222 | The C2PA contour completion — the generation-path egress manifest | Accepted (2026-11-11 |
+| 0223 | The `spec` declaration — the code-level form of the attestation spec | Proposed |

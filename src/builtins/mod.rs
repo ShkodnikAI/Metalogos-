@@ -555,8 +555,8 @@ pub use media::{
     media_source_capture_dispatch, media_store_dispatch, ocr_extract_dispatch, omni_ask_dispatch,
     stt_transcribe_dispatch, vision_understand_dispatch,
 };
-// №939 (ADR-0182 §3.3 step 3): the VideoFrame bridge dispatch — the
-// builtin's own `video` gate applies to the whole step.
+// №939 (ADR-0182 §3.3 step 3) + №945 (ADR-0182 §7.3): the video bridge
+// dispatch — the builtin's own `video` gate applies to the whole step.
 #[cfg(feature = "video")]
 pub use media::video_understand_dispatch;
 // Наряд №333 (ADR-0163): backend registry listing.

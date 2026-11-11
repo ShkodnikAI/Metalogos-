@@ -715,42 +715,105 @@ pub fn omni_ask_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, St
     crate::voice::backend::builtin_omni_ask(&args)
 }
 
-// ── №939 (ADR-0182 §3.3 step 3): the VideoFrame media-input bridge ────
+// ── №939 (ADR-0182 §3.3 step 3) + №945 (ADR-0182 §7.3): the video
+// media-input bridge ──────────────────────────────────────────────────
 //
-// `video_understand(segment, …)` gains the VideoFrame-handle input form
-// (the №493 multi-form overload posture — the №599/№938 step
-// architecton verbatim): argument 1 may be a
-// `Value::Media(MediaHandle::VideoFrame(_))` — materialized through the
-// store's SANCTIONED read path and fed to the SAME stateless call body
-// the String form uses (one body per builtin over the shared registry;
-// the golden behavior of the String form is untouched — the №706 mock
-// golden and the №697 real-path posture included). The call is
+// `video_understand(segment, …)` accepts the handle input forms (the
+// №493 multi-form overload posture — the №599/№938 step architecton
+// verbatim): argument 1 may be a
+// `Value::Media(MediaHandle::VideoFrame(_))` (№939) or a
+// `Value::Media(MediaHandle::VideoSegment(_))` (№945 — the
+// consumer-path completion, ADR-0182 §7.3: the handle family's fourth
+// member joins the backend-input line, the §13.4 2.1 line closes) —
+// materialized through the store's SANCTIONED read path and fed to the
+// SAME stateless call body the String form uses (one body per builtin
+// over the shared registry; the golden behavior of the String form is
+// untouched — the №706 mock golden and the №697 real-path posture
+// included, and the №939 VideoFrame goldens are untouched). The call is
 // PROCESSING, not byte egress: the handle's static label joins the
-// RESULT's label through the existing №323 inference (private frame in
-// → private description out) and the №325 sink gate keeps governing
-// every real egress. Any OTHER media kind is a LOUD fail-closed
-// refusal. The whole bridge is `video`-gated (the builtin's own gate).
+// RESULT's label through the existing №323 inference (private segment
+// in → private description out, the same carrier both twins ride) and
+// the №325 sink gate keeps governing every real egress. Any OTHER media
+// kind is a LOUD fail-closed refusal; a handle whose kind the SELECTED
+// backend record does not declare refuses loudly too (the §3.2
+// fail-closed selection — a capability-naming call never steps sideways
+// into an unsatisfied record, №945). The whole bridge is `video`-gated
+// (the builtin's own gate). The payload posture is the №939 one: the
+// sanctioned constructions carry String payloads, the UTF-8 check is
+// loud — binary media ingestion is the real-inference path (PARKED by
+// hardware, №294).
 
-/// Loud fail-closed refusal for a foreign media kind on the VideoFrame
-/// bridge (№939) — the step-3 twin of the №599/№938 refusals.
+/// Loud fail-closed refusal for a foreign media kind on the video
+/// bridge (№939/№945) — the step-3/4 twin of the №599/№938 refusals.
+/// The handle TYPE is the language-level truth: an Image or Audio
+/// handle can never name a video entry through a sanctioned
+/// construction.
 #[cfg(feature = "video")]
-fn video_frame_kind_refusal(fn_name: &str, handle: crate::media::MediaHandle) -> String {
+fn video_understand_kind_refusal(fn_name: &str, handle: crate::media::MediaHandle) -> String {
     format!(
-        "{}: segment input must be a VideoFrame handle (or a String payload reference), \
-         got {} {} — the Image input is the vision builtins' surface (№599); the Audio \
-         input is the voice builtins' surface (№938)",
+        "{}: segment input must be a VideoFrame or VideoSegment handle (or a String payload \
+         reference), got {} {} — the Image input is the vision builtins' surface (№599); \
+         the Audio input is the voice builtins' surface (№938)",
         fn_name,
         handle.kind().type_name(),
         handle
     )
 }
 
-/// Resolve the `segment` argument (the first argument) of
-/// `video_understand` (№939). The String form passes through untouched
-/// (the golden path); the `MediaHandle::VideoFrame` form materializes
-/// through the store; any other media kind refuses loudly (fail-closed).
+/// §3.2 fail-closed selection (№945): a call that names a media
+/// capability (the handle kind IS the capability the call names) must
+/// select a backend record that DECLARES it — the selection never steps
+/// sideways into an unsatisfied record (the loud-refusal discipline is
+/// the №263 `STREAM_LIMIT_REACHED` precedent). The model-argument
+/// resolution mirrors the stateless call body (the same default, the
+/// same lowercasing); an unknown or non-String model is NOT refused
+/// here — the call body owns its registry-pointer and arity errors, so
+/// the refusal texts of the String form do not move.
 #[cfg(feature = "video")]
-fn resolve_video_frame_input(
+fn ensure_video_capability_declared(
+    fn_name: &str,
+    model_arg: Option<&Value>,
+    kind: crate::media::MediaKind,
+) -> Result<(), String> {
+    let model = match model_arg {
+        Some(Value::String(s)) => s.to_lowercase(),
+        // Default model = the registry canon (the call body's own
+        // default); a non-String model arg is the call body's type
+        // error — pass through.
+        None => "qwen2.5-vl-7b-instruct".to_string(),
+        Some(_) => return Ok(()),
+    };
+    let Some(entry) = crate::backends::find_by_weights_id(&model) else {
+        // Unknown model: the call body owns the «no registry record»
+        // refusal — pass through.
+        return Ok(());
+    };
+    if !entry.inputs.contains(&kind) {
+        return Err(format!(
+            "{}: the selected backend '{}' does not declare {} capability (inputs: {:?}) — \
+             a {}-handle call never steps sideways into an unsatisfied capability \
+             (fail-closed, ADR-0182 §3.2, №945)",
+            fn_name,
+            entry.name,
+            kind.slug(),
+            entry.inputs,
+            kind.slug()
+        ));
+    }
+    Ok(())
+}
+
+/// Resolve the `segment` argument (the first argument) of
+/// `video_understand` (№939/№945). The String form passes through
+/// untouched (the golden path); the `MediaHandle::VideoFrame` (№939)
+/// and `MediaHandle::VideoSegment` (№945) forms materialize through
+/// the store; any other media kind refuses loudly (fail-closed). The
+/// defense-in-depth entry-kind check is per-form (a direct store
+/// misuse cannot launder through the sanctioned read path — the
+/// №939 anti-laundering, both twins); the §3.2 capability check
+/// rides the selected record (№945).
+#[cfg(feature = "video")]
+fn resolve_video_understand_input(
     fn_name: &str,
     store: &MediaStore,
     args: &[Value],
@@ -759,22 +822,29 @@ fn resolve_video_frame_input(
         // String form (or an arity error the call body owns) — unchanged.
         return Ok(args.to_vec());
     };
-    if handle.kind() != crate::media::MediaKind::VideoFrame {
-        return Err(video_frame_kind_refusal(fn_name, *handle));
+    let kind = handle.kind();
+    if kind != crate::media::MediaKind::VideoFrame && kind != crate::media::MediaKind::VideoSegment
+    {
+        return Err(video_understand_kind_refusal(fn_name, *handle));
     }
-    // Defense-in-depth: the entry behind the handle must be a
-    // VideoFrame entry too (a direct store misuse cannot launder
+    // Defense-in-depth: the entry behind the handle must be an entry of
+    // the SAME kind (a forged VideoFrame-typed handle naming a
+    // non-VideoFrame entry, or the VideoSegment twin, cannot launder
     // through the sanctioned read path).
     let entry_kind = store.entry(*handle)?.kind;
-    if entry_kind != crate::media::MediaKind::VideoFrame {
+    if entry_kind != kind {
         return Err(format!(
-            "{}: media entry behind {} is kind '{}', not video_frame — refusing loudly \
-             (fail-closed, №939)",
+            "{}: media entry behind {} is kind '{}', not {} — refusing loudly \
+             (fail-closed, №939/№945)",
             fn_name,
             handle,
-            entry_kind.slug()
+            entry_kind.slug(),
+            kind.slug()
         ));
     }
+    // §3.2 fail-closed selection (№945): the selected record must
+    // declare the capability the handle names.
+    ensure_video_capability_declared(fn_name, args.get(2), kind)?;
     let bytes = store.materialize(*handle)?;
     let payload = String::from_utf8(bytes.to_vec()).map_err(|_| {
         format!(
@@ -790,13 +860,13 @@ fn resolve_video_frame_input(
 }
 
 /// `video_understand(segment, prompt?, model?)` — the store-backed input
-/// bridge (№939): resolves the VideoFrame-handle form through the store,
-/// then runs the stateless call body (the SSOT of the call contract).
-/// The String form routes through unchanged — the golden surface is
-/// shared.
+/// bridge (№939/№945): resolves the VideoFrame/VideoSegment-handle
+/// forms through the store, then runs the stateless call body (the SSOT
+/// of the call contract). The String form routes through unchanged —
+/// the golden surface is shared.
 #[cfg(feature = "video")]
 pub fn video_understand_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, String> {
-    let args = resolve_video_frame_input("video_understand", store, args)?;
+    let args = resolve_video_understand_input("video_understand", store, args)?;
     crate::video::understand::builtin_video_understand(&args)
 }
 

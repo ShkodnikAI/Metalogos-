@@ -28,6 +28,7 @@ fn program_with(main_code: Vec<Instruction>) -> Program {
         reflex_gen_decls: vec![],
         vision_decls: vec![],
         origin_decls: vec![],
+        spec_decls: vec![],
         deny_handlers: vec![],
         db_url: None,
         db_url_env: None,

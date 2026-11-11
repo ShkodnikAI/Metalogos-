@@ -1,7 +1,7 @@
 # METALOGOS — Language Reference
 
 > **Version:** 0.39.0
-> **Synced with code:** 2026-11-11 (naryad №946) · 530 builtins · 211 ADR files
+> **Synced with code:** 2026-11-11 (naryad №947) · 531 builtins · 211 ADR files
 > **Single source of truth** for developers writing in Metalogos.
 > Contains the full list of built-in functions with signatures, types, descriptions, and examples,
 > as well as a reference for syntax, data types, and the CLI.
@@ -687,7 +687,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.39):** This section documents **100%** of the 530 registered builtins (530 of 530): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.39):** This section documents **100%** of the 531 registered builtins (531 of 531): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1545,6 +1545,7 @@ The `Reflex` pillar trains, predicts, persistently stores, and distills local ne
 | `reflex_metrics(model)` | `(Reflex) -> Struct` | `Struct{name, is_trained, last_metric, input_size, labels}` (Naryad #187) | Read-only introspection: returns the model's metadata (NOT the weights, ADR-0114). `is_trained: Bool` (true if `last_metric` is set), `last_metric: Float\|Unit` (the last accuracy/loss, `Unit` if untrained), `input_size: Float`, `labels: List<String>`. Works for both `reflex` and `reflex_seq`. |
 | `reflex_list()` | `() -> List<String>` | `List<String>` (Naryad #187) | Returns the names of all declared `reflex`/`reflex_seq` models in declaration order. Read-only — for monitoring, dashboards, an externally-checked `rollback_if`. |
 | `attest_verify(model)` | `(Reflex) -> Struct` | `Struct{ok: Bool, level: String, spec_hash: String, reason: String}` (Naryad #825, ADR-0200; tier `experimental`) | Read-only provenance verification against the stored certificate. Re-serializes the live weights (the hash must match `weights_sha256`), recomputes the spec hash from the CURRENT declarations and compares the three hashes. `ok: true` means provenance consistency — NEVER quality. `level`: `unfiltered` (every W1 dataset — decision 5), `unsigned`/`signed` (the certificate's ledger-anchor levels, from W4), `none` (no certificate). Refusal codes in `reason`: `[ATTESTATION_STALE]` (the changed spec field is named), `[ATTESTATION_EMBED_MISMATCH]`, `[ATTESTATION_WEIGHTS_CHANGED]`; `[ATTESTATION_DATA_CHANGED]` is informational, not a refusal. |
+| `spec_of(name)` | `(String) -> Struct` | `Struct{name: String, pattern: String?, prompt: String?, distill_after: Float?, fallback_if: Struct{op: String, value: Float}?, min_accuracy: Float?, margin: Float?}` (Naryad #947, ADR-0223 §2.4; tier `experimental`) | Read-only accessor over the program's own declared specs (the `spec` declarations — ADR-0223 §2.1). Returns the DECLARED fields exactly as written; a field absent from the declaration reads as `()` (Unit). The fallback_if carries the canonical operator word (`gt`/`lt`/`ge`/`le`/`eq`/`ne`) + the threshold value. The HASH is NOT part of the Struct — the honest boundary: `spec_hash` needs the model part (the reflex name, input size, labels, seed, layers), which the declaration does not know; the hash is computable only after the spec is bound to a model (the canonical builders `canonical_spec_json`/`canonical_spec_from_parts` — one SSOT, the canonization does not move). An unknown spec name refuses loudly naming the builtin. |
 
 **The `reflex` declaration** (naryad #178):
 
@@ -2226,7 +2227,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 530 registered builtins — the three maturity tiers: stable 486 / experimental 23 / parked 21 (№809: the C3(a) levels)
+## 6. Builtin Index — 531 registered builtins — the three maturity tiers: stable 486 / experimental 24 / parked 21 (№809: the C3(a) levels)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest. The sections read by MATURITY TIER (№809): the `stable` tier is the primary reference; `experimental` and `parked` are explicitly separated so a reader never mistakes a gated builtin for an always-available one.
 
@@ -2934,7 +2935,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `xml_parse(...)` | 1 | — | `xml_parse(xml) -> Struct<XmlNode>{tag, attrs, text, children}` — the general tree. The depth cap (256) and the node cap (10 000) both fail LOUD: the recursive build must not blow the stack on an adversarial chain. | stable |
 
 
-### Tier `experimental` — the opt-in tier (present, maturing, may change) (23)
+### Tier `experimental` — the opt-in tier (present, maturing, may change) (24)
 
 #### `db` — 1 builtin(s)
 
@@ -2967,11 +2968,12 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `series_make(...)` | 1..2 | — | `series_make(source, frequency?) -> Series` | experimental |
 | `series_pull(...)` | 2 | — | `series_pull(grant, source) -> Series` | experimental |
 
-#### `reflex` — 1 builtin(s)
+#### `reflex` — 2 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
 | `attest_verify(...)` | 1 | `(Reflex) -> Struct` | Read-only provenance verification against the stored certificate. Re-serializes the live weights (the hash must match `weights_sha256`), recomputes the spec hash from the CURRENT declarations and compares the three hashes. `ok: true` means provenance consistency — NEVER quality. `level`: `unfiltered` (every W1 dataset — decision 5), `unsigned`/`signed` (the certificate's ledger-anchor levels, from W4), `none` (no certificate). Refusal codes in `reason`: `[ATTESTATION_STALE]` (the changed spec field is named), `[ATTESTATION_EMBED_MISMATCH]`, `[ATTESTATION_WEIGHTS_CHANGED]`; `[ATTESTATION_DATA_CHANGED]` is informational, not a refusal. | experimental |
+| `spec_of(...)` | 1 | `(String) -> Struct` | Read-only accessor over the program's own declared specs (the `spec` declarations — ADR-0223 §2.1). Returns the DECLARED fields exactly as written; a field absent from the declaration reads as `()` (Unit). The fallback_if carries the canonical operator word (`gt`/`lt`/`ge`/`le`/`eq`/`ne`) + the threshold value. The HASH is NOT part of the Struct — the honest boundary: `spec_hash` needs the model part (the reflex name, input size, labels, seed, layers), which the declaration does not know; the hash is computable only after the spec is bound to a model (the canonical builders `canonical_spec_json`/`canonical_spec_from_parts` — one SSOT, the canonization does not move). An unknown spec name refuses loudly naming the builtin. | experimental |
 
 #### `stub` — 6 builtin(s)
 
@@ -3467,6 +3469,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `reflex_metrics` | pure | public | pure | — |
 | `reflex_list` | source | internal | pure | reads the Reflex registry state |
 | `attest_verify` | source | internal | pure | reads the attestation certificate from the persistent store (ADR-0200, №825) |
+| `spec_of` | source | internal | pure | reads the declared attestation spec fields from the program's own spec registry (ADR-0223 §2.4, №947 — the W1/W3 line; the hash is not included — it needs the model part) |
 | `reflex_generate` | source | internal | pure | ingests untrusted model output (LlmOutput-equivalent per №201) |
 | `reflex_tokenize` | pure | public | pure | — |
 | `reflex_detokenize` | pure | public | pure | — |

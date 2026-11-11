@@ -677,7 +677,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Nothing here changed silently; see the card_contacts row twin.
     spec!("cal_events", 3, "calendar"; builtin_cal_events, "String", "stable"), // calendar_id, start, end — №650: the live return is Value::String (the JSON array of event structs, calendar.rs) — a scalar stage-0 type
     spec!("cal_read", 1, "calendar"; builtin_cal_read, "String", "stable"), // event_uid — №650: Value::String (the JSON struct, calendar.rs)
-    spec!("cal_create", 4, 7, "calendar"; builtin_cal_create, "stable"), // cal_id, summary, start, end [,desc, location, attendees_json]
+    spec!("cal_create", 4, 7, "calendar"; builtin_cal_create, "String", "stable"), // cal_id, summary, start, end [,desc, location, attendees_json] // №947 (the №591/№757 dilution-compensation procedure): the precise typing lands in the SAME PR as the spec_of row (ADR-0223) — the verified single-shape handler fact (№616 procedure): the ONLY Ok arm of builtin_cal_create is `Ok(Value::String(uid))` (src/builtins/calendar.rs)
     spec!("cal_update", 2, "calendar"; builtin_cal_update, "String", "stable"), // event_uid, fields_json
     spec!("cal_delete", 1, "calendar"; builtin_cal_delete, "String", "stable"), // event_uid
     spec!("cal_freebusy", 3, "calendar"; builtin_cal_freebusy, "String", "stable"), // calendar_id, start, end
@@ -861,6 +861,17 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // on BOTH lanes (TW execution.rs, VM call_reflex_builtin); the stub
     // stays as the shadowed fail-closed fallback (the №748 posture).
     spec!("attest_verify", 1, "reflex"; builtin_attest_verify_stub, "Struct<AttestVerdict>{ok:internal,level:internal,spec_hash:internal,reason:internal}", "experimental"),
+    // ── №947 (ADR-0223, W3 §13.12): the spec_of accessor — поправка (г):
+    // tier `experimental` (the attest_verify sibling — the W1/W3 line);
+    // Source × Internal × Pure in builtins_classification.rs. Same
+    // intercept shape as the reflex group: the live dispatch
+    // (src/builtins/attest.rs `spec_of_dispatch`) precedes the row on
+    // BOTH lanes (TW execution.rs, VM call_reflex_builtin); the stub
+    // stays as the shadowed fail-closed fallback (the №748 posture). The
+    // Struct carries the DECLARED fields (the AttestSpecInput vocabulary
+    // 1:1, absent = Unit) — the hash is NOT included (the honest
+    // boundary: `spec_hash` needs the model part, ADR-0223 §2.4).
+    spec!("spec_of", 1, "reflex"; builtin_spec_of_stub, "Struct<AttestSpec>{name:internal,pattern:internal,prompt:internal,distill_after:internal,fallback_if:internal,min_accuracy:internal,margin:internal}", "experimental"),
     // ── Наряд №193: text generation (ADR-0120) ──
     // №799 (T2, gh#1488): the parked row gates with `candle` (the live Ok
     // arm is candle-gated, №748) — the default build refuses at CHECK via

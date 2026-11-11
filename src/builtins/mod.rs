@@ -512,8 +512,8 @@ pub mod ledger;
 // Наряд №825 (ADR-0200): the attest_verify builtin — read-only provenance
 // verification of a declared Reflex model against its stored certificate.
 pub mod attest;
-use attest::builtin_attest_verify_stub;
-pub use attest::{attest_verify_dispatch, NAME_ATTEST_VERIFY};
+pub use attest::{attest_verify_dispatch, spec_of_dispatch, NAME_ATTEST_VERIFY, NAME_SPEC_OF};
+use attest::{builtin_attest_verify_stub, builtin_spec_of_stub};
 // Наряд №275 (ADR-0137): LLM streaming builtins — llm_stream_open/next/close.
 // Module is NOT feature-gated: the opaque handle + registry + SSE parser
 // live in `crate::llm` (always available); HTTP streaming requires

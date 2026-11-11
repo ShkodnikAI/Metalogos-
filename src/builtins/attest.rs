@@ -28,6 +28,22 @@ use crate::nn::attest::{self, AttestInput, AttestPolicy};
 /// The builtin name — spelled here and nowhere else outside the registry.
 pub const NAME_ATTEST_VERIFY: &str = "attest_verify";
 
+/// №947 (ADR-0223, W3 §13.12): the spec-declaration accessor's name —
+/// spelled here and nowhere else outside the registry (the
+/// NAME_ATTEST_VERIFY discipline).
+pub const NAME_SPEC_OF: &str = "spec_of";
+
+/// The shadowed fail-closed fallback — unreachable on both lanes (the
+/// intercepts precede the registry row), the №748 stub posture (the
+/// attest_verify twin).
+pub(crate) fn builtin_spec_of_stub(_args: &[Value]) -> Result<Value, String> {
+    Err(
+        "spec_of: backend dispatch unavailable (the intercepts precede this stub on \
+         both lanes — this is the fail-closed shadow, the №748 posture)"
+            .to_string(),
+    )
+}
+
 /// The shadowed fail-closed fallback — unreachable on both lanes (the
 /// intercepts precede the registry row), the №748 stub posture.
 pub(crate) fn builtin_attest_verify_stub(_args: &[Value]) -> Result<Value, String> {
@@ -181,14 +197,12 @@ pub fn attest_input_from_learnable(
 
 /// The operator word for the canonical spec — the TW side (AST enum).
 pub fn compare_op_word(op: &crate::ast::CompareOp) -> &'static str {
-    match op {
-        crate::ast::CompareOp::Gt => "gt",
-        crate::ast::CompareOp::Lt => "lt",
-        crate::ast::CompareOp::Ge => "ge",
-        crate::ast::CompareOp::Le => "le",
-        crate::ast::CompareOp::Eq => "eq",
-        crate::ast::CompareOp::Ne => "ne",
-    }
+    // №947: the mapping lives beside the enum (`CompareOp::canonical_word`
+    // — the word is the operator's property); this pub surface delegates —
+    // the TW/VM call sites keep their shape, and the bytecode layer reads
+    // the ast method directly (the C4 acyclicity ratchet: no
+    // bytecode→builtins edge).
+    op.canonical_word()
 }
 
 /// The operator word for the canonical spec — the VM side (bytecode
@@ -216,4 +230,107 @@ pub fn verdict_fields(verdict: &attest::AttestVerdict) -> HashMap<String, Value>
     );
     fields.insert("reason".to_string(), Value::String(verdict.reason.clone()));
     fields
+}
+
+/// №947 (ADR-0223, W3 §13.12): the `spec_of(name) -> Struct` accessor —
+/// the declared fields of the named spec, EXACTLY as written (ADR-0223
+/// §2.4): `pattern` / `prompt` / `distill_after` / `fallback_if` (the
+/// canonical operator word + value — the record form) / `min_accuracy` /
+/// `margin`; a field absent from the declaration reads as `Unit` (the
+/// language null). The HASH is NOT part of the Struct — the honest
+/// boundary: `spec_hash` needs the MODEL part (`reflex_name, input_size,
+/// labels, seed, layers`), which the declaration does not know; the
+/// equivalence with the canonical builder pins through
+/// `canonical_spec_from_parts` (the contract test).
+pub fn spec_of_dispatch(
+    registry: &HashMap<String, attest::AttestSpecInput>,
+    args: &[Value],
+) -> Result<Value, String> {
+    let fn_name = "spec_of";
+    if args.len() != 1 {
+        return Err(format!(
+            "{}: expects 1 argument (the spec name), got {}",
+            fn_name,
+            args.len()
+        ));
+    }
+    let name = match &args[0] {
+        Value::String(s) => s.clone(),
+        other => {
+            return Err(format!(
+                "{}: the spec name must be String, got {}",
+                fn_name,
+                other.type_name()
+            ))
+        }
+    };
+    let Some(spec) = registry.get(&name) else {
+        return Err(format!(
+            "{}: spec '{}' is not declared — the spec registry is the SSOT of the declared              specs (ADR-0223 §2.4)",
+            fn_name, name
+        ));
+    };
+    Ok(spec_input_to_struct(name, spec))
+}
+
+/// The Struct form of the declared spec (the `verdict_to_struct` form —
+/// flat fields over the declaration vocabulary).
+fn spec_input_to_struct(name: String, spec: &attest::AttestSpecInput) -> Value {
+    use std::collections::HashMap;
+    let mut fields: HashMap<String, Value> = HashMap::new();
+    fields.insert("name".to_string(), Value::String(name));
+    fields.insert(
+        "pattern".to_string(),
+        match &spec.pattern_name {
+            Some(p) => Value::String(p.clone()),
+            None => Value::Unit,
+        },
+    );
+    fields.insert(
+        "prompt".to_string(),
+        match &spec.prompt {
+            Some(p) => Value::String(p.clone()),
+            None => Value::Unit,
+        },
+    );
+    fields.insert(
+        "distill_after".to_string(),
+        match spec.distill_after {
+            Some(d) => Value::Float(d as f64),
+            None => Value::Unit,
+        },
+    );
+    fields.insert(
+        "fallback_if".to_string(),
+        match &spec.fallback_if {
+            Some((op, v)) => {
+                let mut f: HashMap<String, Value> = HashMap::new();
+                f.insert("op".to_string(), Value::String(op.clone()));
+                f.insert("value".to_string(), Value::Float(*v));
+                Value::Struct {
+                    type_name: "FallbackIf".to_string(),
+                    fields: f,
+                }
+            }
+            None => Value::Unit,
+        },
+    );
+    fields.insert(
+        "min_accuracy".to_string(),
+        match spec.min_accuracy {
+            Some(m) => Value::Float(m),
+            None => Value::Unit,
+        },
+    );
+    fields.insert(
+        "margin".to_string(),
+        match spec.margin {
+            Some(m) => Value::Float(m),
+            None => Value::Unit,
+        },
+    );
+    Value::Struct {
+        type_name: "AttestSpec".to_string(),
+        fields,
+    }
 }

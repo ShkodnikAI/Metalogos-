@@ -194,6 +194,7 @@ fn generate_runtime_model_recheck_loud_error() {
             profile: CompiledVisionProfile::Fp16,
         }],
         origin_decls: vec![],
+        spec_decls: vec![],
         deny_handlers: vec![],
         db_url: None,
         db_url_env: None,

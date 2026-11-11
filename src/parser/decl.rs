@@ -3150,3 +3150,182 @@ pub(super) fn parse_profile_decl(pair: Pair<Rule>) -> Declaration {
         options,
     })
 }
+
+// ── №947 (ADR-0223, W3 §13.12): the spec declaration ────────────────
+
+/// `spec Name { pattern: ..., prompt: "...", distill_after: N,
+/// fallback_if: confidence > 0.7, min_accuracy: 0.85, margin: 0.05 }`
+/// (ADR-0223 §2.1). The field set is fixed, the order is free, each field
+/// at most once (the №490 form): a repeated field is a loud parse error
+/// naming the field — never a silent last-wins. Every field optional —
+/// the `AttestSpecInput` `Option`s 1:1 (the hash-SSOT record; the
+/// canonization does not move, ADR-0223 §2.5).
+pub(super) fn parse_spec_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
+    let children = children_of(&pair);
+    // children[0] is SPEC_KW (atomic `@{ "spec" }` — included in
+    // into_inner() as a leaf pair, the REFLEX_KW note verbatim); the
+    // IDENT (spec name) is the child whose rule is Rule::IDENT.
+    let name = find_child_str(&children, Rule::IDENT)
+        .ok_or_else(|| pair_error(&pair, "spec_decl: missing IDENT (spec name)"))?;
+    let mut pattern_name: Option<String> = None;
+    let mut prompt: Option<String> = None;
+    let mut distill_after: Option<usize> = None;
+    let mut fallback_if: Option<(String, CompareOp, f64)> = None;
+    let mut min_accuracy: Option<f64> = None;
+    let mut margin: Option<f64> = None;
+    for child in &children {
+        match child.as_rule() {
+            Rule::spec_pattern_line => {
+                if pattern_name.is_some() {
+                    return Err(pair_error(
+                        child,
+                        "spec: duplicate field 'pattern' — each field may appear at most once (the №490 form)",
+                    ));
+                }
+                pattern_name = Some(find_child_str(&children_of(child), Rule::IDENT).ok_or_else(
+                    || {
+                        pair_error(
+                            child,
+                            "spec: field 'pattern' needs an IDENT (the learnable pattern name)",
+                        )
+                    },
+                )?);
+            }
+            Rule::spec_prompt_line => {
+                if prompt.is_some() {
+                    return Err(pair_error(
+                        child,
+                        "spec: duplicate field 'prompt' — each field may appear at most once (the №490 form)",
+                    ));
+                }
+                prompt = Some(
+                    find_child_str(&children_of(child), Rule::STRING_LITERAL)
+                        .ok_or_else(|| {
+                            pair_error(child, "spec: field 'prompt' needs a STRING literal")
+                        })?
+                        .trim_matches('"')
+                        .to_string(),
+                );
+            }
+            Rule::spec_distill_after_line => {
+                if distill_after.is_some() {
+                    return Err(pair_error(
+                        child,
+                        "spec: duplicate field 'distill_after' — each field may appear at most once (the №490 form)",
+                    ));
+                }
+                let int_str = find_child_str(&children_of(child), Rule::INT)
+                    .ok_or_else(|| pair_error(child, "spec: field 'distill_after' needs an INT"))?;
+                distill_after = Some(int_str.parse::<usize>().map_err(|_| {
+                    pair_error(
+                        child,
+                        "spec: field 'distill_after' is out of range for usize — refusing loudly (ADR-0223 §2.2 guard 5)",
+                    )
+                })?);
+            }
+            Rule::spec_fallback_if_line => {
+                if fallback_if.is_some() {
+                    return Err(pair_error(
+                        child,
+                        "spec: duplicate field 'fallback_if' — each field may appear at most once (the №490 form)",
+                    ));
+                }
+                let fc = children_of(child);
+                let metric = find_child_str(&fc, Rule::IDENT).ok_or_else(|| {
+                    pair_error(
+                        child,
+                        "spec: field 'fallback_if' needs an IDENT (the metric)",
+                    )
+                })?;
+                let op = fc
+                    .iter()
+                    .find(|c| c.as_rule() == Rule::compare_op)
+                    .ok_or_else(|| {
+                        pair_error(child, "spec: field 'fallback_if' needs a compare operator")
+                    })
+                    .and_then(parse_compare_op)?;
+                let value_str = find_child_str(&fc, Rule::FLOAT_LITERAL).ok_or_else(|| {
+                    pair_error(child, "spec: field 'fallback_if' needs a FLOAT threshold")
+                })?;
+                let value = value_str.parse::<f64>().map_err(|_| {
+                    pair_error(
+                        child,
+                        "spec: field 'fallback_if' threshold is not a finite FLOAT — refusing loudly (ADR-0223 §2.2 guard 4)",
+                    )
+                })?;
+                if !value.is_finite() {
+                    return Err(pair_error(
+                        child,
+                        "spec: field 'fallback_if' threshold is not finite (NaN/inf) — refusing loudly (ADR-0223 §2.2 guard 4)",
+                    ));
+                }
+                // The metric IDENT rides to the semantic check, which
+                // pins it to `confidence` (ADR-0223 §2.2 guard 3 — the
+                // AttestSpecInput machine truth); the parser keeps it.
+                fallback_if = Some((metric, op, value));
+            }
+            Rule::spec_min_accuracy_line => {
+                if min_accuracy.is_some() {
+                    return Err(pair_error(
+                        child,
+                        "spec: duplicate field 'min_accuracy' — each field may appear at most once (the №490 form)",
+                    ));
+                }
+                let v = find_child_str(&children_of(child), Rule::FLOAT_LITERAL)
+                    .ok_or_else(|| {
+                        pair_error(child, "spec: field 'min_accuracy' needs a FLOAT")
+                    })?
+                    .parse::<f64>()
+                    .map_err(|_| {
+                        pair_error(
+                            child,
+                            "spec: field 'min_accuracy' is not a finite FLOAT — refusing loudly (ADR-0223 §2.2 guard 4)",
+                        )
+                    })?;
+                if !v.is_finite() {
+                    return Err(pair_error(
+                        child,
+                        "spec: field 'min_accuracy' is not finite (NaN/inf) — refusing loudly (ADR-0223 §2.2 guard 4)",
+                    ));
+                }
+                min_accuracy = Some(v);
+            }
+            Rule::spec_margin_line => {
+                if margin.is_some() {
+                    return Err(pair_error(
+                        child,
+                        "spec: duplicate field 'margin' — each field may appear at most once (the №490 form)",
+                    ));
+                }
+                let v = find_child_str(&children_of(child), Rule::FLOAT_LITERAL)
+                    .ok_or_else(|| pair_error(child, "spec: field 'margin' needs a FLOAT"))?
+                    .parse::<f64>()
+                    .map_err(|_| {
+                        pair_error(
+                            child,
+                            "spec: field 'margin' is not a finite FLOAT — refusing loudly (ADR-0223 §2.2 guard 4)",
+                        )
+                    })?;
+                if !v.is_finite() {
+                    return Err(pair_error(
+                        child,
+                        "spec: field 'margin' is not finite (NaN/inf) — refusing loudly (ADR-0223 §2.2 guard 4)",
+                    ));
+                }
+                margin = Some(v);
+            }
+            _ => {}
+        }
+    }
+    Ok(Declaration::Spec(crate::ast::SpecDecl {
+        span,
+        name,
+        pattern_name,
+        prompt,
+        distill_after,
+        fallback_if,
+        min_accuracy,
+        margin,
+    }))
+}

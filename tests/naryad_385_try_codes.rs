@@ -424,6 +424,7 @@ fn n385_vm_runtime_sink_refusal_carries_classifier_stamp() {
         reflex_gen_decls: vec![],
         vision_decls: vec![],
         origin_decls: vec![],
+        spec_decls: vec![],
         deny_handlers: vec![],
         db_url: None,
         db_url_env: None,

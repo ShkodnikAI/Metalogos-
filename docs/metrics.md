@@ -12,15 +12,15 @@ construction.
 | ------ | ------------------------------------- |
 | Version | 0.39.0 |
 | Leak Suite | 56 negatives / 27 positives (examples/leak/ — the BLOCKING gate) |
-| Built-in Functions | 530 functions across 47 modules |
-| Typed Signatures | 377/530 (71.13%) — precise 244/530 (46.03%) |
-| Typed Signatures (stable tier — the PRIMARY definition, №809/ADR-0199) | 366/486 (75.30%) — the full-registry figure beside: 377/530 (71.13%) |
+| Built-in Functions | 531 functions across 47 modules |
+| Typed Signatures | 379/531 (71.37%) — precise 245/531 (46.13%) |
+| Typed Signatures (stable tier — the PRIMARY definition, №809/ADR-0199) | 367/486 (75.51%) — the full-registry figure beside: 379/531 (71.37%) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
-| Grammar | 344 rules |
+| Grammar | 354 rules |
 | Architecture Decisions | 211 ADRs |
 | Example Programs | 258 .mlog programs |
-| Reference | REFERENCE.md (~342 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~288 KB) — every wave documented |
+| Reference | REFERENCE.md (~344 KB) — 100% registry coverage |
+| Changelog | CHANGELOG.md (~293 KB) — every wave documented |
 | LICENSED_FLOOR (the 8D-1 machine fact, №841) | 10000 bp (19/19) — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms; №900: the denominator rides the fact) |
 | PASSPORT_FRESH (the 8D-1 machine fact, №841) | 10000 bp (19/19) — the passports fresh within the 180-day verification window (the №842 rule) |
 | GRANT_COVERAGE (the 8B-1 machine fact, №846) | 10000 bp (44/44) — the irreversible carriers whose rights decision passes the capability layer (ADR-0203 §2.7; the gate_034 floor) |

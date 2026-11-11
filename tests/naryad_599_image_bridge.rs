@@ -14,10 +14,11 @@
 // Red/green corpus:
 //   (1) the capability table — VisionUnderstanding/Ocr records carry
 //       exactly [Image]; the Stt/Omni records carry [Audio] (№938);
-//       the video-understanding records carry [VideoFrame] (№939; the
-//       qwen25-vl-7b completion is №941/r74); every other record stays
-//       text-only (drift = failure; the per-step pins evolve with the
-//       ADR-0182 line);
+//       the video-understanding records carry [VideoFrame,
+//       VideoSegment] (№939; the qwen25-vl-7b completion is №941/r74;
+//       the consumer-path step is №945/ADR-0182 §7.3); every other
+//       record stays text-only (drift = failure; the per-step pins
+//       evolve with the ADR-0182 line);
 //   (2) the handle input returns the SAME answer as the String
 //       equivalent on BOTH backends (the golden string surface is
 //       untouched — the overloads ADD capability, №493/§7.2);
@@ -78,7 +79,7 @@ fn capability_descriptors_pin_the_image_inputs() {
 
     let image_inputs = [MediaKind::Image];
     let audio_inputs = [MediaKind::Audio];
-    let video_inputs = [MediaKind::VideoFrame];
+    let video_inputs = [MediaKind::VideoFrame, MediaKind::VideoSegment];
     for entry in BACKEND_REGISTRY {
         // №939 (ADR-0182 §3.3 step 3): the two named video-understanding
         // records consume a VideoFrame handle; the class's third record,
@@ -94,7 +95,7 @@ fn capability_descriptors_pin_the_image_inputs() {
         ) {
             assert_eq!(
                 entry.inputs, video_inputs,
-                "record '{}' must declare exactly [VideoFrame] (№939 step 3; the qwen25-vl-7b completion is №941/r74)",
+                "record '{}' must declare exactly [VideoFrame, VideoSegment] (№939 step 3 + №941/r74; the consumer-path step is №945/ADR-0182 §7.3)",
                 entry.name
             );
             continue;
@@ -120,8 +121,9 @@ fn capability_descriptors_pin_the_image_inputs() {
                     entry.class.as_str()
                 );
             }
-            // The №939 step (VideoFrame) evolves the remaining pin when
-            // it lands; today every other record is text-only.
+            // The №939 step (VideoFrame) and the №945 consumer-path
+            // step (VideoSegment) carry the named-roster arm above;
+            // every other record stays text-only.
             _ => {
                 assert!(
                     entry.inputs.is_empty(),

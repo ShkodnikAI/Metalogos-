@@ -736,12 +736,13 @@ impl Interpreter {
                 .map_err(|e| format!("media store poisoned: {}", e))?;
             return crate::builtins::omni_ask_dispatch(&store, &args);
         }
-        // №939 (ADR-0182 §3.3 step 3): the VideoFrame media-input bridge
-        // — the store-carrying interception for the video-understanding
-        // backend builtin (the builtin's own `video` gate applies to the
-        // whole step). The VideoFrame-handle form materializes through
-        // the sanctioned read path; the String form routes through
-        // unchanged (the same shared dispatch the VM uses).
+        // №939 (ADR-0182 §3.3 step 3) + №945 (ADR-0182 §7.3): the video
+        // media-input bridge — the store-carrying interception for the
+        // video-understanding backend builtin (the builtin's own `video`
+        // gate applies to the whole step). The VideoFrame/VideoSegment
+        // handle forms materialize through the sanctioned read path; the
+        // String form routes through unchanged (the same shared dispatch
+        // the VM uses).
         #[cfg(feature = "video")]
         if name == crate::media_ops::VIDEO_UNDERSTAND {
             let store = self
@@ -2297,10 +2298,11 @@ impl Interpreter {
                         .map_err(|e| format!("media store poisoned: {}", e))?;
                     return crate::builtins::omni_ask_dispatch(&store, &eval_args);
                 }
-                // №939 (ADR-0182 §3.3 step 3): the VideoFrame media-input
-                // bridge — expression path, the same shared dispatch as
-                // the statement path above (лекало MEDIA_SAVE); the
-                // builtin's own `video` gate applies to the whole step.
+                // №939 (ADR-0182 §3.3 step 3) + №945 (ADR-0182 §7.3): the
+                // video media-input bridge — expression path, the same
+                // shared dispatch as the statement path above (лекало
+                // MEDIA_SAVE); the builtin's own `video` gate applies to
+                // the whole step.
                 #[cfg(feature = "video")]
                 if name == crate::media_ops::VIDEO_UNDERSTAND {
                     let store = self

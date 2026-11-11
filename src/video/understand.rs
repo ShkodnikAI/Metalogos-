@@ -23,16 +23,23 @@ use crate::interpreter::values::Value;
 /// `video_understand(segment, prompt?, model?)` — the video-understanding
 /// backend call (№408). `segment` is the segment payload reference
 /// (String; a `VideoSegmentId` surface) OR a `VideoFrame` media handle
-/// (№939, ADR-0182 §3.3 step 3 — the multi-form overload posture of
-/// №493: the handle form ADDS capability, the String golden behavior is
-/// untouched — the №706 mock golden and the №697 real-path posture
-/// included). A handle materializes through the store's sanctioned read
-/// path (sealed entries decrypt only inside the sanctioned consumer —
-/// the PROCESSING posture, not byte egress); the handle's static label
-/// joins the result's label through the existing №323 inference (private
-/// frame in → private description out). `prompt` is the comprehension
-/// question (e.g. "what happens in this clip"); `model` defaults to the
-/// registry canon `qwen2.5-vl-7b-instruct` (weights: qwen2.5-vl-7b-instruct,
+/// (№939, ADR-0182 §3.3 step 3) OR a `VideoSegment` media handle (№945,
+/// ADR-0182 §7.3 — the consumer-path completion: the handle family's
+/// fourth member joins the backend-input line; the multi-form overload
+/// posture of №493 — the handle forms ADD capability, the String golden
+/// behavior is untouched — the №706 mock golden, the №697 real-path
+/// posture and the №939 VideoFrame goldens included). A handle
+/// materializes through the store's sanctioned read path (sealed entries
+/// decrypt only inside the sanctioned consumer — the PROCESSING posture,
+/// not byte egress); the handle's static label joins the result's label
+/// through the existing №323 inference (private segment in → private
+/// description out, both twins ride the same carrier). The §3.2
+/// fail-closed selection (№945): a handle call names a media capability
+/// — the selected record must declare it (a VideoSegment-handle call on
+/// a record without the VideoSegment capability refuses loudly, never
+/// steps sideways). `prompt` is the comprehension question (e.g. "what
+/// happens in this clip"); `model` defaults to the registry canon
+/// `qwen2.5-vl-7b-instruct` (weights: qwen2.5-vl-7b-instruct,
 /// Qwen/Qwen2.5-VL-7B-Instruct).
 pub(crate) fn builtin_video_understand(args: &[Value]) -> Result<Value, String> {
     let fn_name = "video_understand";
@@ -269,45 +276,52 @@ mod tests {
     }
 }
 
-// ── №939 (ADR-0182 §3.3 step 3): the VideoFrame media-input bridge ────
+// ── №939 (ADR-0182 §3.3 step 3) + №945 (ADR-0182 §7.3): the video
+// media-input bridge ──────────────────────────────────────────────────
 //
-// The bridge corpus (the №599/№938 step corpus, the VideoFrame twin) —
-// `video`-gated like the builtin itself; runs in the parked-features
+// The bridge corpus (the №599/№938 step corpus, the VideoFrame/VideoSegment
+// twins) — `video`-gated like the builtin itself; runs in the parked-features
 // video job's `--lib --features video` step on BOTH backends (TW + VM).
 //
 // Red/green corpus:
-//   (1) the capability table — llava-video-7b/internvl3-8b carry
-//       exactly [VideoFrame] (№939); qwen25-vl-7b (the class's third
-//       record, outside the step roster) is completed to [VideoFrame]
-//       by №941 (В94 — the planner's decision r74, office main
-//       `e8fd8b5`, R74 finding (1); the №939 roster history is
-//       preserved in the pin wording);
+//   (1) the capability table — the three VideoUnderstanding records
+//       carry exactly [VideoFrame, VideoSegment] (№939 + №941's
+//       completion + №945's consumer-path step);
 //   (2) the handle input returns the SAME answer as the String
 //       equivalent on BOTH backends (the №706 mock golden untouched —
-//       the overloads ADD capability, №493/§7.2);
+//       the overloads ADD capability, №493/§7.2): the VideoFrame twin
+//       (№939) and the VideoSegment twin (№945 — the golden runs twice,
+//       byte-identical);
 //   (3) a foreign MediaKind refuses LOUDLY (fail-closed) on both
 //       backends — and a forged VideoFrame-typed handle naming a
-//       non-VideoFrame entry cannot launder through the sanctioned read
-//       path (the defense-in-depth entry-kind check);
+//       non-VideoFrame entry (№939) or its VideoSegment twin naming a
+//       non-VideoSegment entry (№945) cannot launder through the
+//       sanctioned read path (the defense-in-depth entry-kind check);
+//   (3a) the §3.2 fail-closed selection (№945): a VideoSegment-handle
+//       call whose selected record does not declare the VideoSegment
+//       capability refuses loudly («never steps sideways»);
 //   (4) the label join is visible statically: a private-derived handle
 //       → the bridge result → a file sink is a COMPILE error
-//       (SECRET_LEAK); the public positive control compiles clean;
+//       (SECRET_LEAK); the public positive control compiles clean (the
+//       VideoFrame twin №939 and the VideoSegment twin №945);
 //   (5) the consent scope rides the carrier: the granted control
 //       compiles, the ungranted twin refuses (voice-unconsented);
 //   (6) a sealed (consented) entry materializes for PROCESSING on both
 //       backends — no likeness/consent credential (the Voice
-//       precedent), the at-rest rule untouched;
+//       precedent), the at-rest rule untouched (both twins);
 //   (7) the create → use → drop lifecycle: media_release after use
 //       evicts; a post-eviction use is the store's loud «unknown
-//       handle»;
+//       handle» (both twins);
 //   (8) the statement-position bridge (the ExprStmt path, both).
 //
 // Mutation verification (the №382 protocol): dropping the VideoFrame
-// arm from `resolve_video_frame_input` turns (2) red (String type
-// error); pulling the foreign-kind refusal turns (3) red; removing the
-// VIDEO_UNDERSTAND interception from either backend turns (2)/(6) red
-// on that backend (the stateless fallback refuses Media) — every red
-// below names its mutation.
+// arm or the VideoSegment arm from `resolve_video_understand_input`
+// turns the corresponding (2) twin red (String type error); pulling the
+// foreign-kind refusal turns (3) red; pulling the entry-kind check turns
+// the forged negatives red; pulling the §3.2 capability check turns
+// (3a) red; removing the VIDEO_UNDERSTAND interception from either
+// backend turns (2)/(6) red on that backend (the stateless fallback
+// refuses Media) — every red below names its mutation.
 #[cfg(all(test, feature = "video"))]
 mod bridge_tests {
     use std::path::Path;
@@ -333,26 +347,26 @@ mod bridge_tests {
         vm.run(program)
     }
 
-    // ── (1) The capability table (the step-3 pin, by name) ────────────
+    // ── (1) The capability table (the step pins, by name) ─────────────
 
     #[test]
-    fn capability_descriptors_pin_the_video_frame_inputs() {
+    fn capability_descriptors_pin_the_video_inputs() {
         use crate::backends::{BackendClass, BACKEND_REGISTRY};
         use crate::media::MediaKind;
 
-        let video_inputs = [MediaKind::VideoFrame];
+        let video_inputs = [MediaKind::VideoFrame, MediaKind::VideoSegment];
         for entry in BACKEND_REGISTRY {
             match entry.name {
-                // №939 (this step): the two named video-understanding
-                // records consume a VideoFrame handle; the class's third
-                // record joins them by №941 (В94 — the planner's
-                // decision r74, office main `e8fd8b5`, R74 finding (1);
-                // the №939 roster history is preserved in the pin
-                // wording below).
+                // №939 (step 3) filled the class with VideoFrame; №941
+                // (В94 — the planner's decision r74, office main
+                // `e8fd8b5`, R74 finding (1)) completed the third
+                // record; №945 (wave 96 — W-O, №O2; ADR-0182 §7.3)
+                // adds VideoSegment — the consumer-path completion (the
+                // roster history is preserved in the registry wording).
                 "llava-video-7b" | "internvl3-8b" | "qwen25-vl-7b" => {
                     assert_eq!(
                         entry.inputs, video_inputs,
-                        "record '{}' must declare exactly [VideoFrame] (№939 step 3; the qwen25-vl-7b completion is №941/r74)",
+                        "record '{}' must declare exactly [VideoFrame, VideoSegment] (№939 step 3 + №941/r74 + №945 §7.3)",
                         entry.name
                     );
                 }
@@ -436,7 +450,7 @@ flow Main { input: String = "tick" -> Describe -> output }
             .expect_err("an Image handle must not enter a video backend (TW)");
         assert!(
             err.contains("video_understand")
-                && err.contains("VideoFrame handle")
+                && err.contains("VideoFrame or VideoSegment handle")
                 && err.contains("Image"),
             "the foreign-kind refusal must name the expected and the actual kind, got: {}",
             err
@@ -444,7 +458,7 @@ flow Main { input: String = "tick" -> Describe -> output }
         let err_vm = run_vm(WRONG_KIND_PROG)
             .expect_err("an Image handle must not enter a video backend (VM)");
         assert!(
-            err_vm.contains("VideoFrame handle") && err_vm.contains("Image"),
+            err_vm.contains("VideoFrame or VideoSegment handle") && err_vm.contains("Image"),
             "VM parity of the foreign-kind refusal, got: {}",
             err_vm
         );
@@ -659,6 +673,334 @@ flow Main { input: String = "tick" -> Describe -> output }
             "statement-ok"
         );
         let out_vm = run_vm(STATEMENT_PATH_PROG).expect("statement path runs on VM");
+        assert_eq!(
+            out_vm.as_deref().unwrap_or_default().trim_end(),
+            "statement-ok"
+        );
+        std::env::remove_var("METALOGOS_MOCK_LLM");
+    }
+
+    // ══ №945 (ADR-0182 §7.3): the VideoSegment consumer-path twins ═════
+    //
+    // The №939 corpus's step-4 twins: the same architecton over the
+    // `VideoSegment` handle form — the fourth member of the handle
+    // family joins the backend-input line (the §13.4 2.1 line closes).
+
+    // ── (2)-twin: the VideoSegment-handle golden equality, TW+VM, two
+    //    runs byte-identical (the deterministic mock golden) ───────────
+
+    const SEGMENT_HANDLE_PROG: &str = r#"
+origin demo_cam { kind: generation, media: video_segment, label: public }
+pattern Describe(_tick: String) -> String {
+  let seg = from demo_cam media_store_video_segment("segment-bytes", "public")
+  return video_understand(seg, "what happens", "llava-video-7b-qwen2")
+}
+flow Main { input: String = "tick" -> Describe -> output }
+"#;
+
+    const SEGMENT_STRING_PROG: &str = r#"
+pattern Describe(_tick: String) -> String {
+  return video_understand("segment-bytes", "what happens", "llava-video-7b-qwen2")
+}
+flow Main { input: String = "tick" -> Describe -> output }
+"#;
+
+    #[test]
+    fn segment_handle_equals_string_form_on_both_backends_byte_identical_twice() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        std::env::set_var("METALOGOS_MOCK_LLM", "1"); // №478: the mock is explicit
+
+        let expected =
+            "[MOCK: video_understand | llava-video-7b-qwen2 | segment-bytes | what happens]";
+        // Run 1 (TW) — the golden equality: handle form == String form.
+        let tw_handle = run_tw(SEGMENT_HANDLE_PROG).expect("segment-handle form runs on TW");
+        assert_eq!(
+            tw_handle.as_deref().unwrap_or_default().trim_end(),
+            expected,
+            "the VideoSegment-handle input must return the string-equivalent answer (TW)"
+        );
+        let tw_string = run_tw(SEGMENT_STRING_PROG).expect("segment string form runs on TW");
+        assert_eq!(
+            tw_string.as_deref().unwrap_or_default().trim_end(),
+            expected,
+            "the STRING golden must not move (TW)"
+        );
+        // Run 2 (TW) — determinism: byte-identical to run 1.
+        let tw_again = run_tw(SEGMENT_HANDLE_PROG).expect("second TW run");
+        assert_eq!(
+            tw_again, tw_handle,
+            "the VideoSegment golden must be byte-identical across runs (TW)"
+        );
+        // VM parity: the same golden, byte-identical to TW.
+        let vm_handle = run_vm(SEGMENT_HANDLE_PROG).expect("segment-handle form runs on VM");
+        assert_eq!(
+            vm_handle.as_deref().unwrap_or_default().trim_end(),
+            expected,
+            "TW/VM parity of the VideoSegment bridge (VM)"
+        );
+        let vm_string = run_vm(SEGMENT_STRING_PROG).expect("segment string form runs on VM");
+        assert_eq!(vm_string, tw_string, "VM string golden unchanged");
+        std::env::remove_var("METALOGOS_MOCK_LLM");
+    }
+
+    // ── (3)-twin: the forged VideoSegment-typed handle cannot launder ──
+
+    /// Defense-in-depth (unit level): a VideoSegment-TYPED handle
+    /// pointing at a non-VideoSegment entry (only constructible through
+    /// the direct store API) cannot launder through the sanctioned read
+    /// path — the №939 anti-laundering twin (understand.rs forged
+    /// VideoFrame sibling).
+    #[test]
+    fn forged_segment_handle_cannot_launder_through_store() {
+        use crate::interpreter::values::Value;
+        use crate::labels::{Conf, Integrity, Label};
+        use crate::media::{MediaKind, MediaStore, VideoSegmentId};
+
+        let mut store = MediaStore::new();
+        let audio = store
+            .insert(
+                MediaKind::Audio,
+                b"clip".to_vec(),
+                Label {
+                    conf: Conf::Public,
+                    integrity: Integrity::Trusted,
+                    consent: Default::default(),
+                },
+            )
+            .expect("audio insert");
+        let forged = crate::media::MediaHandle::VideoSegment(VideoSegmentId(audio.id()));
+        let err = crate::builtins::video_understand_dispatch(
+            &store,
+            &[Value::Media(forged), Value::String("q".into())],
+        )
+        .expect_err("the entry-kind check must refuse the forgery");
+        assert!(
+            err.contains("not video_segment") && err.contains("fail-closed"),
+            "expected the loud entry-kind refusal, got: {}",
+            err
+        );
+    }
+
+    // ── (3a) the §3.2 fail-closed selection (№945) ─────────────────────
+
+    /// A VideoSegment-handle call whose selected record does not declare
+    /// the VideoSegment capability refuses loudly — the selection never
+    /// steps sideways into an unsatisfied capability (ADR-0182 §3.2,
+    /// №945). trocr-base-printed (class ocr, inputs [Image]) is the
+    /// unsatisfied selection; the unit level pins the text.
+    #[test]
+    fn segment_handle_on_record_without_capability_refuses_loudly() {
+        use crate::interpreter::values::Value;
+        use crate::labels::{Conf, Integrity, Label};
+        use crate::media::{MediaKind, MediaStore, VideoSegmentId};
+
+        let mut store = MediaStore::new();
+        let seg = store
+            .insert(
+                MediaKind::VideoSegment,
+                b"segment".to_vec(),
+                Label {
+                    conf: Conf::Public,
+                    integrity: Integrity::Trusted,
+                    consent: Default::default(),
+                },
+            )
+            .expect("segment insert");
+        let handle = crate::media::MediaHandle::VideoSegment(VideoSegmentId(seg.id()));
+        let err = crate::builtins::video_understand_dispatch(
+            &store,
+            &[
+                Value::Media(handle),
+                Value::String("q".into()),
+                Value::String("trocr-base-printed".into()),
+            ],
+        )
+        .expect_err("a record without the VideoSegment capability must refuse");
+        assert!(
+            err.contains("does not declare video_segment capability")
+                && err.contains("never steps sideways")
+                && err.contains("trocr-printed"),
+            "expected the §3.2 fail-closed capability refusal, got: {}",
+            err
+        );
+    }
+
+    // ── (4)-twin: the label join for the VideoSegment carrier (№323) ──
+
+    const SEGMENT_PRIVATE_LEAK_PROG: &str = r#"
+origin feed { kind: generation, media: video_segment, label: public }
+pattern Describe(_tick: String) -> String {
+  let tok = env("MLOG_945_TEST_TOKEN")
+  let seg = from feed media_store_video_segment(tok, "public")
+  let desc = video_understand(seg, "describe")
+  let _p = write_file(desc, "target/n945-leak.txt")
+  return "x"
+}
+flow Main { input: String = "x" -> Describe -> output }
+"#;
+
+    const SEGMENT_PUBLIC_CONTROL_PROG: &str = r#"
+origin feed { kind: generation, media: video_segment, label: public }
+pattern Describe(_tick: String) -> String {
+  let seg = from feed media_store_video_segment("public-bytes", "public")
+  let desc = video_understand(seg, "describe")
+  let _p = write_file(desc, "target/n945-public.txt")
+  return "x"
+}
+flow Main { input: String = "x" -> Describe -> output }
+"#;
+
+    #[test]
+    fn private_label_joins_the_segment_bridge_result_statically() {
+        let err = crate::compile_program(SEGMENT_PRIVATE_LEAK_PROG.trim())
+            .expect_err("private segment → bridge → file sink must not compile");
+        assert!(
+            err.contains("SECRET_LEAK") && err.contains("write_file"),
+            "expected SECRET_LEAK on the post-bridge egress, got: {}",
+            err
+        );
+        // Positive control: the public flow compiles clean.
+        crate::compile_program(SEGMENT_PUBLIC_CONTROL_PROG.trim())
+            .unwrap_or_else(|e| panic!("public flow must compile, got: {}", e));
+    }
+
+    // ── (5)-twin: the consent scope rides the segment carrier ─────────
+
+    const SEGMENT_CONSENT_RIDE_PROG: &str = r#"
+profile capability { allow_carrier: "tts_send" }
+origin feed { kind: generation, media: video_segment, label: public }
+pattern Describe(_tick: String) -> String {
+  let tok = env("MLOG_945_TEST_TOKEN")
+  let seg = from feed media_store_video_segment(tok, "public")
+  let granted = consent_grant(seg, "clip-release")
+  let desc = video_understand(granted, "describe")
+  let voice = consent_grant("canary-voice", "clip-release")
+  let bot = consent_grant("bot-token", "clip-release")
+  let chat = consent_grant("chat-id", "clip-release")
+  let _s = tts_send(desc, voice, bot, chat)
+  return "x"
+}
+flow Main { input: String = "x" -> Describe -> output }
+"#;
+
+    const SEGMENT_NO_CONSENT_PROG: &str = r#"
+profile capability { allow_carrier: "tts_send" }
+origin feed { kind: generation, media: video_segment, label: public }
+pattern Describe(_tick: String) -> String {
+  let tok = env("MLOG_945_TEST_TOKEN")
+  let seg = from feed media_store_video_segment(tok, "public")
+  let desc = video_understand(seg, "describe")
+  let voice = consent_grant("canary-voice", "clip-release")
+  let bot = consent_grant("bot-token", "clip-release")
+  let chat = consent_grant("chat-id", "clip-release")
+  let _s = tts_send(desc, voice, bot, chat)
+  return "x"
+}
+flow Main { input: String = "x" -> Describe -> output }
+"#;
+
+    #[test]
+    fn consent_scope_rides_the_segment_bridge_statically() {
+        crate::compile_program(SEGMENT_CONSENT_RIDE_PROG.trim())
+            .unwrap_or_else(|e| panic!("granted scope must clear the voice sink, got: {}", e));
+        let err = crate::compile_program(SEGMENT_NO_CONSENT_PROG.trim())
+            .expect_err("no consent → the voice sink must refuse");
+        assert!(
+            err.contains("voice-unconsented"),
+            "expected voice-unconsented, got: {}",
+            err
+        );
+    }
+
+    // ── (6)-twin: a sealed segment entry materializes for PROCESSING ──
+
+    const SEALED_SEGMENT_PROG: &str = r#"
+origin demo_cam { kind: generation, media: video_segment, label: public }
+pattern Describe(_tick: String) -> String {
+  let seg = from demo_cam media_store_video_segment("gdpr-segment", "consented")
+  let seen = video_understand(seg, "what happens", "llava-video-7b-qwen2")
+  if seen == "[MOCK: video_understand | llava-video-7b-qwen2 | gdpr-segment | what happens]" {
+    return "processing-ok"
+  }
+  return "processing-broken"
+}
+flow Main { input: String = "tick" -> Describe -> output }
+"#;
+
+    #[test]
+    fn sealed_segment_entry_materializes_for_processing_on_both_backends() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        std::env::set_var("METALOGOS_MOCK_LLM", "1");
+        let out = run_tw(SEALED_SEGMENT_PROG).expect("sealed segment serves PROCESSING on TW");
+        assert_eq!(
+            out.as_deref().unwrap_or_default().trim_end(),
+            "processing-ok",
+            "the sealed payload must reach the sanctioned consumer verbatim"
+        );
+        let out_vm = run_vm(SEALED_SEGMENT_PROG).expect("sealed segment serves PROCESSING on VM");
+        assert_eq!(
+            out_vm.as_deref().unwrap_or_default().trim_end(),
+            "processing-ok"
+        );
+        std::env::remove_var("METALOGOS_MOCK_LLM");
+    }
+
+    // ── (7)-twin: the segment lifecycle: create → use → drop ──────────
+
+    const SEGMENT_LIFECYCLE_PROG: &str = r#"
+origin demo_cam { kind: generation, media: video_segment, label: public }
+pattern Describe(_tick: String) -> String {
+  let seg = from demo_cam media_store_video_segment("lifecycle-segment", "public")
+  let _seen = video_understand(seg, "describe")
+  let refs = media_release(seg)
+  if refs == 0.0 {
+    let _again = video_understand(seg, "describe")
+  }
+  return "unexpected-survivor"
+}
+flow Main { input: String = "tick" -> Describe -> output }
+"#;
+
+    #[test]
+    fn media_release_after_segment_use_evicts_and_post_eviction_use_is_loud() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        std::env::set_var("METALOGOS_MOCK_LLM", "1");
+        let err = run_tw(SEGMENT_LIFECYCLE_PROG)
+            .expect_err("a released segment handle cannot serve PROCESSING");
+        assert!(
+            err.contains("unknown handle"),
+            "expected the store's eviction loudness, got: {}",
+            err
+        );
+        let err_vm =
+            run_vm(SEGMENT_LIFECYCLE_PROG).expect_err("VM parity of the segment eviction loudness");
+        assert!(err_vm.contains("unknown handle"), "got: {}", err_vm);
+        std::env::remove_var("METALOGOS_MOCK_LLM");
+    }
+
+    // ── (8)-twin: the statement-position segment bridge ───────────────
+
+    const SEGMENT_STATEMENT_PATH_PROG: &str = r#"
+origin demo_cam { kind: generation, media: video_segment, label: public }
+pattern Describe(_tick: String) -> String {
+  let seg = from demo_cam media_store_video_segment("stmt-segment", "public")
+  video_understand(seg, "what happens")
+  let _r = media_retain(seg)
+  return "statement-ok"
+}
+flow Main { input: String = "tick" -> Describe -> output }
+"#;
+
+    #[test]
+    fn statement_position_segment_bridge_runs_on_both_backends() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        std::env::set_var("METALOGOS_MOCK_LLM", "1");
+        let out = run_tw(SEGMENT_STATEMENT_PATH_PROG).expect("statement path runs on TW");
+        assert_eq!(
+            out.as_deref().unwrap_or_default().trim_end(),
+            "statement-ok"
+        );
+        let out_vm = run_vm(SEGMENT_STATEMENT_PATH_PROG).expect("statement path runs on VM");
         assert_eq!(
             out_vm.as_deref().unwrap_or_default().trim_end(),
             "statement-ok"

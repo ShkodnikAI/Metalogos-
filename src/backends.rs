@@ -39,10 +39,12 @@
 //! of В93 by the planner's decision r74, office main `e8fd8b5`, R74
 //! finding (1)) extends the descriptor to the class's third record
 //! `qwen25-vl-7b` — the whole VideoUnderstanding class now declares its
-//! real input.
-//! The field is the compile-time documentation of the media-input
-//! surface; record drift is caught by the table tests (naryad-599,
-//! naryad-938).
+//! real input; the consumer-path step (№945, ADR-0182 §7.3 — the
+//! owner's scope-keeping directive 11.11) adds `VideoSegment` to the
+//! three records — the family's fourth handle joins the backend-input
+//! line, and the §3.2 fail-closed selection gained the runtime check
+//! (`video_understand` refuses loudly when the selected record does
+//! not declare the handle kind the call names).
 //!
 //! ## The Llm class (№940, ADR-0182 §7.5)
 //!
@@ -326,8 +328,11 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         // vision-language family) and the class consumes a VideoFrame
         // handle (№939); the Image descriptor is NOT added — the class
         // does not consume an Image input (the №599 witnesses keep
-        // that axis).
-        inputs: &[MediaKind::VideoFrame],
+        // that axis). №945 (wave 96 — W-O, №O2; ADR-0182 §7.3): the
+        // consumer-path step adds `VideoSegment` — the segment store
+        // surface (`media_store_video_segment`) gains its backend-input
+        // consumer, the §13.4 2.1 line closes.
+        inputs: &[MediaKind::VideoFrame, MediaKind::VideoSegment],
     },
     BackendEntry {
         name: "llava-video-7b",
@@ -338,8 +343,9 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         license_note: "LLaVA-Video-7B-Qwen2 (lmms-lab) — Apache-2.0 (osi; HF cardData + tags)",
         // №939 (ADR-0182 §3.3 step 3): the capability descriptor — a
         // video-understanding record consumes a VideoFrame handle (the
-        // `video_understand` bridge input).
-        inputs: &[MediaKind::VideoFrame],
+        // `video_understand` bridge input). №945 (ADR-0182 §7.3): the
+        // VideoSegment capability joins — the consumer-path completion.
+        inputs: &[MediaKind::VideoFrame, MediaKind::VideoSegment],
     },
     BackendEntry {
         name: "internvl3-8b",
@@ -353,8 +359,10 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         // input). The third record of the class (`qwen25-vl-7b`) was
         // NOT a target of this step (the naryad's explicit roster) —
         // its one-line completion is №941 (В94, the planner's decision
-        // r74; the №939 roster history is preserved there).
-        inputs: &[MediaKind::VideoFrame],
+        // r74; the №939 roster history is preserved there). №945
+        // (ADR-0182 §7.3): the VideoSegment capability joins — the
+        // consumer-path completion.
+        inputs: &[MediaKind::VideoFrame, MediaKind::VideoSegment],
     },
     // №940 (wave 94 — W-Z, №Z1; ADR-0182 §7.5): the Llm class joins the
     // registry — the §7.5 class-fact closure. The fact was machine-

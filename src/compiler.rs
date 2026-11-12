@@ -502,7 +502,27 @@ impl Compiler {
                 }
                 if !self.imported_modules.contains(&import.path) {
                     let imported = self.resolve_import(&import.path)?;
-                    imported_decls.extend(imported);
+                    // №954 (the audit 12.11 H-2): the imported declarations
+                    // are ALSO collected apart so the origin check below
+                    // sees every dependency's `profile capability` (the
+                    // c03 probe: the POST left on v0.39.0 through
+                    // `permits_from_declarations(&all_decls)`).
+                    imported_decls.extend(imported.clone());
+                    // The merge happens AT THE IMPORT'S POSITION with the
+                    // capability profiles stripped: the permit roster below
+                    // (and the TW runtime loader, which skips `Profile`
+                    // already) never extends from an import, the entry's
+                    // OWN `profile capability` rides `all_decls` as before
+                    // (the roster of the ENTRY program is the whole
+                    // roster), and the №829 last-wins contract holds — the
+                    // LOCAL declarations that follow the import still
+                    // shadow the imported bodies (appending the imports
+                    // AFTER the entry flips the shadow order and the
+                    // imported body wins: the regression the n829 pins
+                    // caught).
+                    all_decls.extend(imported.into_iter().filter(
+                        |d| !matches!(d, Declaration::Profile(p) if p.name == "capability"),
+                    ));
                 }
             } else {
                 all_decls.push(decl);
@@ -514,16 +534,6 @@ impl Compiler {
             &imported_decls,
             entry_warns_954,
         )?;
-        // №954: the imported declarations merge MINUS the capability
-        // profiles — the permit roster below (and the TW runtime loader,
-        // which skips `Profile` already) never extends from an import.
-        // The entry's OWN `profile capability` rides `all_decls` as
-        // before: the roster of the ENTRY program is the whole roster.
-        all_decls.extend(
-            imported_decls
-                .into_iter()
-                .filter(|d| !matches!(d, Declaration::Profile(p) if p.name == "capability")),
-        );
 
         // №845 (ADR-0203 §2.4): the capability permit roster rides the
         // Program (the VM lane's copy of the TW run() resolution — the

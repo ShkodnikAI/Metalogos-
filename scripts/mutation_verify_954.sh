@@ -58,19 +58,13 @@ echo "── M2: the compiler merge re-unions the imports ──"
 python3 - <<'EOF'
 p = 'src/compiler.rs'
 s = open(p).read()
-needle = """        // №954: the imported declarations merge MINUS the capability
-        // profiles — the permit roster below (and the TW runtime loader,
-        // which skips `Profile` already) never extends from an import.
-        // The entry's OWN `profile capability` rides `all_decls` as
-        // before: the roster of the ENTRY program is the whole roster.
-        all_decls.extend(
-            imported_decls
-                .into_iter()
-                .filter(|d| !matches!(d, Declaration::Profile(p) if p.name == "capability")),
-        );"""
-replacement = """        // MUTATION (M2): the v0.39.0 union returns — the imported
-        // capability profile rides the roster resolution again.
-        all_decls.extend(imported_decls);"""
+needle = """                    all_decls.extend(imported.into_iter().filter(
+                        |d| !matches!(d, Declaration::Profile(p) if p.name == "capability"),
+                    ));"""
+replacement = """                    // MUTATION (M2): the v0.39.0 union returns — the
+                    // imported capability profile rides the roster
+                    // resolution again.
+                    all_decls.extend(imported.into_iter());"""
 assert needle in s, "the compiler merge block not found — the tree drifted"
 open(p, 'w').write(s.replace(needle, replacement, 1))
 EOF

@@ -17,6 +17,14 @@
 //
 // RED on unpatched main: the response is 500 but the stderr line is
 // absent — the silence the naryad closes.
+//
+// №955 (the audit 12.11, gh#1922) evolution of the FORM, same pin: the
+// 500 body is now the GENERIC `Internal error (id: err-N)` — the
+// handler text never leaves the process (the audit's H-3: the text
+// quoted the argument VALUE); the full (masked) text rides the
+// [ROUTE_HANDLER_ERROR] stderr line keyed by the SAME id. The
+// visibility contract of №818 survives: the line is unconditional and
+// carries the method, path, verdict and the coded text.
 
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
@@ -106,9 +114,18 @@ fn assert_lane(backend: Option<&str>, lane: &str) {
         "[{lane}] the erroring route must answer 500, got: {}",
         resp.lines().next().unwrap_or("")
     );
+    // №955 (the audit 12.11 H-3): the 500 body is the GENERIC form —
+    // `Internal error (id: err-N)`; the handler error text NEVER leaves
+    // the process, the client gets only the correlation id.
     assert!(
-        resp.contains("Handler error"),
-        "[{lane}] the 500 body must carry the handler error text"
+        resp.contains("Internal error (id: err-"),
+        "[{lane}] the 500 body must carry the generic id-form (№955):\n{}",
+        resp
+    );
+    assert!(
+        !resp.contains("Handler error") && !resp.contains("get() requires"),
+        "[{lane}] the 500 body must NOT quote the handler error text (№955):\n{}",
+        resp
     );
 
     // Give the server a beat to flush the stderr line.
@@ -126,13 +143,36 @@ fn assert_lane(backend: Option<&str>, lane: &str) {
         stderr
     );
     assert!(
-        stderr.contains("GET /boom -> 500:"),
+        stderr.contains("GET /boom -> 500"),
         "[{lane}] the stderr line must carry the method, path and the 500 verdict:\n{}",
         stderr
     );
+    // №955: the body id and the log id are the SAME err-N — the log
+    // holds the (masked) full text, the client only the correlation id.
+    let body_id = resp
+        .split("id: ")
+        .nth(1)
+        .and_then(|rest| rest.split(')').next())
+        .unwrap_or("")
+        .trim()
+        .to_string();
     assert!(
-        stderr.contains("get() requires List"),
-        "[{lane}] the stderr line must carry the coded error text:\n{}",
+        body_id.starts_with("err-"),
+        "[{lane}] the generic body must carry the err-N id:\n{}",
+        resp
+    );
+    assert!(
+        stderr.contains(&format!("id={}", body_id)),
+        "[{lane}] the stderr line must key the SAME id the body does ({}):\n{}",
+        body_id,
+        stderr
+    );
+    // The coded error text still lands in the LOG (the №818 visibility
+    // contract survives №955 — masked: the argument value becomes the
+    // string(len=…) form, the coded part stays readable).
+    assert!(
+        stderr.contains("get() requires"),
+        "[{lane}] the stderr line must carry the coded error text (the №955 masked form):\n{}",
         stderr
     );
 }

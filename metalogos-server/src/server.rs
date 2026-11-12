@@ -5011,7 +5011,7 @@ mlogserver {
                 Err(e) => {
                     // №818: the observability line (see the production path).
                     // №955: the generic id-body; the masked text is the log's.
-                    handler_error_response_955(method.as_ref(), path, &e)
+                    handler_error_response_955(method, path, &e)
                 }
             };
         }
@@ -5034,7 +5034,7 @@ mlogserver {
                     Err(e) => {
                         // №818: the observability line (see the production path).
                         // №955: the generic id-body; the masked text is the log's.
-                        handler_error_response_955(method.as_ref(), path, &e)
+                        handler_error_response_955(method, path, &e)
                     }
                 }
             }

@@ -137,7 +137,7 @@ fn n948_every_boundary_row_has_its_pin_fixture() {
     ] {
         for f in files {
             assert!(
-                boundary_dir().join(dir).join(&f).exists(),
+                boundary_dir().join(dir).join(f).exists(),
                 "boundary pin {}/{} is missing",
                 dir,
                 f

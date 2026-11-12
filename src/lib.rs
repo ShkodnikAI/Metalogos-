@@ -308,10 +308,22 @@ pub fn check_program(source: &str) -> Result<semantic::AnalysisResult, String> {
 }
 
 /// Parse and check a .mlog program, resolving imports against an optional
-/// root file.  When `root` is Some(path), the root file is parsed and
-/// executed (without running flows), then the target file's declarations
-/// are checked against the merged symbol table.  This allows `mlog check
-/// dept/utils.mlog --root app.mlog` to see patterns imported from std/.
+/// root file.  When `root` is Some(path), the root file is parsed and its
+/// imports are resolved STATICALLY (parsing + declaration collection over
+/// the import graph, the №523 mechanism) — the root is NEVER executed.
+/// This allows `mlog check dept/utils.mlog --root app.mlog` to see patterns
+/// imported from std/.
+///
+/// №953 (the audit 12.11, C-2 — gh#1920): the previous form EXECUTED the
+/// root program (`Interpreter::run`, since 2026-06-11) "to resolve
+/// imports" — the root's flows, top-level effects and print output ran
+/// BEFORE the analysis, without the Category-A gates `mlog run` applies
+/// (the probe: `mlog check leaf.mlog --root root2.mlog` printed the
+/// secret and wrote the file). The command's contract is analysis, not
+/// execution: the import graph is now resolved statically and zero code
+/// runs. Pinned by `tests/naryad_953_check_root_static.rs` (the file is
+/// NOT created, the analysis results are corpus-identical) and by the
+/// flipped №948 boundary pin B10.
 pub fn check_program_with_root(
     source: &str,
     root: Option<&std::path::Path>,
@@ -325,36 +337,23 @@ pub fn check_program_with_root(
             // paths, author-controlled), outside the program-runtime
             // sandbox domain.
             #[allow(clippy::disallowed_methods)]
-            // №475: the check/root-source loader — the CLI boundary (argv
-            // paths, author-controlled), outside the program-runtime
-            // sandbox domain.
-            #[allow(clippy::disallowed_methods)]
-            // №475: the check/root-source loader — the CLI boundary (argv
-            // paths, author-controlled), outside the program-runtime
-            // sandbox domain.
-            #[allow(clippy::disallowed_methods)]
-            // №475: the check/root-source loader — the CLI boundary (argv
-            // paths, author-controlled), outside the program-runtime
-            // sandbox domain.
-            #[allow(clippy::disallowed_methods)]
-            // №475: the check/root-source loader — the CLI boundary (argv
-            // paths, author-controlled), outside the program-runtime
-            // sandbox domain.
-            #[allow(clippy::disallowed_methods)]
             let root_source = std::fs::read_to_string(root_path)
                 .map_err(|e| format!("cannot read root file {:?}: {}", root_path, e))?;
             let root_dir = root_path
                 .parent()
                 .unwrap_or(std::path::Path::new("."))
                 .to_path_buf();
-            let root_decls = parser::parse(&root_source)
+            let parsed_root = parser::parse(&root_source)
                 .map_err(|e| format!("parse error in root file: {}", e))?;
-            // Execute root declarations into an interpreter to resolve imports
-            let mut interp = interpreter::Interpreter::new();
-            interp.set_base_dir(root_dir);
-            interp.run(root_decls)?;
-            // Collect all declarations known to the interpreter (merged from imports)
-            interp.collect_declarations()
+            // №953 (the audit 12.11 C-2): STATIC import resolution — the
+            // same №523 mechanism the run gates use. Zero execution: no
+            // Interpreter is constructed on this path at all.
+            let (module_decls, _module_groups) =
+                semantic::resolve_import_groups(&parsed_root, &root_dir)
+                    .map_err(|e| format!("import resolution (№953 static): {}", e))?;
+            let mut merged = module_decls;
+            merged.extend(parsed_root);
+            merged
         }
         None => vec![],
     };
@@ -691,7 +690,29 @@ pub fn test_program(source: &str) -> Result<Vec<interpreter::TestResult>, String
 }
 
 /// Parse with explicit base directory, execute declarations, then run test blocks.
+/// №953 (the audit 12.11, H-1 — gh#1920): the Category-A + №523 semantic
+/// gates run BEFORE any execution — a program that refuses `mlog run`
+/// refuses `mlog test` the same way (the probe: a leak test block ran
+/// `1/1 tests passed` and wrote the file). The explicit CLI opt-out is
+/// `--allow-unchecked` (`test_program_with_dir_unchecked`, the loud
+/// banner is the CLI's duty).
 pub fn test_program_with_dir(
+    source: &str,
+    base_dir: std::path::PathBuf,
+) -> Result<Vec<interpreter::TestResult>, String> {
+    let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+    enforce_run_gates(&declarations, &base_dir, source)?;
+    let mut interp = interpreter::Interpreter::new();
+    interp.set_base_dir(base_dir);
+    interp.run(declarations)?;
+    Ok(interp.run_test_blocks())
+}
+
+/// №953: the explicit `--allow-unchecked` form of `mlog test` — NO gates,
+/// the caller (the CLI) prints the loud banner. A library caller has no
+/// reason to use this; it exists so the opt-out is one named function
+/// (the audit trail: the flag is visible in the diff, not smuggled).
+pub fn test_program_with_dir_unchecked(
     source: &str,
     base_dir: std::path::PathBuf,
 ) -> Result<Vec<interpreter::TestResult>, String> {
@@ -704,6 +725,10 @@ pub fn test_program_with_dir(
 
 /// ADR-0056: Resume a flow from a checkpoint.
 /// Parses the source, sets resume target, then runs — the flow skips to the checkpoint.
+/// №953 (the audit 12.11 — the input→gate inventory, gh#1920): resume
+/// EXECUTES flow bodies — the shared run gates apply here exactly as on
+/// `mlog run` (the same №523 set; a program that refuses `run` refuses
+/// `resume`).
 pub fn resume_program(
     source: &str,
     flow_name: &str,
@@ -725,6 +750,9 @@ pub fn resume_program_with_dir(
     base_dir: std::path::PathBuf,
 ) -> Result<Option<String>, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+    // №953: the run gates BEFORE the checkpoint machinery — resume
+    // executes code, the gate set is the same `mlog run` applies.
+    enforce_run_gates(&declarations, &base_dir, source)?;
     let mut interp = interpreter::Interpreter::new();
     interp.set_base_dir(base_dir);
     interp.set_resume_target(flow_name, checkpoint_name);

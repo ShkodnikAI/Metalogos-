@@ -37,7 +37,142 @@ fn error_at_start(source: &str, msg: String) -> ParseError {
 /// Templates with `}` in their body (HTML, CSS, JS) are handled via
 /// pre-processing: template bodies are extracted with balanced brace counting,
 /// replaced with placeholders for Pest parsing, then restored.
+/// №958 (the audit 12.11 M-1): the INPUT-DEPTH pre-scan — the ONE gate
+/// every source passes BEFORE pest sees it. Two counters, both bounded by
+/// `limits::max_input_depth()` (`METALOGOS_MAX_INPUT_DEPTH`): the
+/// bracket nesting depth and the longest consecutive operator run (the
+/// audit's probes: 50 000 chained `+` and 3 000 nested `if` overflowed
+/// the 8 MB parser thread — SIGABRT; the scan refuses with a clean
+/// `[INPUT_TOO_DEEP]` naming the position instead). Strings and comments
+/// are modeled: their contents count nothing.
+fn scan_input_depth(source: &str) -> Result<(), ParseError> {
+    let limit = crate::limits::max_input_depth();
+    let bytes: Vec<char> = source.chars().collect();
+    let mut depth = 0usize;
+    let mut chain = 0usize;
+    let mut in_str: Option<char> = None;
+    let mut in_block_comment = false;
+    let mut line = 1usize;
+    let mut col = 1usize;
+    let mut byte_off = 0usize;
+    let mut i = 0usize;
+    let n = bytes.len();
+    let mut deep_at: Option<(usize, usize, usize, &str)> = None; // (offset, line, col, kind)
+    while i < n {
+        let c = bytes[i];
+        if in_block_comment {
+            if c == '*' && i + 1 < n && bytes[i + 1] == '/' {
+                in_block_comment = false;
+                i += 1;
+                byte_off += c.len_utf8() + bytes[i].len_utf8();
+                col += 2;
+                i += 1;
+                continue;
+            }
+            if c == '\n' {
+                line += 1;
+                col = 1;
+            } else {
+                col += 1;
+            }
+            byte_off += c.len_utf8();
+            i += 1;
+            continue;
+        }
+        if let Some(q) = in_str {
+            if c == '\\' {
+                byte_off += c.len_utf8() + bytes.get(i + 1).map(|x| x.len_utf8()).unwrap_or(0);
+                i += 2;
+                col += 2;
+                continue;
+            }
+            if c == q {
+                in_str = None;
+            }
+            if c == '\n' {
+                line += 1;
+                col = 1;
+            } else {
+                col += 1;
+            }
+            byte_off += c.len_utf8();
+            i += 1;
+            continue;
+        }
+        match c {
+            '"' => {
+                in_str = Some('"');
+            }
+            '/' if i + 1 < n && bytes[i + 1] == '*' => {
+                in_block_comment = true;
+                byte_off += c.len_utf8();
+                i += 1;
+                col += 1;
+                continue;
+            }
+            '/' if i + 1 < n && bytes[i + 1] == '/' => {
+                while i < n && bytes[i] != '\n' {
+                    byte_off += bytes[i].len_utf8();
+                    i += 1;
+                }
+                continue;
+            }
+            '{' | '(' | '[' => {
+                depth += 1;
+                if depth > limit && deep_at.is_none() {
+                    deep_at = Some((byte_off, line, col, "nesting"));
+                }
+            }
+            '}' | ')' | ']' => {
+                depth = depth.saturating_sub(1);
+                chain = 0;
+            }
+            '+' | '-' | '*' | '<' | '>' | '=' | '!' | '&' | '|' | '/' | '%' => {
+                // №958: the operator CHAIN — operators bound in one
+                // expression line. The reset points are the newline and
+                // the bracket boundaries (statements separate at the
+                // newline; the audit's 50 000 `+` probe sits on ONE line
+                // — the chain counts it; the widest legal line in the
+                // corpus carries 1125 operators, the default 2048 keeps
+                // it parseable).
+                chain += 1;
+                if chain > limit && deep_at.is_none() {
+                    deep_at = Some((byte_off, line, col, "operator chain"));
+                }
+            }
+            '\n' | ';' => chain = 0,
+            _ => {}
+        }
+        if c == '\n' {
+            line += 1;
+            col = 1;
+        } else {
+            col += 1;
+        }
+        byte_off += c.len_utf8();
+        i += 1;
+    }
+    if let Some((off, line, col, kind)) = deep_at {
+        let msg = format!(
+            "[INPUT_TOO_DEEP] the input {} depth exceeds the limit {} (METALOGOS_MAX_INPUT_DEPTH, №958) at line {}:{} — split the expression or raise the limit",
+            kind, limit, line, col
+        );
+        if let Some(pos) = pest::Position::new(source, off) {
+            return Err(pest::error::Error::new_from_pos(
+                pest::error::ErrorVariant::CustomError { message: msg },
+                pos,
+            ));
+        }
+        return Err(error_at_start(source, msg));
+    }
+    Ok(())
+}
+
 pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
+    // №958 (the audit 12.11 M-1): the depth pre-scan BEFORE pest — the
+    // deep-input probes aborted (SIGABRT) inside the parser thread; the
+    // scan refuses with a clean [INPUT_TOO_DEEP] instead.
+    scan_input_depth(source)?;
     // Наряд №14 P1-5: Use a thread with 8MB stack for large files.
     // Pest's recursive descent can overflow the default 2-8MB stack
     // on deeply nested expressions or very long string literals.

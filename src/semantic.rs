@@ -6696,6 +6696,17 @@ fn check_deny_match_exhaustiveness(
 /// called FROM the handler cannot read the event — the runtime gate
 /// enforces the same rule loudly).
 fn walk_expr_for_deny(expr: &Expr, in_handler: bool, errors: &mut Vec<SpannedError>) {
+    // №958 (the audit 12.11 M-1): the AST-walk depth guard — the second
+    // line under the parser pre-scan (the scanner bounds the source; this
+    // bounds the WALK when a form the scanner does not model grows deep).
+    let _dg_958 = crate::depth_guard::DepthGuard::enter();
+    if crate::depth_guard::DepthGuard::exceeded() {
+        errors.push(SpannedError::at_expr(
+            expr,
+            crate::depth_guard::INPUT_TOO_DEEP_MSG.to_string(),
+        ));
+        return;
+    }
     match expr {
         Expr::FnCall { name, args, .. } => {
             if (name == "deny_event" || name == "deny_reason") && !in_handler {
@@ -7263,6 +7274,21 @@ fn schema_ddl_dryrun(declarations: &[Declaration], errors: &mut Vec<SpannedError
 ///   - Opaque types used in correct contexts (Phase 6.2–6.5)
 #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
+    // №958 (the audit 12.11 M-1): the ENTRY depth guard — the iterative
+    // measurement refuses the pathological AST before ANY recursive
+    // walker sees it (the walkers are then bounded by construction).
+    if let Some((depth, limit)) = crate::depth_guard::declarations_depth_exceeds(declarations) {
+        return AnalysisResult {
+            errors: vec![SpannedError::at(
+                format!(
+                    "[INPUT_TOO_DEEP] the expression tree depth {} exceeds the analysis limit {} (METALOGOS_MAX_INPUT_DEPTH, №958) — split the expression or raise the limit",
+                    depth, limit
+                ),
+                Span::unknown(),
+            )],
+            warnings: Vec::new(),
+        };
+    }
     // №765 (gh#1418, Wave 59 — the audit S-1b): the raw-position map is
     // seeded here too — the position-aware render arm in expr_label
     // reads it on the CHECK path (the audit entries seed for their own
@@ -10257,6 +10283,16 @@ fn check_expr_calls(
     learnable_names: &HashSet<String>,
     errors: &mut Vec<SpannedError>,
 ) {
+    // №958 (the audit 12.11 M-1): the AST-walk depth guard — the second
+    // line under the parser pre-scan.
+    let _dg_958 = crate::depth_guard::DepthGuard::enter();
+    if crate::depth_guard::DepthGuard::exceeded() {
+        errors.push(SpannedError::at_expr(
+            expr,
+            crate::depth_guard::INPUT_TOO_DEEP_MSG.to_string(),
+        ));
+        return;
+    }
     if let Expr::FnCall { name, args, .. } = expr {
         let is_known = builtin_names.contains(name)
             || pattern_param_counts.iter().any(|(n, _)| n == name)

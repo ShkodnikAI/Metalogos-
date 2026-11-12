@@ -146,9 +146,19 @@ async fn n454_nothing_declared_refuses_in_serve() {
         "the unconfigured serve lane must NOT answer 200 with a marker — body: {}",
         body
     );
+    // №955 (the audit 12.11 H-3): the body is the GENERIC id-form — the
+    // configuration surfaces never reach the CLIENT; the loud refusal
+    // text (the same surfaces) rides the [ROUTE_HANDLER_ERROR] log line
+    // (the log side is pinned by the №818/№955 log pins — one mechanism
+    // for every route error).
     assert!(
-        body.contains("METALOGOS_LLM_PROVIDER") && body.contains("METALOGOS_MOCK_LLM"),
-        "the unconfigured serve body must name the configuration surfaces — body: {}",
+        body.contains("Internal error (id: err-"),
+        "the unconfigured serve body must be the generic №955 id-form — body: {}",
+        body
+    );
+    assert!(
+        !body.contains("METALOGOS_LLM_PROVIDER") && !body.contains("METALOGOS_MOCK_LLM"),
+        "the configuration surfaces must NOT reach the client (№955) — body: {}",
         body
     );
 }
@@ -174,9 +184,16 @@ async fn n454_declared_external_fails_loud_in_serve() {
         "a DECLARED external provider without credentials must fail loudly, not answer — body: {}",
         body
     );
+    // №955: the generic id-form on the wire; the missing-configuration
+    // text rides the log (the №454 posture survives on the log side).
     assert!(
-        body.contains("METALOGOS_API_KEY"),
-        "the loud failure must name the missing configuration (the №454 posture on the declared lane) — body: {}",
+        body.contains("Internal error (id: err-"),
+        "the declared-lane failure must be the generic №955 id-form — body: {}",
+        body
+    );
+    assert!(
+        !body.contains("METALOGOS_API_KEY"),
+        "the missing-configuration text must NOT reach the client (№955) — body: {}",
         body
     );
 }

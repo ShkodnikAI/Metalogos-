@@ -392,10 +392,17 @@ async fn run_scenario(backend: &str, tag: &str) {
         reqwest::StatusCode::INTERNAL_SERVER_ERROR,
         "{tag}: the undeclared route must refuse 500, got {status2}: {body2}"
     );
+    // №955 (the audit 12.11 H-3): the body is the GENERIC id-form — the
+    // frozen class never reaches the client; the class rides the serve
+    // stderr (the next assert — the office evidence surface, unchanged).
     assert!(
-        body2.contains("IRREVERSIBLE_NO_GRANT"),
-        "{tag}: the undeclared route refusal must carry the frozen class, \
+        body2.contains("Internal error (id: err-"),
+        "{tag}: the undeclared route refusal must be the generic №955 id-form, \
          got: {body2}"
+    );
+    assert!(
+        !body2.contains("IRREVERSIBLE_NO_GRANT"),
+        "{tag}: the frozen class must NOT reach the client (№955), got: {body2}"
     );
     assert!(
         log.lock()

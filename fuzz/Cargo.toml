@@ -67,3 +67,13 @@ path = "fuzz_targets/fuzz_target_memory_cascade.rs"
 test = false
 doc = false
 bench = false
+
+# №958 (the audit 12.11 M-1 — gh#1925): arbitrary-deep inputs never abort
+# the process — the parser pre-scan refuses with the clean
+# [INPUT_TOO_DEEP]; the DepthGuard bounds the walks (the second line).
+[[bin]]
+name = "fuzz_target_input_depth"
+path = "fuzz_targets/fuzz_target_input_depth.rs"
+test = false
+doc = false
+bench = false

@@ -68,6 +68,7 @@ pub mod builtins_classification;
 pub mod bytecode;
 pub mod compiler;
 pub mod db_ops;
+pub mod depth_guard; // №958 (the audit 12.11 M-1): the AST-walk depth guard — the second line under the parser pre-scan
 pub mod doc_tests;
 pub mod embeddings;
 pub mod error;

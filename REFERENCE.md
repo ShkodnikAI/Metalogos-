@@ -92,6 +92,7 @@ The `mlog` binary supports the following commands:
 | `METALOGOS_MCP_AUTH_TOKEN` | bearer token for `mlog mcp-serve --transport http\|sse` when `--auth-token` is not given (Naryad #394, ADR-0168) |
 | `METALOGOS_MCP_UPSTREAMS` | the gateway upstream declarations (№793, ADR-0196 G1): entries `name=argv0,arg1,...` separated by `;` (the №259 format convention; the name is `[a-z0-9_-]+` — the `name.tool` prefix must stay unambiguous); read ONCE at `McpServer::new` (the №263 discipline); every argv[0] passes `METALOGOS_MCP_ALLOWLIST` fail-closed; a spawn failure at startup is a loud degraded note, the reconnect rides the next use |
 | `METALOGOS_LEDGER_KEY` | 64-hex signing seed for the Action Ledger (reproducible chains in tests/CI; unset = OS-random key per process; Naryad #393, ADR-0167) |
+| `METALOGOS_MAX_INPUT_DEPTH` | the unified INPUT-DEPTH cap (№958, the audit 12.11 M-1): the parser pre-scan (bracket nesting + the operator chain) and the semantic AST walkers refuse the pathological shapes with the clean `[INPUT_TOO_DEEP]` error naming the position — a deep input can never abort the process. Default **2048** (the widest legal corpus line carries 1125 operators; the audit's probes — 50 000 chained `+`, 3 000 nested `if` — refuse with a wide margin); an unparseable/zero value falls back to the default (the knob must never brick a deployment) |
 
 ---
 

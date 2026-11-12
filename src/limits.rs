@@ -63,3 +63,29 @@ pub fn check_string_capacity(op: &str, unit_len: usize, count: usize) -> Result<
     }
     Ok(())
 }
+
+/// №958 (the audit 12.11, M-1 — gh#1925): the unified INPUT-DEPTH cap —
+/// the ONE limit for the parser pre-scan (brace/paren nesting, operator
+/// chain length) and the AST walkers (semantic/audit; the LSP rides the
+/// same parser). The audit's probe: 50 000 chained `+` or 3 000 nested
+/// `if` overflowed the 8 MB parser thread (SIGABRT, exit 134) — a clean
+/// `[INPUT_TOO_DEEP]` refusal replaces the abort.
+pub const DEFAULT_MAX_INPUT_DEPTH: usize = 2048;
+
+/// The effective input-depth cap: `METALOGOS_MAX_INPUT_DEPTH` overrides
+/// the default; an unparseable/zero value falls back to the default
+/// (the knob must never brick a deployment — the same contract as
+/// `max_call_depth`). The corpus headroom (measured on this tree): the
+/// widest example nests 17 levels; the widest legal operator line in the
+/// office app carries 1125 operators — 2048 keeps every real corpus
+/// program parseable with a 1.8x margin while the audit's probes
+/// (50 000 chained `+`, 3 000 nested `if`) refuse with a large margin.
+pub fn max_input_depth() -> usize {
+    match std::env::var("METALOGOS_MAX_INPUT_DEPTH") {
+        Ok(v) => match v.parse::<usize>() {
+            Ok(n) if n >= 1 => n,
+            _ => DEFAULT_MAX_INPUT_DEPTH,
+        },
+        Err(_) => DEFAULT_MAX_INPUT_DEPTH,
+    }
+}

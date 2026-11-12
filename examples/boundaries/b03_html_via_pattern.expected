@@ -1,0 +1,4 @@
+row: B3
+flip: №950
+status: CURRENT-PIN — mlog check passes on v0.39.0 (the gap №948 documents; the PoC lives in FOSVED-office-v2 → docs/projects/metalogos/audit_2026-11-12/).
+On the fix (№950): the HTML lane through the summary rules — this program refuses with HTML_INJECTION and this pin becomes the leak-suite negative.

@@ -1,5 +1,9 @@
 # Security Policy
 
+## Current Advisories
+
+- **2026-11-12 — the label lattice is intraprocedural; `check --root` and `mlog test` execute without gates** ([docs/security/advisory-2026-11-12.md](docs/security/advisory-2026-11-12.md)): all versions ≤ 0.39.0. Read the advisory before relying on the static guarantees; the honest boundary table lives in [docs/threat-model.md §The inter-pattern boundary](docs/threat-model.md#the-inter-pattern-boundary-948--the-audit-1211-table).
+
 ## Supported Versions
 
 Security fixes land on the **latest minor release only** (the version shown on the project badge and in `Cargo.toml`); older minor releases receive no security backports and should be upgraded promptly. This page states the policy without version numbers on purpose — a hand-written versions table rots on every release (the audit's own finding); the authoritative "which version is latest" signal is the release feed:

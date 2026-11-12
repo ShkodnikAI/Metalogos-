@@ -1,0 +1,6 @@
+// №948 boundary pin B9 (audit PoC 6_serve/e.mlog): the runtime error
+// text quotes the argument value; serve returns it in the 500 body.
+// CURRENT behavior (v0.39.0): mlog check passes — and STAYS passing
+// after №955 (the fix is runtime: the 500 body and the error text).
+mlogserver { port: 18401
+  route "/err" method=GET { let n = to_int(env("SP")) return respond("200 ok") } }

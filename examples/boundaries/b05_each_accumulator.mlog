@@ -1,0 +1,5 @@
+// №948 boundary pin B5 (audit PoC l03): label loss through the each
+// iterator into an outer accumulator — intraprocedural.
+// CURRENT behavior (v0.39.0): mlog check passes. Flip target: №951.
+pattern P(x: String) -> String { let mut acc = "" each c in split(env("SP"), "") { acc = acc + c } print(acc) return "ok" }
+flow Main { input: String = "x" -> P -> output }

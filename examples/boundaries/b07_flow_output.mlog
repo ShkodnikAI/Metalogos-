@@ -1,0 +1,5 @@
+// №948 boundary pin B7 (audit PoC p11): the flow step returns the
+// source value — the flow output prints the secret.
+// CURRENT behavior (v0.39.0): mlog check passes. Flip target: №951.
+pattern P(x: String) -> String { return env("SP") }
+flow Main { input: String = "x" -> P -> output }

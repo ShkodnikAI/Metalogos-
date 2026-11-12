@@ -1,0 +1,7 @@
+// №948 boundary pin B1 (audit PoC p04): the source inside the called
+// pattern is invisible at the call site — check passes, run leaks.
+// CURRENT behavior (v0.39.0): mlog check passes. Flip target: №950 —
+// the return label joins the internal sources -> SECRET_LEAK.
+pattern G(x: String) -> String { return env("SP") }
+pattern P(x: String) -> String { print(G("a")) return "ok" }
+flow Main { input: String = "x" -> P -> output }

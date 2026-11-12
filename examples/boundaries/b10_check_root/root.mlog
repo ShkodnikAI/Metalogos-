@@ -1,0 +1,12 @@
+// №948 boundary pin B10 (audit PoC 5_check_root_and_test/root.mlog):
+// `mlog check leaf.mlog --root root.mlog` EXECUTES this root today —
+// the file EXECUTED_BY_CHECK.txt appears and the print fires BEFORE
+// the analysis, without the Category-A gates.
+// CURRENT behavior (v0.39.0): executed. Flip target: №953 — static
+// import resolution, zero execution (the file must NOT appear).
+pattern Touch(x: String) -> String {
+  let _ = write_file("EXECUTED_BY_CHECK.txt", "check ran my code: " + x)
+  print("SIDE EFFECT: root flow executed during check")
+  return "done"
+}
+flow Main { input: String = "x" -> Touch -> output }

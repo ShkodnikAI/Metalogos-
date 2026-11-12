@@ -1,4 +1,4 @@
 row: B9
 flip: №955
-status: CURRENT-PIN — mlog check passes on v0.39.0 (the gap №948 documents; the PoC lives in FOSVED-office-v2 → docs/projects/metalogos/audit_2026-11-12/).
-This pin is STABLE AT CHECK: the №955 fix is runtime (the error text masks the value; serve returns a generic 500) — check keeps passing; the runtime negative lives in the №955 tests.
+status: FIXED at RUNTIME by №955 (PR #1933 — the №948 contract): the error texts are MASKED (string values are never quoted), serve/mcp-serve return the generic 500 with the error id (METALOGOS_SERVE_VERBOSE_ERRORS=1 = the loud opt-out).
+This pin is STABLE AT CHECK BY DESIGN: the check-level behavior does not move — mlog check keeps passing on this fixture (the leak-suite gate n948_boundary_pins_pass_check_today_the_gap_is_real stays green); the runtime negative lives in tests/naryad_955_error_text_hygiene.rs and metalogos-server/tests/naryad_955_serve_500.rs.

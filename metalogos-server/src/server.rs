@@ -1736,7 +1736,7 @@ async fn route_handler(
                 // office webhook class (17 days silent). One stderr line,
                 // unconditional, no opt-in. №955: the CLIENT receives the
                 // generic id-body; the full text is the LOG's (masked).
-                handler_error_response_955(&method.to_string(), &uri_path, &e)
+                handler_error_response_955(method.as_ref(), uri_path, &e)
             }
         };
 
@@ -4638,7 +4638,7 @@ mlogserver {
                 // №818: the observability line — same contract as the
                 // production path. №955: the generic id-body to the
                 // client; the masked full text is the log's.
-                handler_error_response_955(&method.to_string(), path, &e)
+                handler_error_response_955(method.as_ref(), path, &e)
             }
         }
     }
@@ -5011,7 +5011,7 @@ mlogserver {
                 Err(e) => {
                     // №818: the observability line (see the production path).
                     // №955: the generic id-body; the masked text is the log's.
-                    handler_error_response_955(&method.to_string(), path, &e)
+                    handler_error_response_955(method.as_ref(), path, &e)
                 }
             };
         }
@@ -5034,7 +5034,7 @@ mlogserver {
                     Err(e) => {
                         // №818: the observability line (see the production path).
                         // №955: the generic id-body; the masked text is the log's.
-                        handler_error_response_955(&method.to_string(), path, &e)
+                        handler_error_response_955(method.as_ref(), path, &e)
                     }
                 }
             }

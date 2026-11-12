@@ -20,7 +20,8 @@ construction.
 | Architecture Decisions | 211 ADRs |
 | Example Programs | 258 .mlog programs |
 | Reference | REFERENCE.md (~344 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~296 KB) — every wave documented || LICENSED_FLOOR (the 8D-1 machine fact, №841) | 10000 bp (19/19) — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms; №900: the denominator rides the fact) |
+| Changelog | CHANGELOG.md (~297 KB) — every wave documented |
+| LICENSED_FLOOR (the 8D-1 machine fact, №841) | 10000 bp (19/19) — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms; №900: the denominator rides the fact) |
 | PASSPORT_FRESH (the 8D-1 machine fact, №841) | 10000 bp (19/19) — the passports fresh within the 180-day verification window (the №842 rule) |
 | GRANT_COVERAGE (the 8B-1 machine fact, №846) | 10000 bp (44/44) — the irreversible carriers whose rights decision passes the capability layer (ADR-0203 §2.7; the gate_034 floor) |
 | SEMA_EXTERNAL (the 8F-1 machine fact, №857) | 3 — the live external-consumption artifacts of the Portable Refusal Algebra (ADR-0204 §5; the gate_035 only-up floor ≥ 1): wasm-facade, policy-check action, spec page |

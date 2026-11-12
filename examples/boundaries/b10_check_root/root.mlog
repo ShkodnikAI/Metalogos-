@@ -2,8 +2,10 @@
 // `mlog check leaf.mlog --root root.mlog` EXECUTES this root today —
 // the file EXECUTED_BY_CHECK.txt appears and the print fires BEFORE
 // the analysis, without the Category-A gates.
-// CURRENT behavior (v0.39.0): executed. Flip target: №953 — static
-// import resolution, zero execution (the file must NOT appear).
+// FIXED by №953 (PR #1931 — the №948 contract): the pin is flipped to
+// the leak-suite negative — static import resolution, ZERO execution
+// (the file must NOT appear; the leak-suite negative lives in
+// tests/naryad_948_boundary_pins.rs::n948_b10_check_root_is_static_zero_execution).
 pattern Touch(x: String) -> String {
   let _ = write_file("EXECUTED_BY_CHECK.txt", "check ran my code: " + x)
   print("SIDE EFFECT: root flow executed during check")

@@ -5,9 +5,10 @@
 // a pin fixture in examples/boundaries/ whose expected behavior is the
 // CURRENT one (`mlog check` passes — the gap is real). The FIXING naryad
 // flips its row's pin into a blocking leak-suite negative:
-//   №950 flips B1–B4, №951 flips B5–B8, №953 flips B10,
-//   №954 flips B11, №952 lands the B12 machinery, B9 stays pass-at-check
-//   (the №955 fix is runtime: the 500 body and the error text).
+//   №950 flips B1–B4, №951 flips B5–B8, №953 flips B10 (DONE —
+//   n948_b10_check_root_is_static_zero_execution below), №954 flips B11,
+//   №952 lands the B12 machinery, B9 stays pass-at-check (the №955 fix
+//   is runtime: the 500 body and the error text).
 //
 // This file is also the DOCS GATE: the pre-№948 overclaim
 // ("interprocedural taint IS tracked") must never return to
@@ -170,12 +171,15 @@ fn n948_boundary_pins_pass_check_today_the_gap_is_real() {
     }
 }
 
-/// B10 pin: `check_program_with_root` EXECUTES the root today — the
-/// root's `write_file` side effect lands BEFORE the analysis, without
-/// the Category-A gates (the audit's C-2). №953 flips this pin: the
-/// file must NOT appear, zero execution.
+/// B10 pin — FLIPPED TO THE LEAK-SUITE NEGATIVE by №953 (PR #1931, the
+/// №948 contract): `check_program_with_root` is STATIC now — zero
+/// execution, no `Interpreter` on the path. The regression gate: if the
+/// C-2 execution bug ever returns, the root's `write_file` side effect
+/// lands BEFORE the analysis and this pin goes RED. The root's own
+/// leaks are REPORTED instead of executed (the honest bonus pinned by
+/// `tests/naryad_953_check_root_static.rs` with the SECRET_LEAK probe).
 #[test]
-fn n948_b10_check_root_executes_the_root_today() {
+fn n948_b10_check_root_is_static_zero_execution() {
     let tmp = std::env::temp_dir().join(format!("n948_b10_{}", std::process::id()));
     fs::create_dir_all(&tmp).expect("tmp dir");
     let root_src = fs::read_to_string(boundary_dir().join("b10_check_root").join("root.mlog"))
@@ -185,8 +189,9 @@ fn n948_b10_check_root_executes_the_root_today() {
 
     let leaf_src = fs::read_to_string(boundary_dir().join("b10_check_root").join("leaf.mlog"))
         .expect("leaf fixture");
-    // The executed root writes relative to the CHECKER'S CWD (the audit
-    // observed the same on the release binary) — clean around the probe.
+    // The v0.39.0 bug executed the root relative to the CHECKER'S CWD
+    // (the audit observed the same on the release binary) — clean around
+    // the probe, then prove the file does NOT appear.
     let cwd_side_effect = std::env::current_dir()
         .expect("cwd")
         .join("EXECUTED_BY_CHECK.txt");
@@ -195,13 +200,19 @@ fn n948_b10_check_root_executes_the_root_today() {
     let executed = cwd_side_effect.exists();
     let _ = fs::remove_file(&cwd_side_effect);
     let _ = fs::remove_dir_all(&tmp);
+    let result = result.expect("parse ok — the pin fixture pair itself must stay well-formed");
     assert!(
-        result.is_ok(),
-        "the pin fixture pair itself fails check — the fixture is broken"
+        !executed,
+        "check --root EXECUTED the root (the side-effect file EXECUTED_BY_CHECK.txt appeared) — the C-2 bug is back; the B10 leak-suite negative (№953) is violated"
     );
+    // The office `check --root` form stays CLEAN on harmless literals —
+    // the static resolution must not invent false positives. (The
+    // REPORTING of a genuinely leaking root — SECRET_LEAK — is pinned by
+    // tests/naryad_953_check_root_static.rs.)
     assert!(
-        executed,
-        "B10 pin flipped early: check --root no longer executes the root — the №953 fix is landing; flip this pin to the negative in №953"
+        result.errors.is_empty(),
+        "the b10 pair is harmless literals — the static check --root must complete cleanly, got: {:?}",
+        result.errors.iter().map(|e| format!("{:?}", e)).collect::<Vec<_>>()
     );
 }
 

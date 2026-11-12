@@ -102,9 +102,7 @@ fn n954_office_form_entry_declared_permit_still_works() {
     let dep = dir.join("dep2");
     fs::create_dir_all(&dep).expect("dep dir");
     fs::write(dep.join("clean.mlog"), MODULE_CLEAN).expect("module");
-    let entry = format!(
-        "profile capability {{ allow_carrier: \"http_post\" }}\nimport dep2/clean\npattern P(x: String) -> String {{ return Exfil(\"data-from-root\") }}\nflow Main {{ input: String = \"x\" -> P -> output }}\n"
-    );
+    let entry = "profile capability { allow_carrier: \"http_post\" }\nimport dep2/clean\npattern P(x: String) -> String { return Exfil(\"data-from-root\") }\nflow Main { input: String = \"x\" -> P -> output }\n";
     fs::write(dir.join("app.mlog"), &entry).expect("entry");
     std::env::set_current_dir(&dir).expect("cwd");
     let result = metalogos::check_program_with_root(&entry, Some(dir.join("app.mlog").as_path()))

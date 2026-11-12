@@ -249,6 +249,13 @@ fn enforce_run_gates(
     {
         let (module_decls, module_groups) = semantic::resolve_import_groups(declarations, base_dir)
             .map_err(|e| format!("Compilation error (Naryad #523): {}", e))?;
+        // №954 (the audit 12.11 H-2): the capability permit roster comes
+        // from the ENTRY program only — an imported `profile capability`
+        // is the dependency self-grant, refused BEFORE any execution.
+        crate::capability::check_imported_capability_groups(
+            declarations,
+            &semantic::ImportModuleGroup::flattened_capability_profiles(&module_groups),
+        )?;
         let mut merged_decls = module_decls;
         merged_decls.extend(declarations.to_vec());
         let sem_result = semantic::check_program(&merged_decls);
@@ -331,7 +338,18 @@ pub fn check_program_with_root(
 ) -> Result<semantic::AnalysisResult, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
 
+    // №954 (the audit 12.11 H-2): the imported capability-profile refusal
+    // (or nothing) — captured on the static-resolution path below, ridden
+    // by the AnalysisResult.
+    let mut imported_profile_error_954: Option<String> = None;
+
     // If no root file, just check the file in isolation
+    // №954 (the office CI form `mlog check app.mlog --root app.mlog`): when
+    // the checked file IS the root, the same source must enter the merged
+    // list ONCE — the executed-interpreter form deduplicated by name
+    // (collect_declarations is name-keyed); the static form keeps that
+    // contract explicitly (the duplicate findings would be noise).
+    let mut same_source_954 = false;
     let root_decls = match root {
         Some(root_path) => {
             // №475: the check/root-source loader — the CLI boundary (argv
@@ -349,11 +367,24 @@ pub fn check_program_with_root(
             // №953 (the audit 12.11 C-2): STATIC import resolution — the
             // same №523 mechanism the run gates use. Zero execution: no
             // Interpreter is constructed on this path at all.
-            let (module_decls, _module_groups) =
+            let (module_decls, module_groups) =
                 semantic::resolve_import_groups(&parsed_root, &root_dir)
                     .map_err(|e| format!("import resolution (№953 static): {}", e))?;
+            // №954 (the audit 12.11 H-2): the imported capability profile
+            // is the dependency self-grant — the check refuses (or, in
+            // the №954 transition window, warns loudly). The error rides
+            // the AnalysisResult below (result is built after the merge).
+            imported_profile_error_954 = crate::capability::check_imported_capability_groups(
+                &parsed_root,
+                &semantic::ImportModuleGroup::flattened_capability_profiles(&module_groups),
+            )
+            .err();
             let mut merged = module_decls;
             merged.extend(parsed_root);
+            // №954: the root==file detection rides the SOURCE text — the
+            // checked file's declarations are then already present in the
+            // merged list; no second copy.
+            same_source_954 = source == root_source;
             merged
         }
         None => vec![],
@@ -361,9 +392,18 @@ pub fn check_program_with_root(
 
     // Merge: root declarations first, then the file being checked
     let mut all_decls = root_decls;
-    all_decls.extend(declarations);
+    if !same_source_954 {
+        all_decls.extend(declarations);
+    }
 
     let mut result = semantic::check_program(&all_decls);
+    // №954: the imported capability-profile refusal (or nothing) rides
+    // the analysis result — `mlog check` reports it like any finding.
+    if let Some(e) = imported_profile_error_954 {
+        result
+            .errors
+            .push(semantic::SpannedError::at(e, ast::Span::unknown()));
+    }
     // №802: the allow-comment suppressions map to the CHECKED file's
     // lines (the merged root decls keep their own spans).
     result.errors = semantic::filter_suppressed_unchecked(result.errors, source);

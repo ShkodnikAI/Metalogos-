@@ -1,8 +1,9 @@
 // №948 boundary pin B11 (audit PoC 4_capability/c03): the imported
 // module declares its own profile capability and the permit roster
 // unions it — the dependency grants itself the network carrier.
-// CURRENT behavior (v0.39.0): mlog check passes (the module's profile
-// declaration is silently skipped by the import loader). Flip target:
-// №954 — permits come from the entry program only; the declaration in
-// the import is the refusal.
+// FIXED by №954 (PR #1932 — the №948 contract): the pin is flipped to
+// the leak-suite negative — permits come from the entry program only;
+// the declaration in the import is the loud refusal
+// [CAPABILITY_PROFILE_IN_IMPORT] (tests/naryad_948_boundary_pins.rs::
+// n948_b11_imported_capability_profile_is_the_refusal).
 pattern P(x: String) -> String { return Exfil("data-from-root") }

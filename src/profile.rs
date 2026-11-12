@@ -59,6 +59,8 @@ pub struct ResolvedProfiles {
     /// the №325 sink-clearance gate reports audit events instead of
     /// compile errors.
     pub legacy_permissive_with_audit: bool,
+    /// №954: the transition-window flag — `profile legacy { capability_imports: warn }`.
+    pub legacy_capability_imports_warn: bool,
     /// `profile licensing { backends: permissive_with_audit }` declared —
     /// the №333 backend-license gate reports audit events instead of
     /// compile errors for non-osi/restrictive weights references.
@@ -130,7 +132,36 @@ impl ResolvedProfiles {
 pub fn validate(p: &crate::ast::ProfileDecl) -> Result<(), String> {
     match p.name.as_str() {
         "legacy" => {
-            validate_options(p, "egress", &["permissive_with_audit"])?;
+            // №954: hand-rolled (NOT validate_options — the legacy profile
+            // carries TWO option keys now: the №325 egress mode and the
+            // №954 transition-window key; validate_options is single-key).
+            if p.options.is_empty() {
+                return Err(
+                    "profile 'legacy' requires options (egress: permissive_with_audit; capability_imports: warn — the №954 transition window)"
+                        .to_string(),
+                );
+            }
+            for (k, v) in &p.options {
+                match (k.as_str(), v.as_str()) {
+                    ("egress", "permissive_with_audit") => {}
+                    ("egress", other) => {
+                        return Err(format!(
+                            "unknown egress mode '{other}' for 'legacy' (available: permissive_with_audit)"
+                        ));
+                    }
+                    ("capability_imports", "warn") => {}
+                    ("capability_imports", other) => {
+                        return Err(format!(
+                            "unknown capability_imports mode '{other}' for 'legacy' (available: warn — the №954 transition window)"
+                        ));
+                    }
+                    (other, _) => {
+                        return Err(format!(
+                            "unknown profile option '{other}' for 'legacy' (available: egress, capability_imports)"
+                        ));
+                    }
+                }
+            }
             Ok(())
         }
         "licensing" => {
@@ -288,6 +319,13 @@ pub fn resolve(declarations: &[Declaration]) -> ResolvedProfiles {
                         .options
                         .iter()
                         .any(|(k, v)| k == "egress" && v == "permissive_with_audit");
+                    // №954: the transition-window flag — the imported
+                    // capability profile warns instead of refusing (the
+                    // roster never extends either way).
+                    resolved.legacy_capability_imports_warn = p
+                        .options
+                        .iter()
+                        .any(|(k, v)| k == "capability_imports" && v == "warn");
                 }
                 "licensing" => {
                     // №333: the audited blanket bridge (unchanged).

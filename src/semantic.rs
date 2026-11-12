@@ -774,6 +774,30 @@ pub fn safe_pipe_violations(declarations: &[Declaration]) -> Vec<SpannedError> {
 pub struct ImportModuleGroup {
     pub declarations: Vec<Declaration>,
     pub source: String,
+    /// №954 (the audit 12.11 H-2): the `profile capability` declarations
+    /// this module carries — the static merge SKIPS them (the runtime
+    /// loader skips profiles too), but the capability-origin gate must
+    /// SEE them: a dependency declaring its own `profile capability` is
+    /// the self-grant the №954 refusal names.
+    pub capability_profiles: Vec<crate::ast::ProfileDecl>,
+}
+
+impl ImportModuleGroup {
+    /// №954: the flattened skipped-capability-profile list over the
+    /// import groups — the argument form `capability::check_imported_
+    /// capability_groups` takes. The flattening lives HERE (the semantic
+    /// side) so the capability module never names the semantic type:
+    /// the capability→semantic edge would fuse the two frozen SCCs into
+    /// one cycle (the C4 ratchet), while semantic→capability is the
+    /// dependency direction the ownership table owns.
+    pub fn flattened_capability_profiles(
+        groups: &[ImportModuleGroup],
+    ) -> Vec<crate::ast::ProfileDecl> {
+        groups
+            .iter()
+            .flat_map(|g| g.capability_profiles.iter().cloned())
+            .collect()
+    }
 }
 
 /// Наряд №523: statically resolve a program's import tree so the
@@ -896,12 +920,19 @@ fn collect_import_decls(
             // source was read above (the collision-filtered landing,
             // byte-identical to what reaches the merged surface).
             let mut module_group: Vec<Declaration> = Vec::new();
+            let mut module_group_capability: Vec<crate::ast::ProfileDecl> = Vec::new();
             for module_decl in module_decls {
                 match &module_decl {
                     // Sub-imports were handled by the recursion above.
                     Declaration::Import(_) => {}
-                    // The runtime import loader skips profiles (№325).
-                    Declaration::Profile(_) => {}
+                    // The runtime import loader skips profiles (№325) —
+                    // the static merge skips them too; №954: a capability
+                    // profile is RECORDED on the group for the origin gate.
+                    Declaration::Profile(p) => {
+                        if p.name == "capability" {
+                            module_group_capability.push(p.clone());
+                        }
+                    }
                     _ => match decl_import_ident(&module_decl) {
                         // Collision: the runtime flat-merge WARNS, it does not
                         // error — the gate must not invent a duplicate error.
@@ -920,6 +951,7 @@ fn collect_import_decls(
             }
             groups.push(ImportModuleGroup {
                 declarations: module_group,
+                capability_profiles: module_group_capability,
                 source,
             });
         }

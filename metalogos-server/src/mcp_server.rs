@@ -833,6 +833,13 @@ pub fn enforce_semantic_startup(
     let (module_decls, module_groups) =
         metalogos::semantic::resolve_import_groups(declarations, &base_dir)
             .map_err(|e| format!("Compilation error (Naryad #557): {}", e))?;
+    // №954 (the audit 12.11 H-2): the capability permit roster comes
+    // from the ENTRY program only — the MCP startup refuses the
+    // dependency self-grant exactly as the run gate does.
+    metalogos::capability::check_imported_capability_groups(
+        declarations,
+        &metalogos::semantic::ImportModuleGroup::flattened_capability_profiles(&module_groups),
+    )?;
     let mut merged_decls = module_decls;
     merged_decls.extend(declarations.to_vec());
     let sem_result = metalogos::semantic::check_program(&merged_decls);

@@ -6,7 +6,8 @@
 // CURRENT one (`mlog check` passes — the gap is real). The FIXING naryad
 // flips its row's pin into a blocking leak-suite negative:
 //   №950 flips B1–B4, №951 flips B5–B8, №953 flips B10 (DONE —
-//   n948_b10_check_root_is_static_zero_execution below), №954 flips B11,
+//   n948_b10_check_root_is_static_zero_execution below), №954 flips B11
+//   (DONE — n948_b11_imported_capability_profile_is_the_refusal),
 //   №952 lands the B12 machinery, B9 stays pass-at-check (the №955 fix
 //   is runtime: the 500 body and the error text).
 //
@@ -216,12 +217,13 @@ fn n948_b10_check_root_is_static_zero_execution() {
     );
 }
 
-/// B11 pin: an imported module declaring its own `profile capability`
-/// passes check today (the audit's H-2 — the permit roster unions the
-/// import). №954 flips this pin: the declaration in the import is the
-/// refusal.
+/// B11 pin — FLIPPED TO THE LEAK-SUITE NEGATIVE by №954 (the №948
+/// contract): an imported module declaring its own `profile capability`
+/// is the loud `[CAPABILITY_PROFILE_IN_IMPORT]` refusal — the permit
+/// roster NEVER unions the import. The regression gate: if the union
+/// ever returns, the refusal disappears and this pin goes RED.
 #[test]
-fn n948_b11_capability_import_passes_check_today() {
+fn n948_b11_imported_capability_profile_is_the_refusal() {
     let tmp = std::env::temp_dir().join(format!("n948_b11_{}", std::process::id()));
     let dep_dir = tmp.join("dep");
     fs::create_dir_all(&dep_dir).expect("tmp dep dir");
@@ -238,9 +240,15 @@ fn n948_b11_capability_import_passes_check_today() {
         metalogos::check_program_with_root(&entry_src, Some(tmp.join("root.mlog").as_path()));
     let _ = fs::remove_dir_all(&tmp);
     let result = result.expect("parse ok");
+    let rendered = result
+        .errors
+        .iter()
+        .map(|e| format!("{:?}", e))
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(
-        result.errors.is_empty(),
-        "B11 pin flipped early: the imported capability profile is already refused — the №954 fix is landing; flip this pin to the negative in №954: {:?}",
-        result.errors.iter().map(|e| format!("{:?}", e)).collect::<Vec<_>>()
+        rendered.contains("CAPABILITY_PROFILE_IN_IMPORT"),
+        "the imported capability profile must be the loud CAPABILITY_PROFILE_IN_IMPORT refusal — the permit roster must never union the import (№954), got: {}",
+        if rendered.is_empty() { "<no errors — the union is back>" } else { &rendered }
     );
 }

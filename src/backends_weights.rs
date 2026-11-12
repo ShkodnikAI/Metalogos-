@@ -229,12 +229,6 @@ pub fn fetch_weights(weights_id: &str, dest_dir: &str) -> Result<Vec<String>, St
         // №475: the WEIGHTS STORE (the naryad-named service): sha-pinned
         // backend weights manifest/bytes at the weights root.
         #[allow(clippy::disallowed_methods)]
-        // №475: the WEIGHTS STORE (the naryad-named service): sha-pinned
-        // backend weights manifest/bytes at the weights root.
-        #[allow(clippy::disallowed_methods)]
-        // №475: the WEIGHTS STORE (the naryad-named service): sha-pinned
-        // backend weights manifest/bytes at the weights root.
-        #[allow(clippy::disallowed_methods)]
         std::fs::write(&out_path, &body).map_err(|e| {
             format!(
                 "backend weights: cannot write {}: {}",
@@ -258,10 +252,6 @@ pub fn weights_loaded(weights_id: &str, dir: &str) -> Result<bool, String> {
         if !p.exists() {
             return Ok(false);
         }
-        // №475: the WEIGHTS STORE — sha-pinned reads (see above).
-        #[allow(clippy::disallowed_methods)]
-        // №475: the WEIGHTS STORE — sha-pinned reads (see above).
-        #[allow(clippy::disallowed_methods)]
         // №475: the WEIGHTS STORE — sha-pinned reads (see above).
         #[allow(clippy::disallowed_methods)]
         let bytes = std::fs::read(&p)

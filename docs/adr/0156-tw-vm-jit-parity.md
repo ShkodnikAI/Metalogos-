@@ -1,6 +1,6 @@
 # ADR-0156: TW/VM/JIT label parity — LabelJoin/SinkCheck in the bytecode
 
-**Status:** Accepted
+**Status:** Proposed (amended 2026-11-12 by №949 — §5, the label is a property of the VALUE; the owner's explicit «принято» returns Accepted — канон §13.14 п.6)
 **Date:** 2026-09-15
 **Naryad:** №328 (issue #422, plan v2 §16.3 / Волна 1 · Фаза 1)
 **Supersedes:** the reserved stub written by №319 (booking note in git history)
@@ -33,3 +33,24 @@ Golden verdicts: the run and compile paths agree on both rejecting and accepting
 ## 4. Verification (№328)
 
 `cargo test naryad_328` — 8 tests: the dispatch-gap predicate, the VM runtime twin, runtime source labels matching the static mapping, the componentwise join, golden run/compile verdict agreement, compiler emission into the bytecode, no-stub grep.
+
+## 5. Appendix (№949): the label is a property of the VALUE — the runtime second line of defense
+
+Added by naryad №949 (gh#1916, the total audit 12.11, P0 — ADR BEFORE code; the owner decision 12.11: revising accepted records is permitted). **This appendix is PROPOSED — the owner's explicit «принято» turns it Accepted (канон §13.14 п.6); the implementation naryad is №952.**
+
+### 5.1 The honest boundary of the accepted form
+
+The №328 `LabelJoin`/`SinkCheck` pair lowers STATIC knowledge into the bytecode: a runtime label env seeded from the same №316 mapping, a sink check against the same clearance. It is a projection of the static pass — where the static analysis is blind (the inter-pattern boundary, ADR-0154 §12), the runtime twin is blind too. The audit 12.11 demonstrated this on the published binary: the label does not survive calls, returns, collections, or the flow machinery as a property of the VALUE.
+
+### 5.2 The amendment (the plan's п. 1.7 — «метка в `Value`»)
+
+The label becomes a property of the VALUE in BOTH executors:
+
+- **The value carries its label.** A `Value` produced by a source, received through a call boundary, returned from a pattern, read out of a collection (list/struct/map), or crossing a flow step, carries the lattice label (ADR-0154 §12's summary is what the static line computes; the value label is what the RUNTIME observes).
+- **Propagation is by construction**: calls propagate argument labels into the callee's parameter values; returns propagate the return value's label; collections propagate element/field labels; the flow machinery propagates step-to-step. Join is componentwise (ADR-0154 §2.4) at every combination point.
+- **The sink checks the VALUE's label.** `SinkCheck` (and the TW runtime gate) reads the label of the arriving VALUE — not of the static binding. A sink refusal fires even when the static analysis was wrong (the second line of defense): the refusal class stays `[SINK_CLEARANCE_RUNTIME]` (no new words — the №385 frozen vocabulary).
+- **The static line stays first.** The static gates remain the SSOT of every verdict and the BLOCKING leak-suite negatives; the runtime check is the safety net that converts a static miss into a loud refusal at the sink instead of a silent leak. The dual-backend parity contract of this ADR applies unchanged: the value-label propagation and the sink value-check behave IDENTICALLY in TW and VM (the crosscheck lane covers value-label shapes).
+
+### 5.3 The overhead budget and the way it is measured
+
+The value label rides the existing runtime label machinery (the №328 env → per-value metadata); the budget: the label propagation must not add more than the №376 dispatch threshold (+50%) to the execution time of the examples corpus + the office `app.mlog` under BOTH backends, measured in the №952 PR (the same corpus and harness form as №376: the median over N runs, cold and warm). A measured excess is a loud No-Go for the default-on form — the key `profile legacy { value_labels: off }` is the explicit opt-out for the transition window, removed together with the №949 interproc key after the window.

@@ -59,8 +59,7 @@ fn run_check(file: &std::path::Path, env: Option<(&str, &str)>) -> (i32, String)
     }
     // The abort (SIGABRT) returns 134; a hung parse would trip the
     // outer timeout — the fix must answer in well under a second.
-    let out = wait_with_timeout(cmd, Duration::from_secs(30));
-    out
+    wait_with_timeout(cmd, Duration::from_secs(30))
 }
 
 fn wait_with_timeout(mut cmd: Command, timeout: Duration) -> (i32, String) {

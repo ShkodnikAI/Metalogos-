@@ -268,7 +268,12 @@ async fn n457_routes_unregressed_under_the_inverted_default_tw() {
         "the route env() denial must stay loud under the strict default: {}",
         body
     );
-    assert!(body.contains("ENV_NOT_PERMITTED"), "got: {}", body);
+    // №955: the generic id-form on the wire — the class rides the log.
+    assert!(
+        body.contains("Internal error (id: err-") && !body.contains("ENV_NOT_PERMITTED"),
+        "got: {}",
+        body
+    );
 
     // The escape hatch still works — dynamic, per call (№259 semantics).
     let _allow = EnvVar("METALOGOS_SERVE_ALLOW_ENV");

@@ -64,9 +64,11 @@ tool leaky {
         "the private value routed into a sink must be refused loudly (the pre-№795 TW path answered green — the leak), got: {}",
         r
     );
+    // №955: the MCP caller is a client too — the generic id-form on the
+    // wire; the runtime sink verdict rides the mcp-serve log line.
     assert!(
-        text.contains("SINK_CLEARANCE_RUNTIME"),
-        "the refusal carries the runtime sink verdict: {}",
+        text.contains("Error (id: err-") && !text.contains("SINK_CLEARANCE_RUNTIME"),
+        "the refusal must be the generic №955 id-form: {}",
         r
     );
 

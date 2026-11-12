@@ -180,9 +180,11 @@ fn n477_tool_call_is_unregressed_under_the_inverted_default() {
     );
     let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
     assert_eq!(resp["result"]["isError"], true, "{}", resp);
+    // №955: the MCP caller is a client too — the result text is the
+    // generic id-form; the №259 code rides the mcp-serve log line.
     assert!(
-        text.contains("ENV_NOT_PERMITTED"),
-        "the refusal must carry the №259 code: {}",
+        text.contains("Error (id: err-") && !text.contains("ENV_NOT_PERMITTED"),
+        "the refusal must be the generic №955 id-form: {}",
         text
     );
     assert!(

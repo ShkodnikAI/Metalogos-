@@ -391,6 +391,25 @@ async fn http_pair(port: u16, path: &str) -> (u16, String) {
     }
 }
 
+/// №955: the 500 bodies carry a PER-PROCESS error id (`err-NNNNNN`) —
+/// two different server processes never share the counter, so the
+/// byte-for-byte TW/VM oracle normalizes the id away before comparing.
+/// The stable part (the generic form, the status) must still match.
+fn normalize_err_ids(body: &str) -> String {
+    let mut out = String::with_capacity(body.len());
+    let mut rest = body;
+    while let Some(pos) = rest.find("err-") {
+        out.push_str(&rest[..pos]);
+        out.push_str("err-N");
+        rest = &rest[pos + 4..];
+        while rest.as_bytes().first().is_some_and(u8::is_ascii_digit) {
+            rest = &rest[1..];
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 async fn diff_one(source: &str) -> Option<String> {
     match probe(source).await {
         Outcome::BothRefuseSame { class } => {
@@ -404,7 +423,9 @@ async fn diff_one(source: &str) -> Option<String> {
             for path in &routes {
                 let t = http_pair(tw, path).await;
                 let v = http_pair(vm, path).await;
-                if t != v {
+                // №955: the per-process err-id normalizes away — the
+                // stable form must still match byte-for-byte.
+                if (t.0, normalize_err_ids(&t.1)) != (v.0, normalize_err_ids(&v.1)) {
                     return Some(format!("route {path}: TW {t:?} != VM {v:?}"));
                 }
             }

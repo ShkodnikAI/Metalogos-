@@ -112,26 +112,28 @@ async fn tw_serve_route_env_denied_without_flags() {
         "env() в serve-роуте без флагов должен быть отказан громко: {}",
         body
     );
+    // №955 (the audit 12.11 H-3): the body is the GENERIC id-form — the
+    // stable code, the context flag and the allowlist name never reach
+    // the CLIENT; all three ride the [ROUTE_HANDLER_ERROR] log line (the
+    // №818/№955 mechanism).
     assert!(
-        body.contains("ENV_NOT_PERMITTED"),
-        "ошибка должна нести стабильный код ENV_NOT_PERMITTED, got: {}",
+        body.contains("Internal error (id: err-"),
+        "the refusal must be the generic №955 id-form, got: {}",
         body
     );
     assert!(
-        body.contains("METALOGOS_SERVE_ALLOW_ENV=1"),
-        "текст должен называть точный флаг «разрешить всё», got: {}",
-        body
-    );
-    assert!(
-        body.contains("METALOGOS_ENV_ALLOWLIST"),
-        "текст должен называть точный allowlist-флаг, got: {}",
+        !body.contains("ENV_NOT_PERMITTED")
+            && !body.contains("METALOGOS_SERVE_ALLOW_ENV=1")
+            && !body.contains("METALOGOS_ENV_ALLOWLIST"),
+        "the code, the flag and the allowlist name must NOT reach the client (№955), got: {}",
         body
     );
     // Гейт стоит ДО чтения: отказ идентичен и для несуществующей переменной —
     // ошибка не должна стать оракулом существования имён.
     let (_, body_absent) = http_get(port, "/envread").await;
     assert!(
-        body_absent.contains("ENV_NOT_PERMITTED"),
+        body_absent.contains("Internal error (id: err-")
+            && !body_absent.contains("ENV_NOT_PERMITTED"),
         "got: {}",
         body_absent
     );
@@ -148,9 +150,10 @@ async fn vm_serve_route_env_denied_without_flags() {
     let (status, body) = http_get(port, "/envread").await;
 
     assert_eq!(status, 500, "VM-путь: env() без флагов отказан: {}", body);
+    // №955: the generic id-form on the wire — the class rides the log.
     assert!(
-        body.contains("ENV_NOT_PERMITTED"),
-        "VM-путь: код ENV_NOT_PERMITTED в ошибке, got: {}",
+        body.contains("Internal error (id: err-") && !body.contains("ENV_NOT_PERMITTED"),
+        "VM-путь: форма №955, got: {}",
         body
     );
 }
@@ -182,12 +185,14 @@ async fn tw_serve_route_env_allowlist_reads() {
     // конфигурационные ошибки — незаданное (даже allowlist-имя) refusal
     // громкий: [ENV_NOT_FOUND] с именем переменной. Явная тишина — только
     // через env_or(name, default), чьё имя несёт семантику.
+    // №955: on the wire the refusal is the generic id-form — the class
+    // and the name ride the [ROUTE_HANDLER_ERROR] log line.
     std::env::remove_var(SECRET_NAME);
     let (status_miss, body_miss) = http_get(port, "/envread").await;
     assert_eq!(status_miss, 500, "got: {}", body_miss);
     assert!(
-        body_miss.contains("ENV_NOT_FOUND"),
-        "незаданное имя — громкий [ENV_NOT_FOUND], got: {}",
+        body_miss.contains("Internal error (id: err-") && !body_miss.contains("ENV_NOT_FOUND"),
+        "незаданное имя — отказ №955 generic id-form, got: {}",
         body_miss
     );
 }

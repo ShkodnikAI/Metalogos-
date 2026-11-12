@@ -100,6 +100,11 @@ enum Commands {
         /// Only run tests whose name contains this substring
         #[arg(long)]
         filter: Option<String>,
+        /// №953 (the audit 12.11): the tests run BEHIND the Category-A gates
+        /// (the same set `mlog run` applies). This flag is the explicit,
+        /// loud opt-out — the tests execute WITHOUT the gates.
+        #[arg(long)]
+        allow_unchecked: bool,
         /// Doc-tests mode (Наряд №287): execute ```mlog blocks from docs
         #[arg(long)]
         docs: bool,
@@ -239,6 +244,7 @@ fn main() {
         Commands::Test {
             file,
             filter,
+            allow_unchecked,
             docs,
             docs_glob,
             backend,
@@ -247,7 +253,7 @@ fn main() {
                 cmd_doc_tests(docs_glob, backend);
             } else {
                 match file {
-                    Some(f) => cmd_test(f, filter),
+                    Some(f) => cmd_test(f, filter, allow_unchecked),
                     None => {
                         eprintln!("error: mlog test requires <file> (or --docs for doc-tests)");
                         std::process::exit(1);
@@ -895,7 +901,7 @@ fn cmd_doc_tests(globs: Vec<String>, backend: String) {
 }
 
 /// `mlog test <file> [--filter=name]` — run test blocks (Наряд №120)
-fn cmd_test(file: PathBuf, filter: Option<String>) {
+fn cmd_test(file: PathBuf, filter: Option<String>, allow_unchecked: bool) {
     let source = match fs::read_to_string(&file) {
         Ok(s) => s,
         Err(e) => {
@@ -908,7 +914,19 @@ fn cmd_test(file: PathBuf, filter: Option<String>) {
         .parent()
         .unwrap_or_else(|| std::path::Path::new("."))
         .to_path_buf();
-    match metalogos::test_program_with_dir(&source, base_dir) {
+    // №953 (the audit 12.11, H-1): the tests run BEHIND the Category-A
+    // gates by default; `--allow-unchecked` is the explicit, LOUD opt-out
+    // (the banner fires on every run — silent bypasses are the defect
+    // class this naryad closes).
+    let run = if allow_unchecked {
+        eprintln!(
+            "⚠  UNCHECKED MODE: --allow-unchecked — the Category-A security gates are OFF for this test run (№953); the tests execute code the gates would refuse"
+        );
+        metalogos::test_program_with_dir_unchecked(&source, base_dir)
+    } else {
+        metalogos::test_program_with_dir(&source, base_dir)
+    };
+    match run {
         Ok(results) => {
             let filtered: Vec<_> = match &filter {
                 Some(f) => results.into_iter().filter(|r| r.name.contains(f)).collect(),

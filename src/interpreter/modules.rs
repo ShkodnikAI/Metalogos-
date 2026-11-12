@@ -59,18 +59,6 @@ impl Interpreter {
         // №475: the module-system loader — compile-time, author-controlled
         // imports (see the compiler.rs note).
         #[allow(clippy::disallowed_methods)]
-        // №475: the module-system loader — compile-time, author-controlled
-        // imports (see the compiler.rs note).
-        #[allow(clippy::disallowed_methods)]
-        // №475: the module-system loader — compile-time, author-controlled
-        // imports (see the compiler.rs note).
-        #[allow(clippy::disallowed_methods)]
-        // №475: the module-system loader — compile-time, author-controlled
-        // imports (see the compiler.rs note).
-        #[allow(clippy::disallowed_methods)]
-        // №475: the module-system loader — compile-time, author-controlled
-        // imports (see the compiler.rs note).
-        #[allow(clippy::disallowed_methods)]
         let source = std::fs::read_to_string(&file_path).map_err(|e| {
             format!(
                 "cannot import module '{}': {} (tried {:?})",

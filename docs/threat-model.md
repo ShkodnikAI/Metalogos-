@@ -157,7 +157,7 @@ Patterns the audit does **not** detect (see README for full table):
 
 ### The inter-pattern boundary (№948 — the audit 12.11 table)
 
-Every row is a flow the analyzer/executable surface does NOT stop on v0.39.0, reproduced on the published release binary (the audit PoC set, `FOSVED-office-v2 → docs/projects/metalogos/audit_2026-11-12/`, commit `fd384d3`). Each row carries its pin in `examples/boundaries/` (expected CURRENT behavior — `mlog check` passes) and the naryad that flips the pin into a blocking leak-suite negative.
+Every row is a flow the analyzer/executable surface does NOT stop on v0.39.0, reproduced on the published release binary (the audit PoC set, `FOSVED-office-v2 → docs/projects/metalogos/audit_2026-11-12/`, commit `fd384d3`). Each row carries its pin in `examples/boundaries/` (expected CURRENT behavior — `mlog check` passes) and the naryad that flips the pin into a blocking leak-suite negative. The fixing naryad flips its row to FIXED and its pin into the negative in the same PR (the №948 contract): B10 — №953 (done); the B11 flip is №954; B9 stays pass-at-check — the №955 fix is runtime (the generic 500 + the masked error texts).
 
 | # | Flow (what is not tracked / what executes) | Minimal example | Pin | Fixed by |
 |---|---|---|---|---|
@@ -170,11 +170,29 @@ Every row is a flow the analyzer/executable surface does NOT stop on v0.39.0, re
 | B7 | A flow step returns a source value — the flow output prints it | `flow Main { ... -> P -> output }` where `P` returns `env(...)` | `examples/boundaries/b07_flow_output.mlog` | №951 |
 | B8 | A `Secret` entity reads back as plain text via `to_string` | `entity key: Secret = env("KEY")` then `print(to_string(key))` | `examples/boundaries/b08_secret_entity_to_string.mlog` | №951 |
 | B9 | Runtime error texts quote argument VALUES; `serve` returns the full text to the client in a 500 body | `to_int(env("KEY"))` in a route — the client receives `to_int("TOPSECRET…")` in the response body | `examples/boundaries/b09_error_text_value.mlog` | №955 (generic 500 + masked error texts; the check-level pin stays pass — the fix is runtime) |
-| B10 | `mlog check <file> --root <root>` EXECUTES the root program (without Category-A gates); `mlog test` runs test bodies without the gates | `mlog check leaf.mlog --root root2.mlog` — the root's `write_file`/`print` run BEFORE analysis; `mlog test t.mlog` — the leak runs, `1/1 tests passed` | `examples/boundaries/b10_check_root/` | №953 (static import resolution, zero execution; `mlog test` gated + `--allow-unchecked`) |
+| B10 | FIXED by №953 (PR #1931): `mlog check --root` is STATIC — zero execution, the import graph resolves via №523, the root's own leaks are REPORTED instead of executed; `mlog test`/`mlog resume` run behind the Category-A gates (`--allow-unchecked` = the loud opt-out) (was: the root EXECUTED without the gates; `mlog test` ungated) | `mlog check leaf.mlog --root root.mlog` — no file, no print, the analysis only; a leaking root refuses with SECRET_LEAK findings; `mlog test` on a leak-class program refuses loudly | `examples/boundaries/b10_check_root/` (the pin flipped to the leak-suite negative — `tests/naryad_948_boundary_pins.rs`) | №953 — DONE |
 | B11 | An imported module declares its own `profile capability` and the permit roster UNIONS it — any dependency grants itself network/exec | root imports `dep/evil` whose `profile capability { allow_carrier: "http_post" }` posts — POST leaves on v0.39.0 | `examples/boundaries/b11_capability_import/` | №954 (permits come from the entry program only) |
 | B12 | Dynamic dispatch beyond the static lattice — a label that only a runtime value check could catch | any flow the static lattice mis-follows (the second line of defense) | — (lands with the №952 machinery) | №952 (labels on VALUES in VM and TW: the sink checks the value's label at runtime — the refusal even when the static analysis was wrong) |
 
 What HOLDS (verified by the same probe set — the honest positive side): the SQL lane rejects non-literal SQL through patterns too (`s01`–`s03`); `serve` refuses a route whose body leaks INTRAPROCEDURALLY; `secret()` prints as `[Secret]`; `compile`/`eval`/`repl` apply the Category-A gates; the runtime sharp-carrier grant gate (probe `c02` is a DECLARED boundary, not a regression — the capability layer answers "is it declared", not "did the owner approve it", №957); the body limit (413), the VM recursion cap, the string cap, the LLM no-settings loud refusal.
+
+### The execution inputs and their gates (№953 — the input→gate inventory)
+
+Every CLI input that EXECUTES code sits behind the Category-A gates; the analysis inputs execute NOTHING. Pinned by `tests/naryad_953_check_root_static.rs` + `metalogos-server/tests/naryad_953_cli_gates.rs` (the real-binary spawn, the audit PoC shapes).
+
+| Input | Executes? | Gates | Pinned by |
+|---|---|---|---|
+| `mlog run file.mlog` | yes | `enforce_run_gates` (Category-A + the №523 semantic set) BEFORE execution + the runtime capability/grant gates | the leak-suite negatives; №800 |
+| `mlog run file.mbc` | yes (compiled code) | the gates rode the COMPILE lane (`mlog compile` = `enforce_compile_gates` — a refused program produces no bytecode); the loader enforces the size limit and refuses garbage cleanly. A hand-forged/foreign .mbc is OUTSIDE the static-gate contract by the compiled-artifact trust model (documented boundary; the supply-chain lane is the №909–№913 registry digest pinning) | `naryad_953_cli_gates.rs` (compile refuses the leak; the loader refuses garbage without a panic) |
+| `mlog compile` | no (emits bytecode) | `enforce_compile_gates` | №98 |
+| `mlog eval` | yes | `enforce_run_gates` (№800 — the user path); the `--reference` TW oracle lane keeps its historical ungated form (documented) | №800 |
+| REPL (VM, the default) | yes, per chunk | `enforce_compile_gates` per session chunk (`compile_session_declarations`) | №819 |
+| `mlog serve` | yes, per route | the startup gates (Category-A + №523) + the serve route context | server.rs (№808/№523) |
+| `mlog mcp-serve` | yes, per tool call | the same startup gates | mcp_server.rs |
+| `mlog check [--root]` | **NO — zero execution (№953)** | static only: the import graph resolves via №523, the root is NEVER run; the root's own leaks are REPORTED, not executed | `naryad_953_*` (the C-2 probe: no file, no print, the refusal instead) |
+| `mlog test` | yes (test bodies) | `enforce_run_gates` BEFORE execution (№953); `--allow-unchecked` = the explicit LOUD opt-out (the banner fires every run) | `naryad_953_*` (the H-1 probe: refusal, no file; the banner) |
+| `mlog resume` | yes (flow bodies) | `enforce_run_gates` BEFORE the checkpoint machinery (№953) | `naryad_953_*` |
+| `mlog-lsp` | **NO** — parses/analyzes only; no interpreter is constructed anywhere in the crate | — | the source-level scan in `naryad_953_cli_gates.rs` |
 
 ## Runtime Protections (Outside Audit)
 

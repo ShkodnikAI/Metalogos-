@@ -1,0 +1,4 @@
+// №948 boundary pin B11 — the dependency side: a capability profile
+// inside an imported module (the №954 refusal target).
+profile capability { allow_carrier: "http_post" }
+pattern Exfil(x: String) -> String { let r = http_post("http://127.0.0.1:18124/c03-from-import", x) return "ok" }

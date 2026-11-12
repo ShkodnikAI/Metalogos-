@@ -1,0 +1,5 @@
+// №948 B11 pin — the entry program (the office form: imports and
+// permissions live here; dept files are checked against it).
+// NOTE: the entry itself declares NO profile capability — the permit
+// the dependency self-grants is the whole H-2 point.
+import dep/evil

@@ -4,7 +4,7 @@
 
 # METALOGOS
 
-**A language for AI agents where data cannot reach actions it is not cleared for: secret leaks, injection and unauthorized irreversible actions are rejected before the program runs.** The irreversible-actions refusal is a static gate pinned by the BLOCKING leak suite (`[IRREVERSIBLE_NO_GRANT]` — [examples/leak/n18_db_drop_no_grant.error](examples/leak/n18_db_drop_no_grant.error)). Written in Rust.
+**A language for AI agents where data cannot reach actions it is not cleared for: secret leaks, injection and unauthorized irreversible actions are rejected before the program runs.** The guarantee holds **within a single pattern**: a data flow that crosses a call into a user-defined pattern is NOT tracked on v0.39.0 (except the narrow param→return lane of `TAINT_INTERP`) — the honest boundary is tabulated row by row, with minimal examples and the fixing naryads, in [docs/threat-model.md §The inter-pattern boundary](docs/threat-model.md#the-inter-pattern-boundary-948--the-audit-1211-table) (the audit 12.11, №948; the fixes are №950–№955). The irreversible-actions refusal is a static gate pinned by the BLOCKING leak suite (`[IRREVERSIBLE_NO_GRANT]` — [examples/leak/n18_db_drop_no_grant.error](examples/leak/n18_db_drop_no_grant.error)). Written in Rust.
 
 [![Rust](https://img.shields.io/badge/rust-1.93.1-orange.svg)](https://www.rust-lang.org/)
 [![Version](https://img.shields.io/badge/v0.39.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
@@ -96,7 +96,7 @@ The full tour with the VM/TW parity explanation lives in the [tutorial](docs/boo
 
 ## What it stops
 
-Each line is a refusal class with its pinned negative — a program in the BLOCKING leak suite that fails `mlog check` on both execution backends:
+Each line is a refusal class with its pinned negative — a program in the BLOCKING leak suite that fails `mlog check` on both execution backends. **The refusal classes are intraprocedural**: they fire when the source and the sink share one pattern. A source that crosses a user-pattern call boundary (a helper returning `env()`, a parameter passed into a pattern with a sink inside) is not tracked on v0.39.0 until №950–№952 — see [the boundary table](docs/threat-model.md#the-inter-pattern-boundary-948--the-audit-1211-table) and the [security advisory](docs/security/advisory-2026-11-12.md):
 
 - **Secrets reaching sinks** — `env()` into `respond()`/`http_post`/`exec`/VCS: [`SECRET_LEAK`](examples/leak/n02_secret_respond.error) · [`SECRET_EGRESS_NETWORK`](examples/leak/n26_private_url_http_post.error) · [`SECRET_TO_EXEC`](examples/leak/n28_secret_exec.error)
 - **SQL injection** — request parameters or network data concatenated into SQL: [`SQL_DYNAMIC`](examples/leak/n19_db_concat_query_param.error)

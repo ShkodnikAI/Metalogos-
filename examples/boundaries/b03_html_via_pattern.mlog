@@ -1,0 +1,7 @@
+// №948 boundary pin B3 (audit PoC h02): untrusted output reaches
+// respond_html through a pattern — a working XSS under serve.
+// CURRENT behavior (v0.39.0): mlog check passes. Flip target: №950 —
+// the HTML lane through the summary rules -> HTML_INJECTION.
+pattern Gen(q: String) -> String { return call_llm("say hi", q) }
+mlogserver { port: 18202
+  route "/a" method=GET { return respond_html(Gen("x")) } }

@@ -1,0 +1,3 @@
+// №948 boundary pin B10 (audit PoC 5_check_root_and_test/leaf.mlog):
+// the file under check — harmless by itself.
+pattern Leaf(a: String) -> String { return a }

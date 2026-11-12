@@ -749,3 +749,120 @@ mod gate_tests {
         mandate_store_reset();
     }
 }
+
+/// №954 (the audit 12.11, H-2 — gh#1921): the capability permit roster
+/// comes from the ENTRY (root) program ONLY. An imported module declaring
+/// its own `profile capability { allow_carrier: … }` is the dependency
+/// self-grant the audit reproduced (probe c03: the POST leaves on
+/// v0.39.0 — the VM compiler unioned the imported declaration into the
+/// roster through `permits_from_declarations(&all_decls)`).
+///
+/// The rule: the declaration inside an import is a LOUD check/compile
+/// refusal `[CAPABILITY_PROFILE_IN_IMPORT]` naming the carrier and the
+/// fix (move the declaration to the entry program). The transition
+/// window (the №949 §12.5 form): the entry declaring
+/// `profile legacy { capability_imports: warn }` downgrades the refusal
+/// to a loud stderr warning — the roster STILL never extends (the
+/// runtime sink refuses with IRREVERSIBLE_NO_GRANT exactly as before);
+/// the key is removed after one release window.
+///
+/// The entry's OWN `profile capability` declarations are untouched: the
+/// roster of the entry program is the whole roster.
+fn origin_result_954(
+    entry: &[crate::ast::Declaration],
+    imported_profiles: &[crate::ast::ProfileDecl],
+) -> Result<(), String> {
+    let mut found: Vec<&str> = Vec::new();
+    for p in imported_profiles {
+        for (k, v) in &p.options {
+            if k == "allow_carrier" {
+                found.push(v.as_str());
+            }
+        }
+    }
+    if found.is_empty() {
+        return Ok(());
+    }
+    let entry_warns = entry.iter().any(|decl| {
+        matches!(decl, crate::ast::Declaration::Profile(p)
+            if p.name == "legacy"
+                && p.options.iter().any(|(k, v)| k == "capability_imports" && v == "warn"))
+    });
+    let carriers = found.join(", ");
+    if entry_warns {
+        warn_line_954(&carriers);
+        return Ok(());
+    }
+    Err(format!(
+        "[CAPABILITY_PROFILE_IN_IMPORT] an imported module declares its own `profile capability {{ allow_carrier: {carriers} }}` — the capability permit roster comes from the ENTRY (root) program only (№954, the audit 12.11 H-2; ADR-0203 §2.4). A dependency cannot grant itself a carrier. Move the declaration into the root program (the transition warning form: `profile legacy {{ capability_imports: warn }}` in the entry — one release window)."
+    ))
+}
+
+fn warn_line_954(carriers: &str) {
+    eprintln!(
+        "⚠  [CAPABILITY_PROFILE_IN_IMPORT] (the transition window): an imported module declares profile capability {{ allow_carrier: {carriers} }} — the permit roster comes from the ENTRY program only (№954); the roster is NOT extended and the carrier refuses at the sink with IRREVERSIBLE_NO_GRANT. Move the declaration into the root program; the `profile legacy {{ capability_imports: warn }}` key is removed after the window."
+    );
+}
+
+/// The declaration-list form (the gates holding module decls directly:
+/// the VM compiler's imported set).
+pub fn check_imported_capability_profiles(
+    entry: &[crate::ast::Declaration],
+    module_decls: &[crate::ast::Declaration],
+) -> Result<(), String> {
+    let imported_profiles: Vec<crate::ast::ProfileDecl> = module_decls
+        .iter()
+        .filter_map(|d| match d {
+            crate::ast::Declaration::Profile(p) if p.name == "capability" => Some(p.clone()),
+            _ => None,
+        })
+        .collect();
+    origin_result_954(entry, &imported_profiles)
+}
+
+/// The mode-explicit form the VM compiler uses (the entry's transition
+/// flag is resolved before the compile loop consumes the list).
+pub fn check_imported_capability_profiles_with_mode(
+    module_decls: &[crate::ast::Declaration],
+    warn_mode: bool,
+) -> Result<(), String> {
+    let imported_profiles: Vec<crate::ast::ProfileDecl> = module_decls
+        .iter()
+        .filter_map(|d| match d {
+            crate::ast::Declaration::Profile(p) if p.name == "capability" => Some(p.clone()),
+            _ => None,
+        })
+        .collect();
+    if imported_profiles.is_empty() {
+        return Ok(());
+    }
+    if warn_mode {
+        let carriers: Vec<&str> = imported_profiles
+            .iter()
+            .flat_map(|p| {
+                p.options
+                    .iter()
+                    .filter(|(k, _)| k == "allow_carrier")
+                    .map(|(_, v)| v.as_str())
+                    .collect::<Vec<&str>>()
+            })
+            .collect();
+        warn_line_954(&carriers.join(", "));
+        return Ok(());
+    }
+    origin_result_954(&[], &imported_profiles)
+}
+
+/// The import-GROUP form (the static resolvers record the skipped
+/// capability profiles per module — semantic::ImportModuleGroup). This
+/// is the form the check/run/serve/mcp gates use.
+pub fn check_imported_capability_groups(
+    entry: &[crate::ast::Declaration],
+    groups: &[crate::semantic::ImportModuleGroup],
+) -> Result<(), String> {
+    let imported_profiles: Vec<crate::ast::ProfileDecl> = groups
+        .iter()
+        .flat_map(|g| g.capability_profiles.iter().cloned())
+        .collect();
+    origin_result_954(entry, &imported_profiles)
+}

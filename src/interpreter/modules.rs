@@ -76,6 +76,27 @@ impl Interpreter {
             match decl {
                 // №325: the compatibility profile is a compile-time
                 // declaration — no runtime effect.
+                //
+                // №954 (the audit 12.11 H-2): an imported capability
+                // profile NEVER extends the roster (the TW lane skips it
+                // at load; the VM lane strips it at compile, №954). The
+                // old form was a SILENT skip — the LOUD line names the
+                // carriers and the rule; the default path refuses at
+                // check/compile BEFORE this point (the run reaches this
+                // warning only in the №954 transition window or on the
+                // un-warned direct-run shapes the gates covered).
+                Declaration::Profile(p) if p.name == "capability" => {
+                    let carriers = p
+                        .options
+                        .iter()
+                        .filter(|(k, _)| k == "allow_carrier")
+                        .map(|(_, v)| v.as_str())
+                        .collect::<Vec<&str>>()
+                        .join(", ");
+                    eprintln!(
+                        "⚠  [CAPABILITY_PROFILE_IN_IMPORT] an imported module declares profile capability {{ allow_carrier: {carriers} }} — the permit roster comes from the ENTRY program only (№954, the audit 12.11 H-2); the roster is NOT extended."
+                    );
+                }
                 Declaration::Profile(_) => {}
                 // №801: the MCP policy is gateway-level — no runtime
                 // effect in the interpreter either.

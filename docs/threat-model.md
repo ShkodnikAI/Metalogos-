@@ -194,6 +194,12 @@ Every CLI input that EXECUTES code sits behind the Category-A gates; the analysi
 | `mlog resume` | yes (flow bodies) | `enforce_run_gates` BEFORE the checkpoint machinery (№953) | `naryad_953_*` |
 | `mlog-lsp` | **NO** — parses/analyzes only; no interpreter is constructed anywhere in the crate | — | the source-level scan in `naryad_953_cli_gates.rs` |
 
+### The capability permit origin (№954 — the audit 12.11 H-2)
+
+The capability permit roster (`profile capability { allow_carrier: … }`) comes from the ENTRY (root) program ONLY. An imported module declaring its own capability profile is the dependency self-grant the audit reproduced (probe c03: the POST left on v0.39.0 through the VM compiler's union of the imported declaration): on the fixed tree it is the loud `[CAPABILITY_PROFILE_IN_IMPORT]` refusal at check/run/compile/serve/mcp-serve, and the roster never extends either way (the TW loader skips the imported profile with a loud line; the VM compiler strips it before the roster resolution; the transition window `profile legacy { capability_imports: warn }` in the ENTRY downgrades the refusal to a loud stderr warning for one release window — the sink still refuses with `IRREVERSIBLE_NO_GRANT`). The weakening declarations share the one rule — an inventory: `profile legacy`, `profile licensing`, and `mcp_policy` from imports are inert on every executor (the TW loader skips them, the VM pass1 skips them, the profile flags resolve from the ENTRY declarations); the ONLY roster-carrying form was the capability profile, closed by №954.
+
+The honest boundary that REMAINS (probe c02): the capability layer answers "is it declared", not "did the owner approve it" — a program may issue its own `grant_issue("builtin:http_post", …)` and the gate honors the declaration. The verifiable-mandate fix (the mandate issued OUTSIDE the program, `mlog approve` — ADR-0211, the variant б+в) is №957.
+
 ## Runtime Protections (Outside Audit)
 
 These are not audit checks but contribute to the overall threat posture:

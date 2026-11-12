@@ -478,8 +478,20 @@ impl Compiler {
 
     /// Compile a list of declarations into a bytecode Program.
     pub fn compile(&mut self, declarations: Vec<Declaration>) -> Result<Program, String> {
+        // №954 (the audit 12.11 H-2): the transition-window flag reads the
+        // ENTRY's own `profile legacy` BEFORE the loop consumes the list.
+        let entry_warns_954 = declarations.iter().any(|d| {
+            matches!(d, Declaration::Profile(p)
+                if p.name == "legacy"
+                    && p.options.iter().any(|(k, v)| k == "capability_imports" && v == "warn"))
+        });
         // Phase 1: resolve imports
         let mut all_decls = Vec::new();
+        // №954 (the audit 12.11 H-2): the imported declarations are kept
+        // apart so the roster resolution below cannot union a dependency's
+        // self-grant (the c03 probe: the POST left on v0.39.0 through
+        // `permits_from_declarations(&all_decls)`).
+        let mut imported_decls: Vec<Declaration> = Vec::new();
         for decl in declarations {
             if let Declaration::Import(import) = &decl {
                 // Fix 2: use `import.path` instead of `import.module_path`
@@ -490,12 +502,28 @@ impl Compiler {
                 }
                 if !self.imported_modules.contains(&import.path) {
                     let imported = self.resolve_import(&import.path)?;
-                    all_decls.extend(imported);
+                    imported_decls.extend(imported);
                 }
             } else {
                 all_decls.push(decl);
             }
         }
+        // №954: the loud origin check (refusal, or the loud warning in
+        // the transition window) — BEFORE anything compiles.
+        crate::capability::check_imported_capability_profiles_with_mode(
+            &imported_decls,
+            entry_warns_954,
+        )?;
+        // №954: the imported declarations merge MINUS the capability
+        // profiles — the permit roster below (and the TW runtime loader,
+        // which skips `Profile` already) never extends from an import.
+        // The entry's OWN `profile capability` rides `all_decls` as
+        // before: the roster of the ENTRY program is the whole roster.
+        all_decls.extend(
+            imported_decls
+                .into_iter()
+                .filter(|d| !matches!(d, Declaration::Profile(p) if p.name == "capability")),
+        );
 
         // №845 (ADR-0203 §2.4): the capability permit roster rides the
         // Program (the VM lane's copy of the TW run() resolution — the

@@ -809,8 +809,11 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
         // №954 (the audit 12.11 H-2): the capability permit roster comes
         // from the ENTRY program only — the serve startup refuses the
         // dependency self-grant exactly as the run gate does.
-        metalogos::capability::check_imported_capability_groups(&declarations, &module_groups)
-            .map_err(|e| format!("Category A security invariant violated:\n{}", e))?;
+        metalogos::capability::check_imported_capability_groups(
+            &declarations,
+            &metalogos::semantic::ImportModuleGroup::flattened_capability_profiles(&module_groups),
+        )
+        .map_err(|e| format!("Category A security invariant violated:\n{}", e))?;
         let mut merged_decls = module_decls;
         merged_decls.extend(declarations.clone());
         let sem_result = metalogos::semantic::check_program(&merged_decls);

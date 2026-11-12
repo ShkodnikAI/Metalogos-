@@ -853,16 +853,16 @@ pub fn check_imported_capability_profiles_with_mode(
     origin_result_954(&[], &imported_profiles)
 }
 
-/// The import-GROUP form (the static resolvers record the skipped
-/// capability profiles per module — semantic::ImportModuleGroup). This
-/// is the form the check/run/serve/mcp gates use.
+/// The import-GROUP form: the caller (lib.rs, the server gates) flattens
+/// the skipped capability profiles out of its import groups
+/// (semantic::ImportModuleGroup) and passes the plain list — capability
+/// stays naming-free of the semantic module (the C4 ratchet: the
+/// capability→semantic edge would fuse the two frozen SCCs into one
+/// cycle; the dependency direction stays semantic/lib → capability).
+/// This is the form the check/run/serve/mcp gates use.
 pub fn check_imported_capability_groups(
     entry: &[crate::ast::Declaration],
-    groups: &[crate::semantic::ImportModuleGroup],
+    imported_profiles: &[crate::ast::ProfileDecl],
 ) -> Result<(), String> {
-    let imported_profiles: Vec<crate::ast::ProfileDecl> = groups
-        .iter()
-        .flat_map(|g| g.capability_profiles.iter().cloned())
-        .collect();
-    origin_result_954(entry, &imported_profiles)
+    origin_result_954(entry, imported_profiles)
 }

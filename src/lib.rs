@@ -252,7 +252,10 @@ fn enforce_run_gates(
         // №954 (the audit 12.11 H-2): the capability permit roster comes
         // from the ENTRY program only — an imported `profile capability`
         // is the dependency self-grant, refused BEFORE any execution.
-        crate::capability::check_imported_capability_groups(declarations, &module_groups)?;
+        crate::capability::check_imported_capability_groups(
+            declarations,
+            &semantic::ImportModuleGroup::flattened_capability_profiles(&module_groups),
+        )?;
         let mut merged_decls = module_decls;
         merged_decls.extend(declarations.to_vec());
         let sem_result = semantic::check_program(&merged_decls);
@@ -371,9 +374,11 @@ pub fn check_program_with_root(
             // is the dependency self-grant — the check refuses (or, in
             // the №954 transition window, warns loudly). The error rides
             // the AnalysisResult below (result is built after the merge).
-            imported_profile_error_954 =
-                crate::capability::check_imported_capability_groups(&parsed_root, &module_groups)
-                    .err();
+            imported_profile_error_954 = crate::capability::check_imported_capability_groups(
+                &parsed_root,
+                &semantic::ImportModuleGroup::flattened_capability_profiles(&module_groups),
+            )
+            .err();
             let mut merged = module_decls;
             merged.extend(parsed_root);
             // №954: the root==file detection rides the SOURCE text — the

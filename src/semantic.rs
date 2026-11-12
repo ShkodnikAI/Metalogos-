@@ -782,6 +782,24 @@ pub struct ImportModuleGroup {
     pub capability_profiles: Vec<crate::ast::ProfileDecl>,
 }
 
+impl ImportModuleGroup {
+    /// №954: the flattened skipped-capability-profile list over the
+    /// import groups — the argument form `capability::check_imported_
+    /// capability_groups` takes. The flattening lives HERE (the semantic
+    /// side) so the capability module never names the semantic type:
+    /// the capability→semantic edge would fuse the two frozen SCCs into
+    /// one cycle (the C4 ratchet), while semantic→capability is the
+    /// dependency direction the ownership table owns.
+    pub fn flattened_capability_profiles(
+        groups: &[ImportModuleGroup],
+    ) -> Vec<crate::ast::ProfileDecl> {
+        groups
+            .iter()
+            .flat_map(|g| g.capability_profiles.iter().cloned())
+            .collect()
+    }
+}
+
 /// Наряд №523: statically resolve a program's import tree so the
 /// semantic pass sees every symbol the interpreter will have at runtime
 /// (the full WHY/mechanics contract lives on `resolve_import_groups`

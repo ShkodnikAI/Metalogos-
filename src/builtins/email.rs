@@ -179,7 +179,7 @@ fn smtp_send_impl(
     let from_mailbox: Mailbox = from.parse().map_err(|e| {
         format!(
             "smtp_send: invalid From {}: {:?} (№955 — the value is masked)",
-            crate::interpreter::values::masked_string(&from),
+            crate::interpreter::values::masked_string(from),
             e
         )
     })?;
@@ -193,7 +193,7 @@ fn smtp_send_impl(
         let rt_mailbox: Mailbox = rt.parse().map_err(|e| {
             format!(
                 "smtp_send: invalid Reply-To {}: {:?} (№955 — the value is masked)",
-                crate::interpreter::values::masked_string(&rt),
+                crate::interpreter::values::masked_string(rt),
                 e
             )
         })?;
@@ -209,7 +209,7 @@ fn smtp_send_impl(
         let mailbox: Mailbox = addr.parse().map_err(|e| {
             format!(
                 "smtp_send: invalid To {}: {:?} (№955 — the value is masked)",
-                crate::interpreter::values::masked_string(&addr),
+                crate::interpreter::values::masked_string(addr),
                 e
             )
         })?;
@@ -268,7 +268,7 @@ fn smtp_send_impl(
         .map_err(|e| {
             format!(
                 "smtp_send: cannot configure relay for {}: {:?} (№955 — the value is masked)",
-                crate::interpreter::values::masked_string(&host),
+                crate::interpreter::values::masked_string(host),
                 e
             )
         })?
@@ -541,7 +541,7 @@ fn imap_list_impl(
     session.select(folder).map_err(|e| {
         format!(
             "imap_list: cannot select folder {}: {:?} (№955 — the value is masked)",
-            crate::interpreter::values::masked_string(&folder),
+            crate::interpreter::values::masked_string(folder),
             e
         )
     })?;
@@ -747,7 +747,7 @@ fn imap_search_impl(
     session.select(folder).map_err(|e| {
         format!(
             "imap_search: cannot select folder {}: {:?} (№955 — the value is masked)",
-            crate::interpreter::values::masked_string(&folder),
+            crate::interpreter::values::masked_string(folder),
             e
         )
     })?;

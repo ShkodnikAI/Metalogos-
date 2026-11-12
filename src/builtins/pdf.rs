@@ -2625,11 +2625,6 @@ fn html_to_pdf_wkhtmltopdf(html: &str, path: &str) -> Result<usize, String> {
     // the sandbox/data-dir rules cannot apply to an absolute host temp
     // path (the same class as the html_render temp plumbing in io.rs).
     #[allow(clippy::disallowed_methods)]
-    // №475: host TEMP mechanics for the EXTERNAL wkhtmltopdf process —
-    // an absolute TMPDIR path with a uuid name, never program-controlled;
-    // the sandbox/data-dir rules cannot apply to an absolute host temp
-    // path (the same class as the html_render temp plumbing in io.rs).
-    #[allow(clippy::disallowed_methods)]
     std::fs::write(&tmp_html, html).map_err(|e| format!("temp write failed: {}", e))?;
 
     // Use wkhtmltopdf (C/C++ system tool, NOT Python)

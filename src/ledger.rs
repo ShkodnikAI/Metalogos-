@@ -870,18 +870,6 @@ pub fn ledger_verify(
         // №475: the JOURNAL (the naryad-named service): verifier reads of
         // the exported chain.
         #[allow(clippy::disallowed_methods)]
-        // №475: the JOURNAL (the naryad-named service): verifier reads of
-        // the exported chain.
-        #[allow(clippy::disallowed_methods)]
-        // №475: the JOURNAL (the naryad-named service): verifier reads of
-        // the exported chain.
-        #[allow(clippy::disallowed_methods)]
-        // №475: the JOURNAL (the naryad-named service): verifier reads of
-        // the exported chain.
-        #[allow(clippy::disallowed_methods)]
-        // №475: the JOURNAL (the naryad-named service): verifier reads of
-        // the exported chain.
-        #[allow(clippy::disallowed_methods)]
         LedgerVerifySource::File(path) => std::fs::read_to_string(path)
             .map_err(|e| VerifyFault {
                 record: None,
@@ -969,10 +957,6 @@ pub fn verify_file(
 ) -> Result<VerifyReport, String> {
     // №475: the JOURNAL — verifier reads.
     #[allow(clippy::disallowed_methods)]
-    // №475: the JOURNAL — verifier reads.
-    #[allow(clippy::disallowed_methods)]
-    // №475: the JOURNAL — verifier reads.
-    #[allow(clippy::disallowed_methods)]
     let content = std::fs::read_to_string(path)
         .map_err(|e| format!("cannot read ledger file {}: {}", path.display(), e))?;
     let records = records_from_jsonl(&content)?;
@@ -987,10 +971,6 @@ pub fn archive_file(
     output: &std::path::Path,
     at_seq: u64,
 ) -> Result<VerifyReport, String> {
-    // №475: the JOURNAL — verifier reads.
-    #[allow(clippy::disallowed_methods)]
-    // №475: the JOURNAL — verifier reads.
-    #[allow(clippy::disallowed_methods)]
     // №475: the JOURNAL — verifier reads.
     #[allow(clippy::disallowed_methods)]
     let content = std::fs::read_to_string(input)
@@ -1010,12 +990,6 @@ pub fn archive_file(
     let report = verify_records(slice, None, None)
         .map_err(|e| format!("archived slice does not verify: {}", e))?;
     let jsonl = records_to_jsonl(slice);
-    // №475: the JOURNAL — the export write of the signed chain (the
-    // verifier output path is a CLI argument, not program data).
-    #[allow(clippy::disallowed_methods)]
-    // №475: the JOURNAL — the export write of the signed chain (the
-    // verifier output path is a CLI argument, not program data).
-    #[allow(clippy::disallowed_methods)]
     // №475: the JOURNAL — the export write of the signed chain (the
     // verifier output path is a CLI argument, not program data).
     #[allow(clippy::disallowed_methods)]

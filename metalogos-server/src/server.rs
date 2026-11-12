@@ -758,9 +758,73 @@ pub(crate) fn spawn_scheduler(state: std::sync::Arc<ServerState>) {
     });
 }
 
+/// №955 (the audit 12.11 — gh#1922): the handler-error response form.
+///
+/// The audit's H-3: a runtime error text carried the argument VALUE
+/// (`to_int("TOPSECRET123")`) and `serve` returned the full text to the
+/// CLIENT in the HTTP 500 body. The form:
+///   - the CLIENT receives a GENERIC body — `Internal error (id: err-N)`
+///     — no handler text ever leaves the process;
+///   - the LOG (stderr) carries the full text keyed by the SAME id
+///     (`[ROUTE_HANDLER_ERROR] … id=err-N: <text>`), masked by the
+///     redact policy (`all` — pii + secrets; the belt-and-braces on top
+///     of the №955 builtin-level masking, which already replaces string
+///     argument values with type+length);
+///   - `METALOGOS_SERVE_VERBOSE_ERRORS=1` is the development opt-out —
+///     the old full-text body returns, and the startup banner fires
+///     LOUDLY (a silent verbose mode is the defect class this naryad
+///     closes).
+fn serve_verbose_errors() -> bool {
+    matches!(
+        std::env::var("METALOGOS_SERVE_VERBOSE_ERRORS").as_deref(),
+        Ok("1")
+    )
+}
+
+fn handler_error_response_955(method: &str, uri_path: &str, e: &str) -> axum::response::Response {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static ERR_COUNTER: AtomicU64 = AtomicU64::new(1);
+    let id = format!("err-{:06}", ERR_COUNTER.fetch_add(1, Ordering::Relaxed));
+    if serve_verbose_errors() {
+        eprintln!(
+            "[ROUTE_HANDLER_ERROR] {} {} -> 500 (VERBOSE MODE): {}",
+            method, uri_path, e
+        );
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Handler error: {}", e),
+        )
+            .into_response();
+    }
+    // The full text goes to the LOG only, masked by the redact policy —
+    // a labeled value that slipped the builtin-level mask is still
+    // redacted here (the №955 contract: the client NEVER sees the text).
+    let masked =
+        metalogos::builtins::string::redact_string(e, "all").unwrap_or_else(|_| e.to_string());
+    eprintln!(
+        "[ROUTE_HANDLER_ERROR] {} {} -> 500 id={}: {}",
+        method, uri_path, id, masked
+    );
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        format!(
+            "Internal error (id: {}) — the full text is in the server log (№955)",
+            id
+        ),
+    )
+        .into_response()
+}
+
 /// Parse source, build Axum router, start server on configured port.
 /// This is the entry point for `mlog serve <file>`.
 pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // №955: the verbose-errors opt-out is LOUD at startup — a silent
+    // verbose mode is the defect class this naryad closes.
+    if serve_verbose_errors() {
+        eprintln!(
+            "⚠  SERVE VERBOSE ERRORS: METALOGOS_SERVE_VERBOSE_ERRORS=1 — the HTTP 500 bodies carry the FULL handler error text (№955); the development opt-out must never face untrusted clients"
+        );
+    }
     let declarations =
         metalogos::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
 
@@ -1670,16 +1734,9 @@ async fn route_handler(
             Err(e) => {
                 // №818 (gh#1586): a handler error must be OBSERVABLE — the
                 // office webhook class (17 days silent). One stderr line,
-                // unconditional, no opt-in; the coded error text rides in `e`.
-                eprintln!(
-                    "[ROUTE_HANDLER_ERROR] {} {} -> 500: {}",
-                    method, uri_path, e
-                );
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Handler error: {}", e),
-                )
-                    .into_response()
+                // unconditional, no opt-in. №955: the CLIENT receives the
+                // generic id-body; the full text is the LOG's (masked).
+                handler_error_response_955(&method.to_string(), &uri_path, &e)
             }
         };
 
@@ -4579,13 +4636,9 @@ mlogserver {
             Ok(resp) => resp,
             Err(e) => {
                 // №818: the observability line — same contract as the
-                // production path (the test harness stays honest too).
-                eprintln!("[ROUTE_HANDLER_ERROR] {} {} -> 500: {}", method, path, e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Handler error: {}", e),
-                )
-                    .into_response()
+                // production path. №955: the generic id-body to the
+                // client; the masked full text is the log's.
+                handler_error_response_955(method, path, &e)
             }
         }
     }
@@ -4957,12 +5010,8 @@ mlogserver {
                 Ok(resp) => resp,
                 Err(e) => {
                     // №818: the observability line (see the production path).
-                    eprintln!("[ROUTE_HANDLER_ERROR] {} {} -> 500: {}", method, path, e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Handler error: {}", e),
-                    )
-                        .into_response()
+                    // №955: the generic id-body; the masked text is the log's.
+                    handler_error_response_955(method, path, &e)
                 }
             };
         }
@@ -4984,12 +5033,8 @@ mlogserver {
                     Ok(resp) => resp,
                     Err(e) => {
                         // №818: the observability line (see the production path).
-                        eprintln!("[ROUTE_HANDLER_ERROR] {} {} -> 500: {}", method, path, e);
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            format!("Handler error: {}", e),
-                        )
-                            .into_response()
+                        // №955: the generic id-body; the masked text is the log's.
+                        handler_error_response_955(method, path, &e)
                     }
                 }
             }

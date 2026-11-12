@@ -748,15 +748,49 @@ impl McpServer {
                     Err(e) => {
                         // №794: the allowed call whose BODY failed — the outcome,
                         // not a denial (the tool executed; the body errored).
-                        ledger_mcp_record(true, tool_name, &format!("error: {}", e));
-                        serde_json::json!({
-                            "jsonrpc": "2.0",
-                            "id": id,
-                            "result": {
-                                "content": [{"type": "text", "text": format!("Error: {}", e)}],
-                                "isError": true
-                            }
-                        })
+                        // №955 (the audit 12.11 H-3): the MCP client receives
+                        // the GENERIC error body — the full text is the log's
+                        // (masked by the redact policy), keyed by the same id;
+                        // METALOGOS_SERVE_VERBOSE_ERRORS=1 is the loud dev
+                        // opt-out (the banner fires at startup).
+                        use std::sync::atomic::{AtomicU64, Ordering};
+                        static MCP_ERR_COUNTER: AtomicU64 = AtomicU64::new(1);
+                        let err_id =
+                            format!("err-{:06}", MCP_ERR_COUNTER.fetch_add(1, Ordering::Relaxed));
+                        let masked = metalogos::builtins::string::redact_string(&e, "all")
+                            .unwrap_or_else(|_| e.clone());
+                        ledger_mcp_record(
+                            true,
+                            tool_name,
+                            &format!("error id={}: {}", err_id, masked),
+                        );
+                        if matches!(
+                            std::env::var("METALOGOS_SERVE_VERBOSE_ERRORS").as_deref(),
+                            Ok("1")
+                        ) {
+                            eprintln!(
+                                "[MCP_TOOL_ERROR] {} id={} (VERBOSE MODE): {}",
+                                tool_name, err_id, e
+                            );
+                            serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "result": {
+                                    "content": [{"type": "text", "text": format!("Error: {}", e)}],
+                                    "isError": true
+                                }
+                            })
+                        } else {
+                            eprintln!("[MCP_TOOL_ERROR] {} id={}: {}", tool_name, err_id, masked);
+                            serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "result": {
+                                    "content": [{"type": "text", "text": format!("Error (id: {}) — the full text is in the server log (№955)", err_id)}],
+                                    "isError": true
+                                }
+                            })
+                        }
                     }
                 }
             }
@@ -890,6 +924,17 @@ pub fn run_mcp_server(
     source: &str,
     allowlist: &[String],
 ) -> Result<(), String> {
+    // №955: the verbose-errors opt-out is LOUD at startup (the same
+    // banner the HTTP serve prints — a silent verbose mode is the defect
+    // class this naryad closes).
+    if matches!(
+        std::env::var("METALOGOS_SERVE_VERBOSE_ERRORS").as_deref(),
+        Ok("1")
+    ) {
+        eprintln!(
+            "⚠  MCP VERBOSE ERRORS: METALOGOS_SERVE_VERBOSE_ERRORS=1 — the tool-error bodies carry the FULL error text (№955); the development opt-out must never face untrusted clients"
+        );
+    }
     // gh#536 Finding 2: the gate runs BEFORE the allowlist check — a
     // dangerous file is refused for what it IS, not for what it exposes.
     enforce_category_a_startup(declarations)?;

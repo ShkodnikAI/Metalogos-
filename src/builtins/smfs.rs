@@ -60,19 +60,32 @@ const ROOT_SCAN_LIMIT: usize = 512;
 // ── Диагностические коды (конвенция ADR-0131: код — контракт) ──
 
 fn err_bad_path(path: &str, why: &str) -> String {
+    // №955: the path VALUE is masked — the error text never quotes
+    // string contents (the conservative pre-№952 form).
     format!(
-        "[SMFS_BAD_PATH] smfs: {why}: '{path}' (virtual layout: \
+        "[SMFS_BAD_PATH] smfs: {why}: {} (virtual layout: \
          sm:<db>/<container>/{SMFS_PROFILE_FILE} or \
-         sm:<db>/<container>/<bucket>/<key>)"
+         sm:<db>/<container>/<bucket>/<key>)",
+        crate::interpreter::values::masked_string(path)
     )
 }
 
 fn err_is_dir(path: &str) -> String {
-    format!("[SMFS_IS_DIR] smfs: '{path}' is a virtual directory — use list_dir('{path}')")
+    // №955: the path VALUE is masked.
+    format!(
+        "[SMFS_IS_DIR] smfs: {} is a virtual directory — use list_dir({})",
+        crate::interpreter::values::masked_string(path),
+        crate::interpreter::values::masked_string(path)
+    )
 }
 
 fn err_is_file(path: &str) -> String {
-    format!("[SMFS_IS_FILE] smfs: '{path}' is a virtual file — use read_file('{path}')")
+    // №955: the path VALUE is masked.
+    format!(
+        "[SMFS_IS_FILE] smfs: {} is a virtual file — use read_file({})",
+        crate::interpreter::values::masked_string(path),
+        crate::interpreter::values::masked_string(path)
+    )
 }
 
 /// Громкий отказ записи/удаления в виртуальном пространстве (вопрос 1:

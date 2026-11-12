@@ -176,9 +176,13 @@ fn smtp_send_impl(
     use lettre::Transport;
 
     // Build the email message
-    let from_mailbox: Mailbox = from
-        .parse()
-        .map_err(|e| format!("smtp_send: invalid From '{}': {:?}", from, e))?;
+    let from_mailbox: Mailbox = from.parse().map_err(|e| {
+        format!(
+            "smtp_send: invalid From {}: {:?} (№955 — the value is masked)",
+            crate::interpreter::values::masked_string(&from),
+            e
+        )
+    })?;
 
     let mut builder = Message::builder()
         .from(from_mailbox)
@@ -186,9 +190,13 @@ fn smtp_send_impl(
 
     // Add Reply-To if provided
     if let Some(rt) = reply_to {
-        let rt_mailbox: Mailbox = rt
-            .parse()
-            .map_err(|e| format!("smtp_send: invalid Reply-To '{}': {:?}", rt, e))?;
+        let rt_mailbox: Mailbox = rt.parse().map_err(|e| {
+            format!(
+                "smtp_send: invalid Reply-To {}: {:?} (№955 — the value is masked)",
+                crate::interpreter::values::masked_string(&rt),
+                e
+            )
+        })?;
         builder = builder.reply_to(rt_mailbox);
     }
 
@@ -198,9 +206,13 @@ fn smtp_send_impl(
         if addr.is_empty() {
             continue;
         }
-        let mailbox: Mailbox = addr
-            .parse()
-            .map_err(|e| format!("smtp_send: invalid To '{}': {:?}", addr, e))?;
+        let mailbox: Mailbox = addr.parse().map_err(|e| {
+            format!(
+                "smtp_send: invalid To {}: {:?} (№955 — the value is masked)",
+                crate::interpreter::values::masked_string(&addr),
+                e
+            )
+        })?;
         builder = builder.to(mailbox);
     }
 
@@ -253,7 +265,13 @@ fn smtp_send_impl(
     let creds = Credentials::new(user.to_string(), pass.to_string());
 
     let mailer = SmtpTransport::relay(host)
-        .map_err(|e| format!("smtp_send: cannot configure relay for '{}': {:?}", host, e))?
+        .map_err(|e| {
+            format!(
+                "smtp_send: cannot configure relay for {}: {:?} (№955 — the value is masked)",
+                crate::interpreter::values::masked_string(&host),
+                e
+            )
+        })?
         .port(port)
         .credentials(creds)
         .build();
@@ -317,7 +335,7 @@ pub fn builtin_imap_list(args: &[Value]) -> Result<Value, String> {
             .map_err(|e| format!("imap_list: invalid limit '{}': {}", s, e))?,
         other => {
             return Err(format!(
-                "imap_list: limit must be number or string, got {:?}",
+                "imap_list: limit must be number or string, got {} (№955 — the value is masked)",
                 other
             ))
         }
@@ -350,13 +368,17 @@ pub fn builtin_imap_list(args: &[Value]) -> Result<Value, String> {
 pub fn builtin_imap_read(args: &[Value]) -> Result<Value, String> {
     let uid = match &args[0] {
         Value::Float(f) => *f as u32,
-        Value::String(s) => s
-            .parse::<u32>()
-            .map_err(|e| format!("imap_read: invalid uid '{}': {}", s, e))?,
+        Value::String(s) => s.parse::<u32>().map_err(|e| {
+            format!(
+                "imap_read: invalid uid {}: {} (№955 — the value is masked)",
+                crate::interpreter::values::masked_string(s),
+                e
+            )
+        })?,
         other => {
             return Err(format!(
-                "imap_read: uid must be number or string, got {:?}",
-                other
+                "imap_read: uid must be number or string, got {} (№955 — the value is masked)",
+                other.type_name()
             ))
         }
     };
@@ -391,13 +413,17 @@ pub fn builtin_imap_search(args: &[Value]) -> Result<Value, String> {
 pub fn builtin_imap_mark_read(args: &[Value]) -> Result<Value, String> {
     let uid = match &args[0] {
         Value::Float(f) => *f as u32,
-        Value::String(s) => s
-            .parse::<u32>()
-            .map_err(|e| format!("imap_mark_read: invalid uid '{}': {}", s, e))?,
+        Value::String(s) => s.parse::<u32>().map_err(|e| {
+            format!(
+                "imap_mark_read: invalid uid {}: {} (№955 — the value is masked)",
+                crate::interpreter::values::masked_string(s),
+                e
+            )
+        })?,
         other => {
             return Err(format!(
-                "imap_mark_read: uid must be number or string, got {:?}",
-                other
+                "imap_mark_read: uid must be number or string, got {} (№955 — the value is masked)",
+                other.type_name()
             ))
         }
     };
@@ -417,13 +443,17 @@ pub fn builtin_imap_mark_read(args: &[Value]) -> Result<Value, String> {
 pub fn builtin_imap_move(args: &[Value]) -> Result<Value, String> {
     let uid = match &args[0] {
         Value::Float(f) => *f as u32,
-        Value::String(s) => s
-            .parse::<u32>()
-            .map_err(|e| format!("imap_move: invalid uid '{}': {}", s, e))?,
+        Value::String(s) => s.parse::<u32>().map_err(|e| {
+            format!(
+                "imap_move: invalid uid {}: {} (№955 — the value is masked)",
+                crate::interpreter::values::masked_string(s),
+                e
+            )
+        })?,
         other => {
             return Err(format!(
-                "imap_move: uid must be number or string, got {:?}",
-                other
+                "imap_move: uid must be number or string, got {} (№955 — the value is masked)",
+                other.type_name()
             ))
         }
     };
@@ -508,9 +538,13 @@ fn imap_list_impl(
 ) -> Result<Value, String> {
     let mut session = imap_connect(host, port, user, pass)?;
 
-    session
-        .select(folder)
-        .map_err(|e| format!("imap_list: cannot select folder '{}': {:?}", folder, e))?;
+    session.select(folder).map_err(|e| {
+        format!(
+            "imap_list: cannot select folder {}: {:?} (№955 — the value is masked)",
+            crate::interpreter::values::masked_string(&folder),
+            e
+        )
+    })?;
 
     // Build search criteria
     let criteria = if let Some(date) = since_date {
@@ -710,9 +744,13 @@ fn imap_search_impl(
 ) -> Result<Value, String> {
     let mut session = imap_connect(host, port, user, pass)?;
 
-    session
-        .select(folder)
-        .map_err(|e| format!("imap_search: cannot select folder '{}': {:?}", folder, e))?;
+    session.select(folder).map_err(|e| {
+        format!(
+            "imap_search: cannot select folder {}: {:?} (№955 — the value is masked)",
+            crate::interpreter::values::masked_string(&folder),
+            e
+        )
+    })?;
 
     // IMAP SEARCH TEXT matches against subject, from, and body
     let criteria = format!("TEXT \"{}\"", query.replace('"', "\\\""));

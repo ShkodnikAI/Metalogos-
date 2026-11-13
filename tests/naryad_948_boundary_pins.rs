@@ -54,11 +54,28 @@ const SINGLE_FILE_PINS: &[(&str, &str, u32)] = &[
 /// here without a flipped negative taking its place is a silently
 /// abandoned pin — the table would then claim a gap nothing measures.
 const STILL_OPEN_PINS: &[(&str, &str, u32)] = &[
-    ("b05_each_accumulator.mlog", "B5", 951),
-    ("b06_secret_in_get_url.mlog", "B6", 951),
+    // B7 stays open BY DECISION, not by omission: closing the flow output
+    // exposed three pre-existing lattice questions (the axis the output is
+    // gated on — 8 corpus files on confidentiality alone against 29 on
+    // both; a sink's RETURN value inheriting its arguments' labels, so
+    // `quarantine_write`'s receipt comes out poisoned; and three of the
+    // project's own examples that print private data from a flow, each
+    // pinned as clean by an existing test). Each is an owner decision, and
+    // the fix is held as a patch until it is made.
     ("b07_flow_output.mlog", "B7", 951),
-    ("b08_secret_entity_to_string.mlog", "B8", 951),
     ("b09_error_text_value.mlog", "B9", 955),
+];
+
+/// The rows FLIPPED by №951 — the in-pattern losses, each now a blocking
+/// refusal pinned by the class that actually fires.
+const FLIPPED_951_PINS: &[(&str, &str, &str)] = &[
+    ("b05_each_accumulator.mlog", "B5", "PII_EGRESS_OUTPUT"),
+    ("b06_secret_in_get_url.mlog", "B6", "PII_EGRESS_NETWORK"),
+    (
+        "b08_secret_entity_to_string.mlog",
+        "B8",
+        "PII_EGRESS_OUTPUT",
+    ),
 ];
 
 /// The rows FLIPPED by №950 — each now a blocking refusal, pinned by the
@@ -231,6 +248,45 @@ fn n948_b01_b04_interprocedural_boundary_is_the_refusal() {
             check_id,
             if rendered.is_empty() {
                 "<no errors — check passes again>"
+            } else {
+                &rendered
+            }
+        );
+    }
+}
+
+/// B5, B6, B8 pins — FLIPPED TO LEAK-SUITE NEGATIVES by №951 (the №948
+/// contract): the in-pattern label losses.
+///
+/// B5 — the `each` body's raises now fold back into the loop-exit
+/// environment, exactly as the `while` arm already did (the asymmetry WAS
+/// the gap). B6 — the address/query family of request builtins gates its
+/// arguments on the confidentiality axis, so a secret in a URL refuses.
+/// B8 — an entity seeds from its explicit annotation, its declared type
+/// AND its initializer's label, not from string literals alone; the
+/// sharpest half of B8 was that `entity k: String<private>` was ignored
+/// outright.
+#[test]
+fn n948_b05_b06_b08_in_pattern_losses_are_the_refusal() {
+    for (fixture, row, check_id) in FLIPPED_951_PINS {
+        let src = fs::read_to_string(boundary_dir().join(fixture))
+            .unwrap_or_else(|e| panic!("cannot read {}: {}", fixture, e));
+        let result = metalogos::check_program(&src)
+            .unwrap_or_else(|e| panic!("row {}: parse failed — the pin is broken: {}", row, e));
+        let rendered = result
+            .errors
+            .iter()
+            .map(|e| format!("{:?}", e))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains(check_id),
+            "row {} ({}): the in-pattern loss must refuse with {} (№951); got: {}",
+            row,
+            fixture,
+            check_id,
+            if rendered.is_empty() {
+                "<no errors — the loss is back>"
             } else {
                 &rendered
             }

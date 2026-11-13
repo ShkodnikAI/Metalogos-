@@ -1,7 +1,8 @@
-// №948 boundary pin B1 (audit PoC p04): the source inside the called
-// pattern is invisible at the call site — check passes, run leaks.
-// CURRENT behavior (v0.39.0): mlog check passes. Flip target: №950 —
-// the return label joins the internal sources -> SECRET_LEAK.
+// №948 boundary pin B1 (audit PoC p04) — FLIPPED by №950.
+// The source inside the called pattern was invisible at the call site on
+// v0.39.0: `mlog check` passed, the run leaked. Now the return label
+// joins the callee's internal sources (ADR-0154 §12.2 (а)) and this
+// program is the [PII_EGRESS_OUTPUT] refusal — a leak-suite negative.
 pattern G(x: String) -> String { return env("SP") }
 pattern P(x: String) -> String { print(G("a")) return "ok" }
 flow Main { input: String = "x" -> P -> output }

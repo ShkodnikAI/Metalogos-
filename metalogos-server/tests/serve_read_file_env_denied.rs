@@ -176,9 +176,11 @@ async fn n455_serve_read_file_env_denied_at_runtime() {
         body
     );
     assert_no_marker(&body, "runtime deny (.env)");
+    // №955: on the wire the refusal is the generic id-form — the stable
+    // №455 code rides the [ROUTE_HANDLER_ERROR] log line (№818/№955).
     assert!(
-        body.contains("SANDBOX_SENSITIVE_PATH"),
-        "the refusal must carry the stable №455 code — body: {}",
+        body.contains("Internal error (id: err-") && !body.contains("SANDBOX_SENSITIVE_PATH"),
+        "the refusal must be the generic №955 id-form — body: {}",
         body
     );
 }
@@ -210,9 +212,10 @@ async fn n455_serve_read_file_outside_data_dir_denied() {
         body
     );
     assert_no_marker(&body, "runtime containment (outside root)");
+    // №955: the generic id-form on the wire — the №455 code rides the log.
     assert!(
-        body.contains("SANDBOX_SENSITIVE_PATH"),
-        "the containment refusal must carry the stable №455 code — body: {}",
+        body.contains("Internal error (id: err-") && !body.contains("SANDBOX_SENSITIVE_PATH"),
+        "the containment refusal must be the generic №955 id-form — body: {}",
         body
     );
 }

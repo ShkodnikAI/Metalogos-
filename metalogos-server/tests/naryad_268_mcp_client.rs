@@ -513,7 +513,12 @@ mlogserver {
             "MCP в роуте без флагов должен быть denied: {}",
             body
         );
-        assert!(body.contains("EXEC_NOT_PERMITTED"), "got: {}", body);
+        // №955: the generic id-form on the wire — the class rides the log.
+        assert!(
+            body.contains("Internal error (id: err-") && !body.contains("EXEC_NOT_PERMITTED"),
+            "got: {}",
+            body
+        );
     }
 
     /// Serve-роут: то же на VM-бэкенде (гейт контекстный, не бэкендовый).
@@ -531,7 +536,12 @@ mlogserver {
             "MCP в роуте без флагов должен быть denied (VM): {}",
             body
         );
-        assert!(body.contains("EXEC_NOT_PERMITTED"), "got: {}", body);
+        // №955: the generic id-form on the wire — the class rides the log.
+        assert!(
+            body.contains("Internal error (id: err-") && !body.contains("EXEC_NOT_PERMITTED"),
+            "got: {}",
+            body
+        );
     }
 
     /// Escape-hatch по №253-А: METALOGOS_SERVE_ALLOW_EXEC=1 разрешает —

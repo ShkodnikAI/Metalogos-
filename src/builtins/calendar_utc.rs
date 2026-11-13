@@ -114,7 +114,10 @@ pub(crate) fn builtin_date_parse_iso(args: &[Value]) -> Result<Value, String> {
     let micros = parse_iso_utc(&s).ok_or_else(|| {
         coded_error(
             CODE_DATE_INVALID,
-            format!("date_parse_iso: not a valid ISO-8601/RFC 3339 datetime: {s:?}"),
+            format!(
+                "date_parse_iso: not a valid ISO-8601/RFC 3339 datetime: {} (№955 — the value is masked)",
+                crate::interpreter::values::masked_string(&s)
+            ),
         )
     })?;
     Ok(Value::Float(micros as f64 / 1_000_000.0))

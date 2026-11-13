@@ -866,6 +866,16 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
 /// subsystem KNOWS what failed, and read back by [`stable_try_error_code`]
 /// at the `try` sewing points. The visible message text is the stamp plus
 /// the plain text — nothing is hidden, and an unstamped error is untouched.
+/// №955 (the audit 12.11 — gh#1922): the CONSERVATIVE error-text form
+/// used while the runtime has no value labels (№952): a string argument
+/// quoted in an error message is replaced by its type and length — the
+/// runtime cannot tell a public string from a labeled one, so the
+/// honest form quotes nothing. After №952 the mask becomes conditional
+/// on the value's label (the call sites keep the ONE helper).
+pub fn masked_string(s: &str) -> String {
+    format!("string(len={})", s.chars().count())
+}
+
 pub fn coded_error(code: &str, msg: impl std::fmt::Display) -> String {
     format!("[{}] {}", code, msg)
 }

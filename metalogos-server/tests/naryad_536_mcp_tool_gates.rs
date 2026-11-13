@@ -107,9 +107,11 @@ fn env_in_tool_method_is_refused_and_leaks_nothing() {
 
     let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
     assert_eq!(resp["result"]["isError"], true, "{}", resp);
+    // №955: the MCP caller is a client too — the generic id-form on the
+    // wire; the №259 code rides the mcp-serve log line.
     assert!(
-        text.contains("ENV_NOT_PERMITTED"),
-        "the refusal must carry the №259 code: {}",
+        text.contains("Error (id: err-") && !text.contains("ENV_NOT_PERMITTED"),
+        "the refusal must be the generic №955 id-form: {}",
         text
     );
     assert!(
@@ -166,11 +168,16 @@ fn env_allowlist_allows_exactly_the_listed_names() {
         &serde_json::json!({"name": "secrets.peek", "arguments": {"key": "METALOGOS_OTHER_SECRET"}}),
         &serde_json::json!(4),
     );
-    let text = refused["result"]["content"][0]["text"]
-        .as_str()
-        .unwrap_or("");
     assert_eq!(refused["result"]["isError"], true, "{}", refused);
-    assert!(text.contains("ENV_NOT_PERMITTED"), "{}", text);
+    // №955: the generic id-form on the wire.
+    assert!(
+        refused["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Error (id: err-"),
+        "{}",
+        refused
+    );
 
     std::env::remove_var("METALOGOS_ENV_ALLOWLIST");
     std::env::remove_var(PROBE_NAME);
@@ -196,16 +203,16 @@ fn exec_in_tool_method_names_the_serve_flag_and_ignores_the_process_flag() {
     assert_eq!(resp["result"]["isError"], true, "{}", resp);
     // №845: the capability gate refuses first — IRREVERSIBLE_NO_GRANT;
     // the serve-context posture (№253) holds through the host-permit
-    // context resolution.
+    // context resolution. №955: the generic id-form on the wire — the
+    // code and the serve-context flag ride the mcp-serve log line.
     assert!(
-        text.contains("IRREVERSIBLE_NO_GRANT"),
-        "the refusal must carry the capability code: {}",
+        text.contains("Error (id: err-") && !text.contains("IRREVERSIBLE_NO_GRANT"),
+        "the refusal must be the generic №955 id-form: {}",
         text
     );
     assert!(
-        text.contains("METALOGOS_SERVE_ALLOW_EXEC"),
-        "the refusal must name the serve-context flag (tool methods run \
-         under serve semantics, not the process flag): {}",
+        !text.contains("METALOGOS_SERVE_ALLOW_EXEC"),
+        "the serve-context flag must NOT reach the MCP caller (№955): {}",
         text
     );
 

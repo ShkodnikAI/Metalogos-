@@ -57,7 +57,14 @@ fn n514_to_float_non_numeric_is_loud() {
     let src = program(r#"  return to_float("abc")"#, "Float");
     let err = metalogos::run_program(&src).expect_err("a non-numeric string must refuse loudly");
     assert!(err.contains("[TYPE_MISMATCH]"), "{}", err);
-    assert!(err.contains("abc"), "the input must be named: {}", err);
+    // №955 (the audit 12.11): the input VALUE never rides the error text —
+    // the masked form names it by type+length; the caller-side naming
+    // lives in the explicit fallbacks (to_float_or/to_int_or).
+    assert!(
+        !err.contains("\"abc\"") && err.contains("string(len=3)"),
+        "the input must be named in the masked №955 form: {}",
+        err
+    );
 }
 
 #[test]

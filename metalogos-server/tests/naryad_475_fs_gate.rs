@@ -286,9 +286,11 @@ async fn n475_serve_write_outside_data_dir_refused() {
         "a route write outside the data dir must fail — body: {}",
         body
     );
+    // №955: on the wire the refusal is the generic id-form — the stable
+    // code rides the [ROUTE_HANDLER_ERROR] log line (№818/№955).
     assert!(
-        body.contains("SANDBOX_SENSITIVE_PATH"),
-        "the containment refusal must carry the stable code — body: {}",
+        body.contains("Internal error (id: err-") && !body.contains("SANDBOX_SENSITIVE_PATH"),
+        "the containment refusal must be the generic №955 id-form — body: {}",
         body
     );
 }
@@ -337,5 +339,6 @@ async fn n475_serve_write_app_mlog_refused() {
     handle.abort();
     let _ = std::fs::remove_file("n475_outside_bait.txt");
     assert_ne!(status, 200, "the containment must hold on the VM backend");
-    assert!(body.contains("SANDBOX_SENSITIVE_PATH"));
+    // №955: the generic id-form on the wire — the code rides the log.
+    assert!(body.contains("Internal error (id: err-") && !body.contains("SANDBOX_SENSITIVE_PATH"));
 }

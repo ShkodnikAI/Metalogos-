@@ -364,10 +364,6 @@ jobs:
       # Metalogos job — freeing it is the honest guard; zero check is
       # weakened (the same steps run after; the №445 posture: the infra
       # failure is handled in-repo, never by weakening a check).
-      - name: Free runner disk (the №712 ENOSPC guard, the №868 list extension)
-        run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeTracking /opt/hostedtoolcache/Ruby /usr/local/share/boost /usr/local/swift /opt/hostedtoolcache/CodeQL /usr/local/share/powershell /usr/lib/jvm /opt/hostedtoolcache/PyPy
-          df -h /
       # №868 ride (the В48 class, 2 deterministic failures on this
       # branch: the ld signal-7 Bus error at the artifact step's
       # feature-unified rebuild, then the rerun's lost log blob — the
@@ -377,19 +373,32 @@ jobs:
       # No check weakened: the same steps run after (the №445 posture —
       # the infra failure is handled in-repo, never by weakening a
       # check).
+      # №955 ride (the №868 class again, 2 deterministic deaths on this
+      # branch: the runner died mid-artifact-step with the lost log
+      # blob — steps 6-7 (the whole suite + the №676 cleanliness gate)
+      # passed, the late link filled the disk): the tiers 2-3 of the
+      # coverage job's reclaim ride here — the preinstalled surfaces
+      # this job never invokes (dtolnay installs its own rustup; the
+      # p88 browser gate is platform-gated OFF in CI; no JVM/SQL server
+      # in the suite) plus the docker image pool. Node stays (the
+      # Actions runtime depends on it).
+      - name: Free runner disk (the №712 ENOSPC guard, the №868 + №955 list extensions)
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeTracking /opt/hostedtoolcache/Ruby /usr/local/share/boost /usr/local/swift /opt/hostedtoolcache/CodeQL /usr/local/share/powershell /usr/lib/jvm /opt/hostedtoolcache/PyPy
+          sudo rm -rf /opt/az /usr/share/miniconda /usr/local/julia /usr/share/az_* /opt/microsoft /opt/google /usr/share/rust /usr/share/maven /usr/share/gradle-* /usr/share/kotlin /usr/share/mysql /usr/share/postgresql* /var/lib/postgresql /usr/share/chromium /usr/local/share/chromium /usr/local/lib/node_modules /snap /var/lib/snapd
+          sudo docker image prune -af > /dev/null 2>&1 || true
+          df -h /
       - uses: dtolnay/rust-toolchain@stable
-      # №445 wave-infra: the rust-cache restore for the heavy jobs
-      # (clippy + the feature-gated test jobs) died deterministically in
-      # the GitHub cache service 3 runs in a row (the job was killed
-      # mid-restore, before any check ran). A cache failure is a
-      # performance loss, never a correctness signal — make the step
-      # non-fatal and bust the poisoned cache partition (prefix-key v2).
-      # No check is weakened: clippy/tests still run and still fail the
-      # job on their own findings.
-      - uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          prefix-key: v2
+      # №955 ride (the №799 structural fix, mirrored from the coverage
+      # job): NO rust-cache in THIS job. The restored target cache
+      # carries months of the stale test binaries of every
+      # renamed/removed test since the cache key was minted — the fresh
+      # links (every wave adds bins) die in the late-link disk/SIGBUS
+      # death after ANY reclaim (this branch: two deterministic deaths
+      # at the artifact step, the logs lost with the runner). The cache
+      # restore is a PERFORMANCE aid only (the №445 posture) — the
+      # integration suite still runs and still fails the job on its own
+      # findings.
       - name: Integration tests (excluding blocking tests)
         run: cargo test --workspace --tests --no-fail-fast -- --skip crosscheck --skip registry_arity_check --skip llm_cache_contract
       # №676 (A3): the same repo-tree cleanliness gate as test-lib — with

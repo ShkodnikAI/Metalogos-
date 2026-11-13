@@ -46,7 +46,8 @@ pub(crate) fn builtin_to_float(args: &[Value]) -> Result<Value, String> {
             crate::interpreter::values::coded_error(
                 crate::interpreter::values::CODE_TYPE_MISMATCH,
                 format!(
-                    "to_float({s:?}): not a number — use to_float_or(value, <default>) for an explicit fallback (№514)"
+                    "to_float({}): not a number — use to_float_or(value, <default>) for an explicit fallback (№514; №955 — the value is masked: the error text never quotes string contents)",
+                    crate::interpreter::values::masked_string(s)
                 ),
             )
         }),
@@ -213,7 +214,8 @@ pub(crate) fn builtin_to_int(args: &[Value]) -> Result<Value, String> {
                 Err(crate::interpreter::values::coded_error(
                     crate::interpreter::values::CODE_TYPE_MISMATCH,
                     format!(
-                        "to_int({s:?}): not a number — use to_int_or(value, <default>) for an explicit fallback (№514)"
+                        "to_int({}): not a number — use to_int_or(value, <default>) for an explicit fallback (№514; №955 — the value is masked: the error text never quotes string contents)",
+                        crate::interpreter::values::masked_string(s)
                     ),
                 ))
             }

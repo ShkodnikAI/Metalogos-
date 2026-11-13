@@ -207,9 +207,13 @@ async fn run_scenario(backend: metalogos_server::server::ServeBackend, tag: &str
         tag,
         body
     );
+    // №955: on the wire the refusal is the generic id-form — the
+    // "not found" text rides the [ROUTE_HANDLER_ERROR] log line; the
+    // №72 isolation posture holds (the fresh request is still refused,
+    // never served the previous conversation).
     assert!(
-        body.contains("not found"),
-        "{}: the fresh-request lookup must report the missing conversation, \
+        body.contains("Internal error (id: err-") && !body.contains("not found"),
+        "{}: the fresh-request lookup must be the generic №955 refusal, \
          got {}: {}",
         tag,
         status,

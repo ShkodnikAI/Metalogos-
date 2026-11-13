@@ -95,14 +95,18 @@ async fn tw_serve_route_exec_denied_without_flags() {
     // №845: the CAPABILITY gate refuses first — the stable code is
     // IRREVERSIBLE_NO_GRANT (the vocabulary does not grow, ADR-0203
     // §2.4), and the remedy names the CONTEXT-EXACT flag (№253).
+    // №955 (the audit 12.11 H-3): the body is the GENERIC id-form — the
+    // frozen code and the context-exact remedy never reach the CLIENT;
+    // both ride the [ROUTE_HANDLER_ERROR] log line (the №818/№955
+    // mechanism, one for every route error).
     assert!(
-        body.contains("IRREVERSIBLE_NO_GRANT"),
-        "ошибка должна нести стабильный код IRREVERSIBLE_NO_GRANT, got: {}",
+        body.contains("Internal error (id: err-"),
+        "the refusal must be the generic №955 id-form, got: {}",
         body
     );
     assert!(
-        body.contains("METALOGOS_SERVE_ALLOW_EXEC=1"),
-        "текст должен называть точный флаг контекста, got: {}",
+        !body.contains("IRREVERSIBLE_NO_GRANT") && !body.contains("METALOGOS_SERVE_ALLOW_EXEC=1"),
+        "the code and the remedy must NOT reach the client (№955), got: {}",
         body
     );
 }
@@ -127,9 +131,10 @@ async fn tw_serve_route_exec_process_flag_does_not_apply_to_routes() {
     );
     // №845: the capability host permit rides the №253 context resolution
     // — the process flag does not reach routes, the gate refuses first.
-    assert!(body.contains("IRREVERSIBLE_NO_GRANT"), "got: {}", body);
+    // №955: the generic id-form on the wire — the code and the remedy
+    // ride the log.
     assert!(
-        body.contains("METALOGOS_SERVE_ALLOW_EXEC=1"),
+        body.contains("Internal error (id: err-") && !body.contains("IRREVERSIBLE_NO_GRANT"),
         "got: {}",
         body
     );
@@ -183,14 +188,16 @@ async fn vm_serve_route_exec_denied_without_flags() {
 
     assert_eq!(status, 500, "VM-путь: exec без флагов отказан: {}", body);
     // №845: the capability gate refuses first — IRREVERSIBLE_NO_GRANT.
+    // №955: the generic id-form on the wire — the code and the remedy
+    // ride the log.
     assert!(
-        body.contains("IRREVERSIBLE_NO_GRANT"),
-        "VM-путь: код IRREVERSIBLE_NO_GRANT в ошибке, got: {}",
+        body.contains("Internal error (id: err-"),
+        "VM-путь: форма №955 generic id-body, got: {}",
         body
     );
     assert!(
-        body.contains("METALOGOS_SERVE_ALLOW_EXEC=1"),
-        "VM-путь: точный флаг контекста в отказе, got: {}",
+        !body.contains("IRREVERSIBLE_NO_GRANT") && !body.contains("METALOGOS_SERVE_ALLOW_EXEC=1"),
+        "VM-путь: код и флаг не доходят до клиента (№955), got: {}",
         body
     );
 }

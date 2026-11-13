@@ -1,6 +1,6 @@
 # ADR-0154: Label lattice for taint kinds — (conf, integrity, consent-scope)
 
-**Status:** Accepted
+**Status:** Proposed (amended 2026-11-12 by №949 — §12, the interprocedural contract; the owner's explicit «принято» returns Accepted — канон §13.14 п.6)
 **Date:** 2026-09-15
 **Naryad:** №322 (issue #416, plan v2 §16.3 / Волна 1)
 **Supersedes:** the reserved stub written by №319 (booking note in git history)
@@ -235,3 +235,65 @@ The sink-clearance gate (№325) reads this lattice: a sink requires `public` co
 - **What was reviewed:** the exemption is position-only (the lookup-key argument alone, `key_arg: 0` in both rows), domain-matched (both ends share one domain — `cron` / `mtree`), provenance-conservative (paired-source-only chains; field reads / `to_string` preserve the domain, every other expression form fails closed), and quarantine-proof (§2.1 — `poisoned` clears nothing anywhere). The audit's own assessment stands: «реализация консервативная — претензий по существу нет».
 - **Limitations of the record:** the review covers the table AS IT STANDS (two pairs); the implementation was not re-verified line-by-line by this review — the pinning tests of №729 remain the executable verification.
 - **Conditions for revision:** a THIRD pair, or a shape change in the pair recognition (a new carrying expression form in `readback_domain`), or any relaxation of the conservative boundary — each re-opens this review in its own naryad. Every future Category-A exemption follows the same protocol: the limitations row + the risk-review verdict in the same PR (the M-1 lesson: «исправление видимости обнаружило реальные срабатывания, и ответом стало исключение» — the correct answer, but the trace must survive).
+
+## 12. Appendix (№949): the interprocedural contract — pattern summaries, the call-graph fixpoint, the end of the open world
+
+Added by naryad №949 (gh#1916, the total audit 12.11, P0 — ADR BEFORE code; the owner decision 12.11: revising accepted records is permitted). **This appendix is PROPOSED — the owner's explicit «принято» turns it Accepted (канон §13.14 п.6); the implementation naryads are №950 (the static lattice) and №951 (the in-pattern losses).**
+
+### 12.1 The fact (the audit 12.11, machine-verified on the published v0.39.0)
+
+The lattice as accepted is INTRAPROCEDURAL. `expr_label` (`src/semantic.rs`) computes a user-pattern call's label as the JOIN OF ITS ARGUMENTS — the called body is not consulted; an unannotated parameter enters the body as `public` (the «open world», §3.2/Appendix A). The runtime labels (ADR-0156/№328) are a projection of the same static knowledge and are blind at the same boundary. The machine-verified consequence: every probe below PASSES `mlog check` on v0.39.0 while the value leaks at run (the full probe set: `FOSVED-office-v2 → docs/projects/metalogos/audit_2026-11-12/pocs/`, commit `fd384d3`).
+
+### 12.2 The pattern summary (the amendment to §3.2 and Appendix A)
+
+Every user-defined pattern P carries a summary computed from its body, on the FULL lattice — both axes (conf, integrity) and the consent scope:
+
+- **(а) The return label** of P = join( labels of the SOURCES evaluated inside the body ) ⊔ join( labels of the PARAMETERS that reach a return ), where «reaches» is computed through the body's own calls to other patterns (their summaries, recursively).
+- **(б) The required clearance per parameter** p = MEET of the clearances of every sink p reaches (sinks inside P's body and inside the patterns P calls, via their summaries). The call site checks the argument's label against (б) — this is the end of the open world: an unannotated parameter is no longer silently `public` at the call boundary.
+- **(в) The side sinks** of P reachable from the body's internal sources — each such (source-label, sink) pair is checked at summary time exactly as the intraprocedural gate checks it today (the body keeps refusing its own leaks — the summary never LAUNDERS an internal violation).
+
+The existing annotation rules (§3) are unchanged and EXTENDED: an annotation is a CHECKABLE CLAIM, not trusted knowledge — a declared `String<private>` parameter or a declared return label is verified against the summary, and a mismatch is a loud check error (the annotation that claims less than the body does is the lie the summary catches). A NEW annotation form arrives with №950: the return-label annotation on the pattern signature.
+
+### 12.3 The computation
+
+- A **fixpoint over the call graph** of the program: the lattice is finite (§2), the summaries monotonically over-approximate, so the iteration terminates; the recursion and the cycles take the CONSERVATIVE TOP for the affected component (the cycle's members summarize as «may return anything reachable» — no false negatives by construction).
+- **Cross-module calls** use the same summaries: a module's exported patterns summarize once per module hash (the №376 cache form — an unchanged module is never recomputed).
+- The analysis budget: measured on the examples corpus + the office `app.mlog`; the accepted threshold is the №376 dispatch bound (+50% analysis time). The measurement lands in the №950 PR.
+
+### 12.4 The diagnostics — no new words
+
+The refusals reuse the EXISTING classes (SECRET_LEAK, SECRET_EGRESS_NETWORK, PII_EGRESS_*, HTML_INJECTION, UNTRUSTED_EXEC_DECISION, SQL_DYNAMIC — the vocabulary is frozen by №385). What changes is the REACH: the message names the call chain from the source to the sink (`Key("a") → http_post(url, …) — SECRET_EGRESS_NETWORK`). No new check_id is introduced by №950/№951.
+
+### 12.5 The transition window (the precedent of the owner decision 27.10 by attestation)
+
+One release window: the NEW interprocedural refusals fire as LOUD WARNINGS while the entry program declares `profile legacy { interproc: warn }`; the default (no key) is the ERROR. After the window the key is REMOVED (a program still carrying it is a check error naming this appendix). The BREAKING row and the `docs/upgrade.md` section land with №950 (the code that introduces the refusals); this appendix fixes the mechanism in advance.
+
+### 12.6 The machine-verified probe → rule table
+
+Every row's check status was re-verified on this tree (the built binary, `mlog check`, `SP=TOPSECRET123`); the file stems are unique across the PoC folders — 1_secret_lane (p*, q*), 2_html_exec_sql_lanes (e*, h*, i*, s*), 3_loop_label_loss (l*): the PASS rows are the gaps this appendix closes; the REFUSE rows are the honest positive side — the existing lanes that already hold.
+
+| Probe | check on v0.39.0 | The rule that rejects it (after №950/№951) |
+|---|---|---|
+| p01_direct, q01_post_direct, q11, p02_struct, p03_list, p05_transform, p06_json, p09_kv, p10_file, p15_b64, p16_try, p17_mem, p19_format, p20_len_oracle, p21_map, p22_session, p23_template, p24_secret_fn, p25_while, p26_sha, p28_nested_struct, p29_push, p30_respond_err | REFUSE | already caught today — the intraprocedural SECRET_LEAK / persistence / opacity lanes (unchanged) |
+| p12_implicit | REFUSE | already caught today (the comparison/oracle lane refuses the shape on v0.39.0 — the audit's «устояло» list) |
+| p04_helper_return, q03_post_helper_return, q05_get_url_helper, q06_post_url_helper, q07_writefile_helper, q08_secret_fn_helper, i04 (2_html_exec_sql_lanes) | PASS | (а) — the return label joins the internal sources → SECRET_LEAK / SECRET_EGRESS_NETWORK |
+| p18_param, q02_post_helper_param, h03_helper_param | PASS | (б) — the parameter reaches a print/respond/http sink → the call-site clearance check → SECRET_LEAK / HTML_INJECTION |
+| q09_two_level, h06_user_input_helper | PASS | (а)+(б) through the CALL-GRAPH FIXPOINT (two levels: the source crosses two pattern boundaries) |
+| p07_loop, l03, l04, l08, l09, h04_loop | PASS | the EACH-accumulator contract (№951): the iterator's label joins every variable the body assigns → SECRET_LEAK / HTML_INJECTION |
+| p13_http_get_url, q04_get_url | PASS | the URL line (№951): a source interpolated into the URL/first argument of http_get/http_post → SECRET_EGRESS_NETWORK |
+| p11_flow_output | PASS | the FLOW contract (№951): a flow step's return carries the label to the flow output → SECRET_LEAK |
+| q10_entity_secret | PASS | the ENTITY contract (№951): a `Secret`-declared entity read back via `to_string` → SECRET_LEAK (the opacity is value-level, not print-site-only) |
+| p14_error_msg | PASS | №955 (the runtime error text masks the value; check stays pass) |
+| e02_helper, e03_llm_exec_helper | PASS | (б)+(а) — the exec lane joins the summary rules → UNTRUSTED_EXEC_DECISION |
+| h02_helper_return | PASS | (а) — the return label joins the internal call_llm → HTML_INJECTION |
+| i03 (Gen: let a = call_llm; return a) | PASS | (а) — the same internal-source rule through the let-binding |
+| e01_direct, e04_llm_exec_direct, h01_direct, h05_user_input, i01, i02 | REFUSE | already caught today — the intraprocedural UNTRUSTED_EXEC_DECISION / HTML_INJECTION lanes |
+| s01_direct, s02_helper_sql, s03_helper_exec | REFUSE | already caught today — the SQL literal gate (shape-based, holds through patterns) |
+| l01, l02, l05, l06, l07, l10 | REFUSE | already caught today — the intraprocedural lanes (direct-source join, branch join, while fixpoint) |
+| p27_env_or | PASS | **A NEW machine-verified finding beyond the audit's leak list**: `env_or` passes check as a print argument — the source-set completion (env_or IS a source) rides №950's classification pass → SECRET_LEAK |
+
+### 12.7 What this appendix does NOT promise
+
+- No pointer analysis, no path-sensitivity beyond the existing may-joins, no new label vocabulary (§12.4) — the summaries are a monotone over-approximation on the SAME lattice.
+- The consent axis participates in (а)/(б) unchanged (the consent scope joins/ meets per §2.4) — no new consent machinery.
+- The runtime second line of defense is ADR-0156 §5 (№952) — the static lattice stays the SSOT of every verdict.

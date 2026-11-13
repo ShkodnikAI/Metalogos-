@@ -195,9 +195,9 @@ real ADRs (№309/№320/№412) before the booking.
 | 0151 | Video I2V pipeline — first/last-frame anchors, RIFE-class interpolation, AV sidecar mux | Accepted |
 | 0152 | C2PA mini-slice — Art. 50 synthetic marking on egress (no clearance lattice) | Accepted |
 | 0153 | Video DiT text path wired — prompt embedding genuinely conditions the denoiser | Accepted |
-| 0154 | Label lattice for taint kinds — (conf, integrity, consent-scope) | Accepted |
+| 0154 | Label lattice for taint kinds — (conf, integrity, consent-scope) | Proposed (amended 2026-11-12 by №949 |
 | 0155 | Grant algebra — permissions for irreversible operations | Implemented (naryads #389–#393 landed the algebra in main: `grant_issue`/`grant_subgrant`/`grant_revoke`/`grant_use`/`db_execute_with_grant` with scope/TTL/quota enforcement, the action bridge over the №316 sink SSOT, the exhaustive DenyEvent reasons with `on_deny` handlers, and the signed Action Ledger v1. Anchors: `tests/naryad_390_grants.rs`, `tests/grant_algebra_fuzz.rs`, `tests/naryad_391_bridge.rs`, `tests/naryad_392_deny_event.rs`, `tests/naryad_393_ledger.rs`; independently accepted by the wave-3 audit and the external audit 2026-09-19; exercised end-to-end by the kitchen-camera e2e and the #395 dogfood run. Originally Accepted 2026-09-17 |
-| 0156 | TW/VM/JIT label parity — LabelJoin/SinkCheck in the bytecode | Accepted |
+| 0156 | TW/VM/JIT label parity — LabelJoin/SinkCheck in the bytecode | Proposed (amended 2026-11-12 by №949 |
 | 0157 | Ledger profile — PROV/in-toto alignment | Accepted (fills the reserved booking of 2026-09-14) |
 | 0158 | Declassify boundaries | reserved |
 | 0159 | Sim-first verification — SafetyBounds as an STL-formula monitor | Accepted (filled 2026-09-22 by naryad №354, wave 10 |

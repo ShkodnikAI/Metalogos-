@@ -94,6 +94,61 @@ REQUIRED_CHECKS = [
     "release-train-gate (blocking)",  # №899 (issue #1793, 2026-11-05) — the calendar-train gate
 ]
 
+# №960 (issue #1927): WHEN each context became required.
+#
+# The audit compares a STATIC required set against HISTORICAL merges, and a
+# context cannot have run before it was written. gh#1892 reported «51
+# merge(s) without green required checks»; 33 of its 79 NO-RUN lines, across
+# 31 pull requests, were `release-train-gate` — a context that entered
+# `.github/workflows/ci.yml` in commit `efde799c` (naryad №899) on
+# 2026-11-05T11:19:45Z, AFTER every merge it was charged against. The
+# detective was wrong, not the merges.
+#
+# A row here is the UTC instant the producing job landed on main (the commit
+# date of the workflow change, `git log -1 --format=%cI <sha>`). A context
+# with NO row is treated as always-required — the fail-closed default: a
+# missing row can only make the audit stricter, never blinder.
+#
+# Add a row whenever a new blocking context is introduced, in the same PR
+# that introduces it. The mechanical reminder is the self-test case below
+# («a context predating its own birth is not a divergence»).
+REQUIRED_SINCE = {
+    "release-train-gate (blocking)": "2026-11-05T11:19:45Z",
+}
+
+
+def _parse_iso(ts):
+    """A GitHub ISO-8601 instant → aware datetime; None stays None."""
+    if not ts:
+        return None
+    import datetime
+    try:
+        return datetime.datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def required_at(merged_at, required=None, since_map=None):
+    """The required set AS OF a merge instant (№960).
+
+    A context whose `since` is LATER than the merge is dropped: no run of it
+    could exist, and charging the merge for it is the detective's error. An
+    unparseable or absent merge instant keeps the FULL set (fail-closed —
+    an unknown date never buys a pass).
+    """
+    names = REQUIRED_CHECKS if required is None else required
+    smap = REQUIRED_SINCE if since_map is None else since_map
+    when = _parse_iso(merged_at)
+    if when is None:
+        return list(names)
+    out = []
+    for n in names:
+        since = _parse_iso(smap.get(n))
+        if since is not None and since > when:
+            continue
+        out.append(n)
+    return out
+
 MERGE_PR_RE = re.compile(r"\(#(\d+)\)\s*$")
 
 
@@ -115,6 +170,58 @@ def protection_drift(protection_contexts, required):
     """
     required_set = set(required)
     return sorted(c for c in protection_contexts if c not in required_set)
+
+
+def classify_divergence(line):
+    """№960: which CLASS a divergence line belongs to.
+
+    gh#1892 reported «51 merge(s) without green required checks» as ONE
+    number over four different things, and the headline reads as «51 merges
+    went in unchecked». The real content was: two pull requests with no CI
+    at all, 31 charged for a context that did not exist yet, ten squash
+    tails that were not PR numbers, and eight commits that were not squash
+    merges of a PR. A single count cannot be acted on; a count per class
+    can.
+
+    The classes, in the order a reader should act on them:
+      `no-ci-silent` — NO RUN, and the Actions dispatcher was silent at
+                     merge time (`dispatcher_silence`): an
+                     infrastructure event to escalate, not a merge
+                     performed in disregard of a verdict;
+      `no-ci`      — a required context has NO RUN on the PR head while
+                     the dispatcher was live: the merge happened while
+                     the check never reported;
+      `not-green`  — the run exists and is not `success` (skipped, failed,
+                     pending): a verdict was available and ignored;
+      `convention` — the squash tail is not a PR number (the association
+                     lane resolved it, so the merge itself IS verified);
+      `no-pr`      — the commit is not a squash merge of a PR at all (a
+                     direct push or a bot merge — PR-side CI cannot apply
+                     by construction);
+      `unverified` — the PR or check data was UNAVAILABLE (fail-closed);
+      `blind`      — the live protection enforces a context the audit does
+                     not verify, or a required context has no PR producer.
+    """
+    if "NOT a PR" in line:
+        return "convention"
+    if "not a squash-merge of a PR" in line:
+        return "no-pr"
+    if "UNAVAILABLE" in line:
+        return "unverified"
+    if "NO row in REQUIRED_CHECKS" in line or "NO producing job" in line:
+        return "blind"
+    if ": NO RUN" in line:
+        return "no-ci-silent" if "dispatcher silent" in line else "no-ci"
+    return "not-green"
+
+
+def summarize_divergences(lines):
+    """{class: count} over `classify_divergence`, for the report head."""
+    out = {}
+    for l in lines:
+        k = classify_divergence(l)
+        out[k] = out.get(k, 0) + 1
+    return out
 
 
 def scan_workflow_producers(workflows_dir):
@@ -207,6 +314,96 @@ def required_verdict(check_runs, required):
     return (not problems), problems
 
 
+SILENCE_FLOOR_S = 5400       # 90 min — above the repo's normal quiet gaps
+SILENCE_RESUME_S = 120       # the merge's own push-to-main run, right after
+
+
+def dispatcher_silence(merged_at, run_created_times,
+                       floor_s=SILENCE_FLOOR_S, resume_s=SILENCE_RESUME_S):
+    """№960: was the Actions DISPATCHER silent when this merge happened?
+
+    The gh#1892 lesson. Two merges (#1752, #1804) carried no CI at all,
+    and the obvious reading — «merged without looking» — is wrong. The
+    machine facts: no workflow run ever existed on either PR branch
+    (`total_count: 0`); no check run on the PR head OR the merge commit;
+    and the live protection was fully in force around both merges (the
+    branch-protection-audit of 2026-11-02 fixates `contexts=23
+    enforce_admins=True strict=True`, 2 h 36 m after the first of them,
+    with no rulesets on the repo). Those facts are jointly inconsistent
+    with a merge through the merge button: 23 required contexts that
+    never reported must block it, and `enforce_admins` removes the admin
+    override. Something made the dispatcher inert, and the merge was
+    possible inside that window.
+
+    The signature of that window, measured on both episodes, is not a
+    long gap on its own — a quiet night is also a long gap (2 h 48 m on
+    2026-11-02, no merge in it). It is the CONJUNCTION:
+
+      * nothing was dispatched repo-wide for >= `floor_s` before the
+        merge (the PR's own `pull_request` event fell inside that and
+        produced nothing), AND
+      * the very next run is the merge's own push-to-main, created
+        within `resume_s` (3 s on both episodes) — so the dispatcher
+        was demonstrably able to dispatch, moments later.
+
+    Returns None when the timeline is unusable (no `merged_at`, no runs
+    before it), else {"gap_s", "resume_s", "silent": bool}. `resume_s`
+    is None when no run follows the merge in the window scanned.
+
+    This separates an INFRASTRUCTURE event from a process miss. It does
+    NOT name the cause — Actions switched off for the repository and a
+    GitHub-side dispatch/enforcement failure produce the same timeline,
+    and the only record that distinguishes them is the audit log
+    (`repo.actions_enabled`, `protected_branch.policy_override`), which
+    needs an owner-level token. The detective reports the shape and says
+    so; it does not guess (the №525 rule: an unreadable state is not a
+    verdict).
+    """
+    merged = _parse_iso(merged_at)
+    if merged is None:
+        return None
+    stamps = sorted(t for t in (_parse_iso(s) for s in run_created_times or []) if t)
+    before = [t for t in stamps if t < merged]
+    after = [t for t in stamps if t >= merged]
+    if not before:
+        return None
+    gap_s = (merged - before[-1]).total_seconds()
+    resume = (after[0] - merged).total_seconds() if after else None
+    return {
+        "gap_s": gap_s,
+        "resume_s": resume,
+        "silent": gap_s >= floor_s and resume is not None and resume <= resume_s,
+    }
+
+
+def human_gap(seconds):
+    """'2h07m' / '46m' / '3s' — the report form of a duration."""
+    s = int(round(seconds))
+    if s >= 3600:
+        return f"{s // 3600}h{(s % 3600) // 60:02d}m"
+    if s >= 60:
+        return f"{s // 60}m"
+    return f"{s}s"
+
+
+def annotate_silence(problems, silence):
+    """Tag every `NO RUN` line with the dispatcher state at merge time.
+
+    `no-ci (dispatcher silent …)` is an infrastructure event — the one
+    class a human must escalate rather than scold someone for; plain
+    `no-ci` is a merge that went in while the dispatcher was live, which
+    is the process miss gh#1892 was read as reporting for all 51 lines.
+    """
+    if not silence:
+        return problems
+    if silence["silent"]:
+        tail = (f" [dispatcher silent {human_gap(silence['gap_s'])} before the merge, "
+                f"resumed +{human_gap(silence['resume_s'])}]")
+    else:
+        tail = " [dispatcher live at merge time]"
+    return [p + tail if p.endswith("NO RUN") else p for p in problems]
+
+
 def resolve_associated_pr(assoc):
     """The determinate-404 lane (№813): exactly ONE merged PR
     association → its number; zero, several, or none merged → None
@@ -215,13 +412,17 @@ def resolve_associated_pr(assoc):
     return merged[0] if len(merged) == 1 else None
 
 
-def decide(commit, pr_map):
+def decide(commit, pr_map, run_times=None):
     """The per-commit verdict — `pr_map` carries the API answers.
 
-    commit: {"first_line": str, "sha": str}
+    commit: {"first_line": str, "sha": str, "merged_at": str | None}
     pr_map: {pr_number: {"head_sha": str, "check_runs": [...]}} — a
     missing key means the PR fetch failed (fail-closed: unknown is a
     divergence, never a pass).
+
+    №960: the required set is the one that was required AS OF the merge
+    (`required_at`), so a context born after the merge is not charged
+    against it. An absent `merged_at` keeps the full set — fail-closed.
     """
     pr = parse_pr_number(commit.get("first_line", ""))
     if pr is None:
@@ -231,8 +432,11 @@ def decide(commit, pr_map):
     head_sha = pr_map[pr].get("head_sha")
     if not head_sha:
         return (False, [f"PR #{pr}: no head SHA recorded (fail-closed)"])
-    ok, problems = required_verdict(pr_map[pr].get("check_runs"), REQUIRED_CHECKS)
+    ok, problems = required_verdict(
+        pr_map[pr].get("check_runs"), required_at(commit.get("merged_at")))
     if not ok:
+        problems = annotate_silence(
+            problems, dispatcher_silence(commit.get("merged_at"), run_times))
         return (False, [f"PR #{pr} (head {head_sha[:7]}): {p}" for p in problems])
     return (True, [])
 
@@ -406,16 +610,152 @@ def self_test():
         if misses != ["push-only (blocking)", "target-lane (blocking)"]:
             print(f"SELF-TEST FAIL tripwire: misses={misses}")
             failures += 1
+    # ── №960: the required set AS OF the merge ──
+    since_fixture = {"born-later (blocking)": "2026-11-05T11:19:45Z"}
+    names = ["always (blocking)", "born-later (blocking)"]
+    required_cases = [
+        # (merge instant, what must be required, what the case proves)
+        ("2026-11-04T16:48:31Z", ["always (blocking)"],
+         "a context predating its own birth is not a divergence"),
+        ("2026-11-06T09:00:00Z", names,
+         "after the birth instant the context is required"),
+        ("2026-11-05T11:19:45Z", names,
+         "the birth instant itself counts as required (>, not >=)"),
+        (None, names,
+         "an unknown merge instant keeps the FULL set (fail-closed)"),
+        ("not-a-date", names,
+         "an unparseable instant keeps the FULL set (fail-closed)"),
+    ]
+    for when, expect, what in required_cases:
+        got = required_at(when, names, since_fixture)
+        if got != expect:
+            print(f"SELF-TEST FAIL required_at [{what}]: "
+                  f"merged_at={when!r} got={got} want={expect}")
+            failures += 1
+
+    # And the same through decide(): a merge whose head has only the
+    # always-required run is CLEAN before the second context was born and a
+    # DIVERGENCE after it.
+    head_runs = [{"name": "always (blocking)", "conclusion": "success"}]
+    pr_map_fix = {77: {"head_sha": "e" * 40, "check_runs": head_runs}}
+    saved_req, saved_since = REQUIRED_CHECKS[:], dict(REQUIRED_SINCE)
+    try:
+        REQUIRED_CHECKS[:] = names
+        REQUIRED_SINCE.clear()
+        REQUIRED_SINCE.update(since_fixture)
+        before_ok, _ = decide(
+            {"first_line": "x (#77)", "sha": "f" * 40,
+             "merged_at": "2026-11-04T16:48:31Z"}, pr_map_fix)
+        after_ok, after_problems = decide(
+            {"first_line": "x (#77)", "sha": "f" * 40,
+             "merged_at": "2026-11-06T09:00:00Z"}, pr_map_fix)
+    finally:
+        REQUIRED_CHECKS[:] = saved_req
+        REQUIRED_SINCE.clear()
+        REQUIRED_SINCE.update(saved_since)
+    if not before_ok:
+        print("SELF-TEST FAIL decide: a merge predating a context's birth "
+              "must be clean")
+        failures += 1
+    if after_ok or not any("born-later" in p for p in after_problems):
+        print(f"SELF-TEST FAIL decide: after the birth the missing context "
+              f"must be a divergence, got {after_problems}")
+        failures += 1
+
+    # ── №960: the class of each divergence line ──
+    class_cases = [
+        ("- `abc1234`: the trailing ref `#1815` is NOT a PR — the "
+         "message-convention violation", "convention"),
+        ("  - PR #1804 (head f168f6c): clippy (blocking): NO RUN", "no-ci"),
+        ("  - PR #1804 (head f168f6c): clippy (blocking): NO RUN "
+         "[dispatcher silent 3h25m before the merge, resumed +3s]",
+         "no-ci-silent"),
+        ("  - PR #865 (head ddd): fmt (blocking): ['skipped']", "not-green"),
+        ("  - not a squash-merge of a PR (no trailing '(#N)')", "no-pr"),
+        ("  - PR #99: the head data is UNAVAILABLE (fail-closed)", "unverified"),
+        ("- the LIVE protection enforces `x (blocking)` which has NO row in "
+         "REQUIRED_CHECKS", "blind"),
+        ("- the required context `y (blocking)` has NO producing job in any "
+         "pull_request workflow", "blind"),
+    ]
+    for line, want in class_cases:
+        got = classify_divergence(line)
+        if got != want:
+            print(f"SELF-TEST FAIL classify: {line[:48]!r} got={got} want={want}")
+            failures += 1
+    summary = summarize_divergences([l for l, _ in class_cases])
+    if summary != {"convention": 1, "no-ci": 1, "no-ci-silent": 1,
+                   "not-green": 1, "no-pr": 1, "unverified": 1, "blind": 2}:
+        print(f"SELF-TEST FAIL summarize: {summary}")
+        failures += 1
+
+    # ── №960: the dispatcher-silence discriminator (the gh#1892 shape) ──
+    # The real episodes, to the second: #1752 (11:43:55 → merged 13:51:17,
+    # the next run +3 s) and #1804 (13:22:48 → merged 16:48:31, +3 s); the
+    # NEGATIVE that must not be called silent is the same-day quiet night
+    # (08:55:54 → 11:43:55, a 2 h 48 m gap with NO merge at its end).
+    silence_cases = [
+        # (merged_at, run_times, want_silent, label)
+        ("2026-11-02T13:51:17Z",
+         ["2026-11-02T08:55:54Z", "2026-11-02T11:43:55Z",
+          "2026-11-02T13:51:20Z", "2026-11-02T14:52:20Z"],
+         True, "#1752 — 2h07m silence, resumed +3s"),
+        ("2026-11-04T16:48:31Z",
+         ["2026-11-04T13:22:32Z", "2026-11-04T13:22:48Z",
+          "2026-11-04T16:48:34Z", "2026-11-04T18:18:21Z"],
+         True, "#1804 — 3h25m silence, resumed +3s"),
+        # A long gap whose next run is NOT this merge's push: the
+        # dispatcher was busy elsewhere — not the silence signature.
+        ("2026-11-02T11:50:00Z",
+         ["2026-11-02T08:55:54Z", "2026-11-02T13:51:20Z"],
+         False, "long gap, no resumption at the merge"),
+        # The dispatcher was live minutes before: an ordinary no-ci line.
+        ("2026-11-05T12:00:00Z",
+         ["2026-11-05T11:55:00Z", "2026-11-05T12:00:03Z"],
+         False, "dispatcher live at merge time"),
+    ]
+    for merged_at, times, want, label in silence_cases:
+        got = dispatcher_silence(merged_at, times)
+        if got is None or got["silent"] != want:
+            print(f"SELF-TEST FAIL silence [{label}]: got={got} want silent={want}")
+            failures += 1
+    # No timeline at all / no run before the merge → None, never a claim.
+    if dispatcher_silence("2026-11-02T13:51:17Z", []) is not None:
+        print("SELF-TEST FAIL silence: an empty timeline must yield None")
+        failures += 1
+    if dispatcher_silence(None, ["2026-11-02T13:51:20Z"]) is not None:
+        print("SELF-TEST FAIL silence: an absent merged_at must yield None")
+        failures += 1
+    # The annotation only touches NO RUN lines, and only when asked.
+    annotated = annotate_silence(
+        ["clippy (blocking): NO RUN", "fmt (blocking): ['skipped']"],
+        {"gap_s": 12317.0, "resume_s": 3.0, "silent": True})
+    if ("dispatcher silent 3h25m" not in annotated[0]
+            or "resumed +3s" not in annotated[0]
+            or annotated[1] != "fmt (blocking): ['skipped']"):
+        print(f"SELF-TEST FAIL annotate_silence: {annotated}")
+        failures += 1
+    if annotate_silence(["x: NO RUN"], None) != ["x: NO RUN"]:
+        print("SELF-TEST FAIL annotate_silence: no timeline must not annotate")
+        failures += 1
+    if human_gap(3.0) != "3s" or human_gap(127) != "2m" or human_gap(7620) != "2h07m":
+        print(f"SELF-TEST FAIL human_gap: {human_gap(3.0)} {human_gap(127)} {human_gap(7620)}")
+        failures += 1
+
     if failures:
         print(f"SELF-TEST FAILED: {failures} case(s)")
         return 1
-    print(f"SELF-TEST OK: {len(cases) + len(assoc_cases) + len(drift_cases) + 6} "
+    print(f"SELF-TEST OK: {len(cases) + len(assoc_cases) + len(drift_cases) + 6 + len(required_cases) + 2 + len(class_cases) + 1 + len(silence_cases) + 5} "
           f"assertions "
           f"(green, no-runs, skipped, failed, no-PR, unavailable, "
           f"assoc-resolved, assoc-unmerged, assoc-empty, assoc-ambiguous, "
           f"drift-found, drift-clean, drift-empty, drift-both-covered, "
           f"tripwire-producer, tripwire-id-fallback, tripwire-push-only, "
-          f"tripwire-pr-target, tripwire-misses, tripwire-bare-produced)")
+          f"tripwire-pr-target, tripwire-misses, tripwire-bare-produced, "
+          f"required-as-of x{len(required_cases)}, decide-before-birth, "
+          f"decide-after-birth, classify x{len(class_cases)}, summarize, "
+          f"silence x{len(silence_cases)}, silence-empty, silence-no-merged-at, "
+          f"annotate-silence, annotate-none, human-gap)")
     return 0
 
 
@@ -526,6 +866,30 @@ def main():
               "(fail-closed)", file=sys.stderr)
         sys.exit(2)
 
+    # №960: the repo-wide Actions timeline over the SAME window — the
+    # dispatcher state at each merge (`dispatcher_silence`). A failure
+    # here is NOT fail-closed: the timeline only REFINES a `no-ci` line
+    # into `no-ci-silent`; without it every `no-ci` stays `no-ci`, which
+    # is the stricter reading.
+    run_times = []
+    try:
+        page = 1
+        while page <= 10:
+            data = api_get(
+                f"https://api.github.com/repos/{repo}/actions/runs"
+                f"?per_page=100&page={page}&created=%3E{since[:10]}", token)
+            runs = data.get("workflow_runs", []) if isinstance(data, dict) else []
+            run_times.extend(r.get("created_at") for r in runs)
+            if len(runs) < 100:
+                break
+            page += 1
+    except Exception as e:
+        print(f"merge-ci-audit: the Actions timeline is unavailable ({e}) — "
+              f"every NO RUN line stays unrefined `no-ci` (the stricter "
+              f"reading); the dispatcher-silence class is not reported",
+              file=sys.stderr)
+        run_times = []
+
     divergences = []
     for sha7, trailing, real in convention_breaks:
         divergences.append(
@@ -540,7 +904,11 @@ def main():
     for c in commits:
         first = (c.get("commit", {}).get("message") or "").splitlines()[0:1]
         first = first[0] if first else ""
-        ok, problems = decide({"first_line": first, "sha": c.get("sha", "")}, pr_map)
+        merged_at = ((c.get("commit") or {}).get("committer") or {}).get("date") \
+            or ((c.get("commit") or {}).get("author") or {}).get("date")
+        ok, problems = decide(
+            {"first_line": first, "sha": c.get("sha", ""), "merged_at": merged_at},
+            pr_map, run_times)
         if not ok:
             divergences.append(
                 f"- `{c.get('sha', '')[:7]}` {first}\n  - " + "\n  - ".join(problems))
@@ -580,6 +948,9 @@ def main():
           f"live protection: {len(protection)} context(s)")
     if divergences:
         print(f"DIVERGENCES: {len(divergences)} (every line needs a human verdict)")
+        print("BY CLASS (№960 — a single count cannot be acted on): "
+              + ", ".join(f"{k}={v}"
+                          for k, v in sorted(summarize_divergences(divergences).items())))
         print("NOTE: a check ABSENT from the head SHA's workflow set (a job "
               "born after the merge) is still flagged — it cannot be proven "
               "retroactively; close the audit issue with the verdict if the "
@@ -588,7 +959,25 @@ def main():
         for d in divergences:
             print(d)
         if open_issue:
-            body = ("The weekly merge↔CI audit (№551 + №824) found divergence(s)\n"
+            classes_line = ", ".join(
+                f"{k}={v}"
+                for k, v in sorted(summarize_divergences(divergences).items()))
+            body = (f"BY CLASS: {classes_line}\n"
+                    "(\u2116960: `no-ci-silent` = the check never reported AND "
+                    "the Actions dispatcher was silent at merge time \u2014 an "
+                    "infrastructure event to escalate, not a merge performed "
+                    "in disregard of a verdict (the gh#1892 shape: no run "
+                    "ever existed on the PR branch, the protection was in "
+                    "force, and the dispatcher resumed 3 s later on the "
+                    "merge's own push); `no-ci` = the check never reported on "
+                    "the PR head while the dispatcher was live; "
+                    "`not-green` = a verdict existed and was ignored; "
+                    "`convention` = the squash tail is not a PR number, the "
+                    "merge itself IS verified; `no-pr` = not a squash merge "
+                    "of a PR; `unverified` = the data was unavailable; "
+                    "`blind` = the audit does not verify a context the "
+                    "protection enforces.)\n\n"
+                    "The weekly merge↔CI audit (№551 + №824) found divergence(s)\n"
                     "— merges without a green run of the required checks (the\n"
                     "M-1 class), protection contexts the detective never\n"
                     "verifies (the reverse direction), or required contexts\n"

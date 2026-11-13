@@ -385,7 +385,16 @@ jobs:
       - name: Free runner disk (the №712 ENOSPC guard, the №868 + №955 list extensions)
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeTracking /opt/hostedtoolcache/Ruby /usr/local/share/boost /usr/local/swift /opt/hostedtoolcache/CodeQL /usr/local/share/powershell /usr/lib/jvm /opt/hostedtoolcache/PyPy
-          sudo rm -rf /opt/az /usr/share/miniconda /usr/local/julia /usr/share/az_* /opt/microsoft /opt/google /usr/share/rust /usr/share/maven /usr/share/gradle-* /usr/share/kotlin /usr/share/mysql /usr/share/postgresql* /var/lib/postgresql /usr/share/chromium /usr/local/share/chromium /usr/local/lib/node_modules /snap /var/lib/snapd
+          sudo rm -rf /opt/az /usr/share/miniconda /usr/local/julia /usr/share/az_* /opt/microsoft /opt/google /usr/share/rust /usr/share/maven /usr/share/gradle-* /usr/share/kotlin /usr/share/mysql /usr/share/postgresql* /var/lib/postgresql /usr/share/chromium /usr/local/share/chromium /usr/local/lib/node_modules
+          # The snap tree is MOUNTED squashfs on some runner images:
+          # `rm -rf /snap` then returns 1 on every read-only path and the
+          # step (bash -e) kills a BLOCKING job for a cleanup failure.
+          # Observed on PR #1944, run 43491318219 — the whole suite had
+          # passed. The deletion stays best-effort and the fact that
+          # matters is printed right below: `df -h /`. The real guard
+          # against an unfreed disk is the ENOSPC death this reclaim
+          # exists to prevent, not the exit code of `rm`.
+          sudo rm -rf /snap /var/lib/snapd || true
           sudo docker image prune -af > /dev/null 2>&1 || true
           df -h /
       - uses: dtolnay/rust-toolchain@stable

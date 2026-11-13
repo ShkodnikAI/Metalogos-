@@ -356,9 +356,12 @@ fn n951_a_literal_url_is_not_judged_by_its_wording() {
 #[test]
 fn n951_every_request_egress_name_is_a_network_source_in_the_registry() {
     for name in metalogos::semantic::REQUEST_EGRESS_NAMES {
-        let class = metalogos::builtins_classification::classify(name)
-            .unwrap_or_else(|| panic!("`{name}` is in REQUEST_EGRESS_NAMES but is not in the \
-                 registry at all — a typo disables the gate silently"));
+        let class = metalogos::builtins_classification::classify(name).unwrap_or_else(|| {
+            panic!(
+                "`{name}` is in REQUEST_EGRESS_NAMES but is not in the \
+                 registry at all — a typo disables the gate silently"
+            )
+        });
         assert_eq!(
             (class.role, class.default_label),
             (

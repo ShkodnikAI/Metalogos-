@@ -10,7 +10,26 @@ backends (TW twin + VM twin), pinned by the №503 outcome-parity suite.
 A NEW wildcard in these files fails CI until it is enumerated or added to this
 ledger with a reason.
 
-Total tail: 98 wildcard arms.
+Total tail: 100 wildcard arms (98 + the two №950 arms below).
+
+**№950 (the interprocedural summaries, ADR-0154 §12) — two STATEMENT-level
+allows in `src/semantic.rs`**, each with its own reason in the code rather
+than the shared one, because both arms are reached while a security
+decision is being made and the reason has to say why the arm is still
+safe:
+
+- `seed_interproc_summaries`, the `units` collection — the summarizable
+  units are the two callable-with-parameters shapes (`Declaration::Pattern`,
+  `Declaration::Tool`'s methods). Every other declaration kind has no
+  parameters to summarize, so the wildcard contributes NOTHING to the
+  summary map; a new callable-with-parameters declaration kind would have
+  to be added here explicitly, and until it is, its calls keep the
+  pre-№950 argument-join behaviour (weaker analysis, never a weaker
+  refusal).
+- `check_calls`, the `summarized_call` binding — only the two CALL shapes
+  (`Expr::FnCall`, `Expr::QualifiedCall`) can carry a summary. The
+  wildcard arm is every expression that is not a call, where there is no
+  callee to consult.
 
 - `fn collect_import_decls` — wildcard arms at lines 205
 - `fn decl_import_ident` — wildcard arms at lines 277

@@ -82,7 +82,7 @@ $ mlog check poison.mlog
 
 #### Known boundaries of static analysis
 
-These checks use **intraprocedural taint tracking** — they follow `let`-assignment chains within a single pattern body, bounded to nesting depth `TAINT_NESTING_MAX_DEPTH = 3` (Naryad #295). **As of naryad №292, summary-based interprocedural taint is also tracked** (configurable depth, default 4 — see `TAINT_INTERP` below). The following patterns are **not** detected at compile time:
+These checks use **intraprocedural taint tracking** — they follow `let`-assignment chains within a single pattern body, bounded to nesting depth `TAINT_NESTING_MAX_DEPTH = 3` (Naryad #295). **As of naryad №292, summary-based interprocedural taint is also tracked in ONE narrow lane** (pattern parameter → pattern return, in the LLM lane, configurable depth, default 4 — see `TAINT_INTERP` below; the honest re-statement of №948 — it was overstated here before). **Separately, as of naryad №950, the LABEL LATTICE crosses the pattern call boundary in full** (ADR-0154 §12): a callee's return carries the sources read inside it, and each argument is checked against the clearance the callee's parameter requires, at any call depth, for patterns and tool methods alike. What the lattice still misses is tabulated in [threat-model.md §The inter-pattern boundary](docs/threat-model.md). The following patterns are **not** detected at compile time:
 
 | Pattern | Why not caught |
 |---|---|

@@ -1944,7 +1944,99 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
             }
             Some(out)
         }
-        _ => None,
+        // ── №951: THE REGISTRY'S OWN SOURCES, not only the named ones.
+        //
+        // The arms above are a HAND-WRITTEN vocabulary of 25 names. The
+        // registry classifies 153 builtins as `Role::Source`, so 128
+        // sources entered the lattice as BOTTOM — public and trusted.
+        // Verified on the published binary: `print(env_or("SP", "d"))`,
+        // `print(generate_key(32))`, `print(web_search("q"))` and
+        // `print(http_download(url, f))` all passed `mlog check`.
+        //
+        // Two of the registry's channel classes answer for themselves and
+        // are derived here instead of being named by hand:
+        //
+        //   `Label::Secret`  — the channel carries a secret → private,
+        //                      trusted (env_or, generate_key, world_state);
+        //   `Label::Network` — the channel comes from the network, so the
+        //                      ANSWER is remote data → public, untrusted
+        //                      (web_search, http_download, imap_read,
+        //                      cal_read, card_read, geo_ip, weather,
+        //                      whisper_transcribe, mcp_call, series_pull…).
+        //
+        // The class `Internal` is NOT derived here, and that is a decision
+        // with a reason: `default_label` is the CHANNEL class of №316, not
+        // a lattice label, and `Internal` conflates «own store» (`recall`,
+        // `kv_get`, `query`) with «untrusted request body» (`json_body`
+        // itself is classified `Internal` and is named by hand above as
+        // untrusted). 94 names and 295 corpus uses hang on that
+        // distinction, so it goes to the owner name by name (the owner
+        // decision 13.11, variant 1) rather than being guessed here.
+        // `Public` stays bottom, which is already correct.
+        // `world_state` is excluded from the derivation below, and the
+        // reason is a DESIGN CHOICE of the project, not an oversight: its
+        // refusal is owned by the RUNTIME layer (№355/№691, ADR-0159 — the
+        // conformance fixture `sst_001_world_state_materialization_refused`
+        // says so in its first line: «the materialization surfaces refuse
+        // the typed WORLD_STATE_PRIVATE refusal at RUNTIME on BOTH
+        // backends»). Deriving a STATIC refusal here would pre-empt that
+        // runtime refusal and break the two examples the project uses to
+        // demonstrate it (`w10_embodied_sim`, `w11_embodied_bounds`, pinned
+        // by `tests/naryad_436_embodied_examples.rs` as executing cleanly).
+        // Whether the static gate should ALSO refuse it — fail earlier — is
+        // put to the owner rather than decided here.
+        "world_state" => None,
+        other => {
+            let derived = match classify(other).map(|c| (c.role, c.default_label)) {
+                Some((
+                    crate::builtins_classification::Role::Source,
+                    crate::builtins_classification::Label::Secret,
+                )) => Some(Label {
+                    conf: crate::labels::Conf::Private,
+                    integrity: crate::labels::Integrity::Trusted,
+                    consent: Default::default(),
+                }),
+                Some((
+                    crate::builtins_classification::Role::Source,
+                    crate::builtins_classification::Label::Network,
+                )) => Some(Label {
+                    conf: crate::labels::Conf::Public,
+                    integrity: crate::labels::Integrity::Untrusted,
+                    consent: Default::default(),
+                }),
+                _ => None,
+            };
+            // The №689 PRIVATE-FIELD rule WINS where it applies, and the
+            // derivation must not shadow it.
+            //
+            // `expr_label` consults `label_source` FIRST and
+            // `registry_private_flow_label` only if it returned `None`, so
+            // returning the derived class alone SHADOWED №689: `imap_read`
+            // carries private FIELDS through its `field_meta`, and the
+            // derivation's `public, untrusted` silently replaced that
+            // rule's `private, trusted` — a WEAKENING on the
+            // confidentiality axis. The full suite caught it (the four
+            // `n689_imap_read_*` tests); the corpus sweep could not,
+            // because a sweep counts findings and a label getting weaker
+            // changes no count until something stops refusing.
+            //
+            // Where both would answer, the private-field rule stands alone
+            // rather than being joined with the network class, and that is
+            // a judgment with a reason: `private` already refuses at every
+            // sink the integrity axis would have caught (`exec`, an output
+            // sink, a network sink — the confidentiality clearance fires
+            // first), so joining `untrusted` onto it buys no refusal that
+            // is not already there, while it DOES change the diagnostic
+            // class the project pinned (`sink_check_id` names the integrity
+            // class ahead of the confidentiality one, so `PII_EGRESS_*`
+            // would become `UNTRUSTED_EGRESS_*` for every mail read).
+            // Trading a pinned, more informative class for a refusal that
+            // already exists is not a gain.
+            match registry_private_flow_label(other) {
+                Some(p) => Some(p),
+                None => derived,
+            }
+        }
     }
 }
 
@@ -6151,6 +6243,45 @@ pub struct ReadbackPair {
     pub domain: &'static str,
 }
 
+/// №951 (the threat-model row B6): the ADDRESS/QUERY family — builtins
+/// classified `Role::Source` + `Label::Network` (they send a request to
+/// produce their answer) whose arguments are an ENDPOINT or a query
+/// string transmitted verbatim, not natural-language content.
+///
+/// Their arguments are an egress position and take the confidentiality
+/// clearance (`sink_kind` "request" — the integrity axis is deliberately
+/// not gated here; see `clearance_failure`). A secret interpolated into
+/// one of these is the audit's pin B6:
+/// `http_get("https://x/?k=" + env("KEY"))` passed `mlog check` on
+/// v0.39.0 while the key rode out in the query string.
+///
+/// NOT in this table, with the reason: the CONTENT family of the same
+/// registry class (`call_llm`, `call_claude`, `call_llm_schema`,
+/// `llm_stream_open`/`_next`, `whisper_transcribe`, `tts_generate`,
+/// `mcp_call`, `imap_*`, `cal_*`, `card_*`). Their arguments are prose or
+/// structured payloads, and the confidentiality clearance there collides
+/// with the literal-marker rule of ADR-0161 §3 — a prompt that merely
+/// MENTIONS «private» or «confidential» would refuse. Their lane is the
+/// `TAINT_INTERP` contour (the №449 prompt-egress chain), which reports
+/// the flow without blocking the ordinary call.
+///
+/// The table exists because the registry has no direction PER ARGUMENT;
+/// closing that is a change to the SSOT's shape and an owner decision
+/// (recorded in ADR-0154 and the threat-model note). A new row needs the
+/// same justification as a row here: the argument leaves verbatim and is
+/// an address or a query, not content.
+pub const REQUEST_EGRESS_NAMES: &[&str] = &[
+    "http_get",             // arg 0 the URL, arg 1 the headers
+    "http_download",        // arg 0 the URL
+    "web_search",           // arg 0 the query — transmitted verbatim
+    "geo_ip",               // arg 0 the address looked up
+    "weather",              // arg 0 the location
+    "weather_forecast",     // arg 0 the location
+    "series_pull",          // arg 0 the source endpoint
+    "vision_fetch_weights", // arg 0 the URL
+    "video_fetch_weights",  // arg 0 the URL
+];
+
 pub const READBACK_PAIRS: &[ReadbackPair] = &[
     ReadbackPair {
         source: "cron_list",
@@ -6217,33 +6348,122 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
         })
         .collect();
 
-    // Seed environment: global entities (initializers with confidentiality
-    // markers are private — ADR-0161 §3), all other names bottom.
+    // ── Seed environment: the global entities (№951, the threat-model
+    // row B8). THREE facts seed an entity, joined, and until this naryad
+    // the gate read only the FIRST:
+    //
+    //   1. the initializer's confidentiality MARKERS (ADR-0161 §3) — a
+    //      literal carrying passport/SNILS/«confidential» wording;
+    //   2. the initializer's LABEL — `entity k: String = env("SP")` reads
+    //      a secret, and the old seed, matching only `StringLit`, gave it
+    //      bottom. That is half of pin B8;
+    //   3. the DECLARED TYPE and the EXPLICIT ANNOTATION — `entity key:
+    //      Secret = …` and `entity k: String<private> = …`. The annotation
+    //      grammar landed with №322 and the gate never read it: a program
+    //      that SAYS «this is private» was gated as public. That is the
+    //      other half of B8, and the sharper half — the author did
+    //      everything the language asked and got no protection.
+    //
+    // One-level type-alias resolution (`type Token = Secret`) comes with
+    // it, since the alias is the documented way to name a secret type.
+    let secret_aliases: HashSet<&str> = declarations
+        .iter()
+        .filter_map(|d| match d {
+            Declaration::TypeAlias(a) if a.target == "Secret" => Some(a.alias.as_str()),
+            _ => None,
+        })
+        .collect();
+    let declared_label = |type_name: &str, ann: Option<&LabelAnn>| -> Label {
+        let mut l = Label::bottom();
+        if type_name == "Secret" || secret_aliases.contains(type_name) {
+            l = l.join(&Label {
+                conf: crate::labels::Conf::Private,
+                integrity: crate::labels::Integrity::Trusted,
+                consent: Default::default(),
+            });
+        }
+        if let Some(a) = ann {
+            if let Ok(parsed) = Label::parse(&a.raw) {
+                l = l.join(&parsed);
+            }
+        }
+        l
+    };
+    let empty_env: BTreeMap<String, Label> = BTreeMap::new();
     let mut seed: BTreeMap<String, Label> = BTreeMap::new();
     for decl in declarations {
         match decl {
             Declaration::EntitySimple(e) => {
-                seed.insert(e.name.clone(), entity_seed_label(Some(&e.value)));
+                let l = entity_seed_label(Some(&e.value))
+                    .join(&expr_label(&e.value, &empty_env))
+                    .join(&declared_label(&e.type_name, e.label.as_ref()));
+                seed.insert(e.name.clone(), l);
             }
             Declaration::EntityRecord(e) => {
                 // Record entities are maps; the entity name itself seeds
-                // with the strongest field marker.
+                // with the strongest field fact.
                 let strongest = e
                     .fields
                     .iter()
-                    .map(|f| entity_seed_label(Some(&f.value)))
+                    .map(|f| {
+                        entity_seed_label(Some(&f.value)).join(&expr_label(&f.value, &empty_env))
+                    })
                     .fold(Label::bottom(), |a, b| a.join(&b));
-                seed.insert(e.name.clone(), strongest);
+                seed.insert(
+                    e.name.clone(),
+                    strongest.join(&declared_label(&e.type_name, e.label.as_ref())),
+                );
             }
             _ => {}
         }
     }
 
     fn is_sink(name: &str) -> bool {
-        matches!(
+        if matches!(
             classify(name).map(|c| c.role),
             Some(crate::builtins_classification::Role::Sink)
-        )
+        ) {
+            return true;
+        }
+        // ── №951 (the threat-model row B6): A REQUEST/RESPONSE BUILTIN IS
+        // BOTH DIRECTIONS. The №316 role model names one direction per
+        // builtin, so `http_get` was classified by what it RETURNS (a
+        // source of remote data) and its REQUEST side — the URL, the
+        // headers, the body, all of which leave the process — was never
+        // gated. That is the audit's pin B6:
+        //   http_get("https://x/?k=" + env("SP"))   // check passed
+        //
+        // The registry carries HALF of what is needed: a `Role::Source`
+        // classified `Label::Network` is a builtin that SENDS a request to
+        // get its answer, so its arguments are an egress position. What
+        // the registry does NOT carry is a direction PER ARGUMENT — there
+        // are 31 such names and their arguments are not alike. For
+        // `http_get` the argument is an ADDRESS, transmitted verbatim, and
+        // a secret in it is pin B6. For `call_llm` the argument is
+        // natural-language CONTENT, and gating it collided head-on with
+        // the literal-marker rule of ADR-0161 §3: the repository's own
+        // leak fixture `n449_prompt_egress_chain` refuses on the prompt
+        // literal "summarize the private document", because the word
+        // «private» is a confidentiality marker. Every prompt that
+        // mentions «confidential», «internal» or «passport» would refuse
+        // — a wide false-positive class in a language whose primary use is
+        // asking a model about text.
+        //
+        // So the table below names the ADDRESS/QUERY family only: the
+        // shape the audit proved, where the argument is transmitted
+        // verbatim to an endpoint and carries no natural-language content.
+        // The content family (call_llm*, whisper_transcribe, tts_generate,
+        // mcp_call, the mail/calendar/card readers) stays with the
+        // `TAINT_INTERP` contour, which already reports prompt egress
+        // (the №449 chain) without blocking the ordinary call.
+        //
+        // The real fix is the ROLE MODEL: a direction per argument, or a
+        // duplex role, in the registry SSOT. That changes the shape of the
+        // SSOT and is an owner-level decision — recorded as the open
+        // question in ADR-0154 and in the threat-model note, not decided
+        // here. The table is the honest interim: narrow, evidence-backed,
+        // and each row says why it is in.
+        REQUEST_EGRESS_NAMES.contains(&name)
     }
 
     fn sink_kind(name: &str) -> &'static str {
@@ -6276,6 +6496,12 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
             // runtime backstop (MEDIA_SEALED_EGRESS) refuses non-public
             // entries even if the static layer was bypassed.
             "media_save" => "file",
+            // №951 (the B6 family): the REQUEST side of a bidirectional
+            // builtin — a `Role::Source` classified `Label::Network`
+            // sends data out to produce its answer. Its own kind, because
+            // the clearance differs from a network SINK's by one axis
+            // (see `clearance_failure`).
+            n if REQUEST_EGRESS_NAMES.contains(&n) => "request",
             _ => "network",
         }
     }
@@ -6309,6 +6535,28 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
             // Media generation: №331 Phase-2 boundary — the marking
             // machinery (MEDIA_SYNTHETIC_UNMARKED, №320) owns it here.
             "media" => None,
+            // №951 (the B6 family): the request side of a bidirectional
+            // builtin is gated on CONFIDENTIALITY ONLY.
+            //
+            // Sending a secret out in a URL, a query or a prompt is a
+            // leak — that is pin B6 and the whole `http_get("?k=" +
+            // env(...))` family. Sending UNTRUSTED text out is not: the
+            // integrity axis is about data coming IN and about data that
+            // DECIDES something, and asking a model about the user's own
+            // message is the language's primary use. Gating both axes
+            // here — the first shape of this rule — refused
+            // `call_llm(system, json_body().text)` in the repository's own
+            // benchmark workload, which is not a leak but the intended
+            // program. The integrity half of the LLM lane is owned by the
+            // separate `TAINT_INTERP` contour (the №449 prompt-egress
+            // chain), which reports it without blocking the ordinary call.
+            "request" => {
+                if label.conf != crate::labels::Conf::Public {
+                    Some("private-egress")
+                } else {
+                    None
+                }
+            }
             // Voice egress requires a consent scope (Phase-2 sources, №335;
             // until then the scope is empty by default — loud by design).
             "voice" => {
@@ -6557,7 +6805,32 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                         });
                         continue;
                     }
-                    let label = sink_arg_label(a, env, &origin_labels);
+                    // ── №951: at a REQUEST position a BARE STRING LITERAL
+                    // carries no program data.
+                    //
+                    // The literal-marker rule of ADR-0161 §3 reads a bare
+                    // literal's WORDING: «internal», «private», «secret»
+                    // in it mean «the destination is internal
+                    // infrastructure, and the destination IS the leak
+                    // vector». That rule is about a SINK's address, and it
+                    // stays exactly where it was. At a request position it
+                    // misfires: the project's own hardening test calls
+                    // `http_get(".../private/data", {robots: true})` and
+                    // expects the runtime's typed `[HTTP_ROBOTS_DENIED]`,
+                    // and a path segment named `/private/` turned it into a
+                    // static PII refusal. A URL an author typed is author
+                    // text, not data that flowed from a source — pin B6 is
+                    // about `"…?k=" + env("KEY")`, a CONCATENATION, where
+                    // the secret and not the wording supplies the label.
+                    //
+                    // So: at a request position a bare literal is bottom,
+                    // and every other shape keeps the full rule.
+                    let label =
+                        if sink_kind(name) == "request" && matches!(a, Expr::StringLit { .. }) {
+                            Label::bottom()
+                        } else {
+                            sink_arg_label(a, env, &origin_labels)
+                        };
                     // ── Naryad #387: the generalized media-sink egress ──
                     // media_save accepts a private/camera-origin handle
                     // when the author holds a legal credential: a
@@ -6935,6 +7208,28 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                         check,
                         violations,
                     );
+                    // ── №951 (the threat-model row B5): FOLD THE BODY'S
+                    // RAISES BACK, exactly as the `While` arm below does.
+                    //
+                    // Until this, the `each` fork was DISCARDED after the
+                    // body walk, so any variable the body raised lost its
+                    // label at loop exit. That is the audit's pin B5:
+                    //   let mut acc = ""
+                    //   each c in split(env("SP"), "") { acc = acc + c }
+                    //   print(acc)                       // check passed
+                    // The iterant itself stays scope-local (the №323 Each
+                    // contract) — it is excluded from the fold, so the
+                    // loop variable does not leak into the outer scope;
+                    // everything else joins, which is the same
+                    // conservative single-pass rule ADR-0154 §8 D1 states
+                    // for `while`. One rule for both loop forms.
+                    for (k, v) in env_body {
+                        if &k == variable {
+                            continue;
+                        }
+                        let merged = env.get(&k).cloned().unwrap_or_else(Label::bottom).join(&v);
+                        env.insert(k, merged);
+                    }
                 }
                 Statement::While {
                     condition, body, ..

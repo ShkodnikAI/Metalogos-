@@ -218,3 +218,73 @@ the marker format (`[mock-llm:<hex>]`, №487) are byte-identical.
   (`http_post` + `send_message` + `cron_run`) — unmigrated it refuses
   with the named carrier and paths; migrated per this page it passes
   both gates on both backends.
+
+## 0.39.0 → 0.39.1 (the security patch — three BREAKING sharp edges)
+
+The unplanned security slice (ADR-0189 §2.6): the audit 12.11's P0 fix
+line merged in one day (the dispatch gh#1935 — №948, №953, №958, №954,
+№955; the audit probes live in
+`docs/projects/metalogos/audit_2026-11-12/`). Three edges cut programs
+that compiled (and misbehaved) on v0.39.0 — each refusal is the fix
+working, and each has an explicit, loud migration path.
+
+### 1. `mlog test` / `mlog resume` behind the Category-A gates (№953)
+
+On v0.39.0 `mlog test` ran test bodies with NO gates — a "passing" test
+run could write the leak file. On 0.39.1 a leak-class program refuses at
+the gates (exit ≠ 0) BEFORE any execution; `check --root` is static (it
+executes nothing — the import graph resolves through the №523 static
+form).
+
+**Migration:** a test body that genuinely needs the ungated execution —
+the honest runs pass `--allow-unchecked` explicitly (a loud banner fires
+on EVERY such run: the opt-out must never be silent):
+
+```bash
+mlog test tests/ --allow-unchecked
+```
+
+A program the gates refuse could never have "passed" honestly — the
+previously "passing" run was the leak.
+
+### 2. The serve/mcp-serve 500 body is the generic id-form (№955)
+
+On v0.39.0 the 500 body carried the FULL handler error text — including
+any string VALUE the text quoted (the audit's H-3: `to_int("TOPSECRET…")`
+reached the client). On 0.39.1 the client receives
+`Internal error (id: err-N)` (the MCP tools/call: `Error (id: err-N)`);
+the full text — masked by the redact policy (string values become
+`string(len=N)`) — rides the `[ROUTE_HANDLER_ERROR]` stderr line keyed
+by the SAME id.
+
+**Migration:** operators/monitoring that parsed the 500 body must read
+the id from the body and the text from the server log (the correlation
+is the id). Local development opt-out — `METALOGOS_SERVE_VERBOSE_ERRORS=1`
+— restores the old full-text body and fires a loud startup banner; it
+must never face untrusted clients.
+
+### 3. Capability permits come from the ENTRY program only (№954)
+
+On v0.39.0 the VM compiler unioned an IMPORTED module's `profile
+capability { allow_carrier: … }` into the permit roster — any dependency
+could grant itself a carrier (the audit's H-2, probe c03). On 0.39.1 an
+imported capability profile refuses loudly
+(`[CAPABILITY_PROFILE_IN_IMPORT]`) at check/run/VM-compile/serve/mcp-serve.
+
+**Migration:** move the `profile capability` declaration into the root
+(ENTRY) program — the dependency's intent stays, the grant decision
+returns to the program owner. For one release window the ENTRY may take
+
+```text
+profile legacy { capability_imports: warn }
+```
+
+which downgrades the refusal to the loud stderr warning — the roster
+STILL never extends and the irreversible sinks still refuse with
+`IRREVERSIBLE_NO_GRANT` (fail-closed either way).
+
+The honest boundary the patch does NOT close: the inter-pattern label
+tracking (the boundary table B1–B9 in `docs/threat-model.md`) is the
+0.40.0 train (№950–№952, after the owner's «принято» on the №949 ADR
+amendments) — the advisory `docs/security/advisory-2026-11-12.md` keeps
+describing that gap.

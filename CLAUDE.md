@@ -145,6 +145,40 @@ files** — a multi-file project gives false `undefined` errors. Use
 exactly on this (`Value` does not implement `PartialEq`, the test
 compared directly).
 
+**Every CHANGELOG edit invalidates the generated metrics block.**
+`docs/metrics.md` carries the CHANGELOG's SIZE in KB, so adding a row moves
+it and `docs-metrics (blocking)`, `gate-044`, `gate-045` and `gate-046` all
+go red — three times in one day, twice on an already-pushed PR. The
+sequence is: finish every documentation edit FIRST, then
+`python3 -I scripts/gen_metrics.py`, then
+`METALOGOS_GEN_COMPLIANCE=1 cargo test --test naryad_868_package` to
+re-attest, and only then commit. Running them earlier guarantees a second
+round.
+
+**A conclusion of one's OWN is prose too — verify it before it lands in
+a document.** The gh#1892 analysis was delivered with the conclusion «the
+branch protection did not hold»; the repository's own detective refuted
+it minutes later (`branch-protection-audit` GREEN, `contexts=23
+enforce_admins=True`, 2 h 36 m after the merge in question). Two further
+hypotheses fell the same way: «inattention at the merge button» (23
+required contexts in force make that merge unofferable) and «an Actions
+outage that day» (30 and 57 runs on the two days). §1 says to verify a
+textual description with a fact; the same applies to a sentence the
+agent itself just wrote. The reads that settle a CI question are cheap
+and specific: the detective's own run LOG (`actions/jobs/<id>/logs`,
+where the verdict line lives — the artifact download is proxy-blocked),
+`actions/runs?branch=<ref>` for «did CI ever run here», `actions/runs?created=<date>`
+for the dispatcher timeline, and `/rulesets` before blaming classic
+protection. When the facts cannot separate two mechanisms, name both and
+say which read would settle it — the audit log needs owner access, and
+an inference dressed as a fact is the one output the project cannot use.
+
+**A polling detective cannot witness an event between its polls.** The
+protection audit ran weekly, so both gh#1892 merges sat inside one
+snapshot window and the audit could neither confirm nor refute a toggle
+around them (№960 raised it to daily). Narrowing the window helps; it
+never closes it. When the question is «did someone flip this», the only
+real answer is the event record (the audit log), not a cadence.
 **A corpus sweep counts findings; it cannot see a label getting weaker.**
 The №951 derivation of the registry's network source class SHADOWED the
 №689 private-field rule — `imap_read` lost `private, trusted` for

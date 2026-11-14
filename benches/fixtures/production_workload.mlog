@@ -2190,9 +2190,15 @@ pattern voice_entry(clip: String) -> String {
 }
 
 pattern db_order_entry(customer: String, amount: Float) -> String {
+  // №950: the request-derived name must not become a PERSISTED kv key as
+  // it arrives — `redact(x, "hash_only")` is the one-way fingerprint that
+  // restores the integrity axis (keys stay distinct, no runtime key
+  // needed). The flow was always a TAINT_PERSISTENCE violation; it was
+  // invisible only because it crossed a pattern boundary.
+  let customer_fp = redact(customer, "hash_only")
   let a = db_order1(customer, amount)
   let b = db_order2(customer, amount + 1.0)
-  let c = session1(customer, "ops")
+  let c = session1(customer_fp, "ops")
   return a + " | " + b + " | " + c
 }
 
@@ -2210,8 +2216,10 @@ pattern db_list_entry(limit: String) -> String {
 }
 
 pattern kv_entry(sid: String) -> String {
-  let a = session2(sid, "billing")
-  let b = report5("kv-" + sid, 3.0)
+  // №950: same fingerprint before the session id reaches a persisted key.
+  let sid_fp = redact(sid, "hash_only")
+  let a = session2(sid_fp, "billing")
+  let b = report5("kv-" + sid_fp, 3.0)
   return a + " | " + b
 }
 
@@ -2226,7 +2234,14 @@ pattern mix_pipeline(text: String, dept: String, amount: Float) -> String {
   let frame = vision_understand("mix-frame.png", "check attachment")
   let stamped = note3("mix-clip.wav")
   let db_part = db_order3(dept, amount)
-  let kv_part = session3(dept, intent)
+  // №950: neither side of a persisted pair may carry request or model
+  // data as it arrives. The KEY is the one-way fingerprint of the request
+  // field (`redact(x, "hash_only")` restores the integrity axis and keeps
+  // the keys distinct); the VALUE is a literal, because `dept2` is a
+  // `match` over MODEL OUTPUT and the lattice carries the scrutinee's
+  // label into the result (ADR-0154 §8 — the implicit-flow rule), so
+  // storing it would persist untrusted data.
+  let kv_part = session3(redact(dept, "hash_only"), "mix")
   let guarded = safe_math1(amount)
   let scored = dispatch11(dept2, text)
   let ledger = report7(dept, 5.0)

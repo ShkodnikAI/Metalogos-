@@ -5990,9 +5990,41 @@ fn check_sink_clearance(
     source: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    let advisory = crate::profile::resolve(declarations).permissive();
+    let profiles = crate::profile::resolve(declarations);
+    let advisory = profiles.permissive();
     let violations = crate::semantic::sink_clearance_violations(declarations);
+    // ── №950 (ADR-0154 §12.5): the transition window. `profile legacy
+    // { interproc: warn }` downgrades EXACTLY the findings the
+    // interprocedural summaries added — identified by differencing
+    // against the pre-№950 answer, not by guessing from the message. The
+    // second walk runs only when the window is declared; without it this
+    // set is empty and nothing is downgraded.
+    let interproc_added: std::collections::HashSet<(String, usize, u32, &'static str)> =
+        if profiles.legacy_interproc_warn {
+            let key = |v: &crate::semantic::SinkViolation| {
+                (v.fn_name.clone(), v.arg_index, v.span.start_line, v.reason)
+            };
+            let before: std::collections::HashSet<_> =
+                crate::semantic::sink_clearance_violations_pre_interproc(declarations)
+                    .iter()
+                    .map(key)
+                    .collect();
+            violations
+                .iter()
+                .map(key)
+                .filter(|k| !before.contains(k))
+                .collect()
+        } else {
+            std::collections::HashSet::new()
+        };
     for v in violations {
+        let interproc_windowed = profiles.legacy_interproc_warn
+            && interproc_added.contains(&(
+                v.fn_name.clone(),
+                v.arg_index,
+                v.span.start_line,
+                v.reason,
+            ));
         // Attribution: the semantic layer hands us the arg label and
         // container; recover the arg expression for the URL-position
         // rule by re-walking — done inside the semantic layer's
@@ -6059,7 +6091,7 @@ fn check_sink_clearance(
         // bytes enter the program (the read_file(query_param(...))
         // exfiltration vector), the file-channel twin of
         // UNTRUSTED_EXEC_DECISION. Same advisory-profile posture.
-        let severity = if advisory {
+        let severity = if advisory || interproc_windowed {
             Severity::Info
         } else {
             Severity::Error
@@ -6127,6 +6159,10 @@ fn check_sink_clearance(
                 v.label,
                 if advisory {
                     " (audit event: profile legacy / egress permissive_with_audit)"
+                } else if interproc_windowed {
+                    " (audit event: profile legacy / interproc warn — the №950 transition \
+                     window, ADR-0154 §12.5: this refusal comes from the interprocedural \
+                     summaries and blocks after the window closes)"
                 } else {
                     ""
                 },
@@ -7256,6 +7292,11 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     // (audit_program seeds its own) — the compile-blocking checks read
     // the raw positions of the program's templates.
     crate::html_label::seed_render_raw(declarations);
+    // №950 (ADR-0154 §12.3): the compile-blocking path seeds the
+    // interprocedural summaries too — the sink-clearance findings of this
+    // category read them at the call sites. After seed_render_raw: the
+    // probe runs re-enter the sink walk, whose render arm reads that map.
+    crate::semantic::seed_interproc_summaries(declarations);
     check_sql_dynamic(declarations, source, &mut findings);
     check_secret_leak(declarations, source, &mut findings);
     // Наряд №458: provider-format secret literals refuse at compile time —
@@ -7358,6 +7399,9 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     // the html_label sink walk read the program's template declarations
     // through it (the sanitizer/conductor split of the S-1 audit).
     crate::html_label::seed_render_raw(&declarations);
+    // №950 (ADR-0154 §12.3): same seeding on the report path, so
+    // `mlog audit` and `mlog check` agree on the interprocedural facts.
+    crate::semantic::seed_interproc_summaries(&declarations);
 
     let mut findings: Vec<AuditFinding> = Vec::new();
 

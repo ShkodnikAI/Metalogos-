@@ -288,3 +288,115 @@ tracking (the boundary table B1–B9 in `docs/threat-model.md`) is the
 0.40.0 train (№950–№952, after the owner's «принято» on the №949 ADR
 amendments) — the advisory `docs/security/advisory-2026-11-12.md` keeps
 describing that gap.
+
+## 0.39 → 0.40.0 (№950 — the pattern call boundary, BREAKING)
+
+A program that passed `mlog check` on ≤ 0.39.0 while carrying a secret
+or an untrusted value **across a call into a user pattern** now refuses
+at compile time. The program was leaking; the check was not looking
+(ADR-0154 §12, the contract written by №949, the gap tabulated by №948
+as the threat-model rows B1–B4 and proved on the published release
+binary by the audit of 12.11).
+
+### What changed
+
+| Through 0.39.0 | From 0.40.0 |
+|---|---|
+| a call to a user pattern took the join of its ARGUMENTS; the called body was never consulted | the call's label also joins the callee's `return_internal` — the sources evaluated INSIDE its body (§12.2 (а)) |
+| an unannotated parameter entered its body as `bottom` (the «open world» of ADR-0154 Appendix A) | each parameter carries the clearance of the sinks it reaches, and the CALL SITE re-decides that clearance with the ACTUAL argument label (§12.2 (б)) |
+| only one hop, in one lane (the `TAINT_INTERP` param→return LLM lane) | any call depth: the summaries are computed in reverse topological order, and call cycles take the conservative top (§12.3) |
+
+The diagnostic classes are the existing ones — no new `check_id` was
+minted for the boundary (§12.4). A refusal that comes from the boundary
+names the chain, so the call site that chose the value is where the fix
+belongs:
+
+```
+[PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in
+pattern P → Show(…) → print (parameter 0 reaches the sink) carries
+label 'private, trusted'; sinks require public; failed threshold:
+private-egress
+```
+
+### The migration — pick ONE per refusal
+
+| The refusal says | You do |
+|---|---|
+| the callee's return carries a source (B1/B3/B4 shape: `print(G("a"))`, `respond_html(Gen(q))`, `exec(Sh(c))`) | redact or sanitize INSIDE the callee before returning (`redact(...)` for the private axis, `render`/`template_render` for the HTML axis, an allowlist match for the exec axis) — the sanitizer lowers the label at the point where the knowledge lives |
+| a parameter of the callee reaches a sink (B2 shape: `Show(env("SP"))`) | pass a value that clears the sink (not the secret), or sanitize INSIDE the callee before the sink, or sanitize at the call site, or make the requirement EXPLICIT by annotating the parameter — `pattern Show(v: String<public>)` turns the refusal into the honest signature mismatch at the callee's own boundary |
+| a recursive pattern refuses and you believe the flow is safe | the cycle's summary is the conservative top by design (§12.3): split the recursion so the sink-bearing part is not inside the cycle, or sanitize before the recursive call |
+| you need time | declare the transition window (below) — for ONE release window |
+
+### Sanitizing inside the callee works, and it works PER AXIS
+
+The two axes of the label — confidentiality and integrity — are tracked
+across the boundary separately, so a sanitizer inside the callee is
+credited for the axis it actually repairs:
+
+```
+pattern Store(raw: String) -> String {
+  let fp = redact(raw, "hash_only")   // restores the INTEGRITY axis
+  kv_set("k-" + fp, "ok")             // the persisted key is now trusted
+  return "stored"
+}
+route "/s" method=GET { return respond(Store(query_param("id"))) }
+```
+
+The argument is untrusted but public, the callee repairs the integrity,
+and the call site clears. The same parameter handed a SECRET still
+refuses, because `hash_only` repairs the integrity and not the
+confidentiality — for that axis the downward move is
+`redact(x, "secrets")` / `"all"` (one-way) or not sending the secret at
+all. The repository's own benchmark fixture
+(`benches/fixtures/production_workload.mlog`) is migrated exactly this
+way and is worth reading as the worked example: it had been carrying
+request fields and model output into `kv_set` through three patterns.
+
+### The transition window
+
+```
+profile legacy { interproc: warn }
+```
+
+The summaries still run and the findings still appear in the audit
+report (`mlog audit`), naming the window; nothing blocks compilation.
+It is NARROW by construction: it downgrades only the findings the
+summaries ADDED — an intraprocedural refusal in the same program keeps
+blocking, and it is not a second `egress: permissive_with_audit`. The
+key is removed one release window after 0.40.0 (§12.5), and a program
+still relying on it then stops compiling.
+
+### What did NOT change
+
+- The intraprocedural refusals: identical classes, identical texts.
+- The `TAINT_INTERP` lane (№292) and its `METALOGOS_TAINT_DEPTH`
+  bound — a different mechanism, exactly as narrow as before.
+- The analysis cost stays inside the dispatch threshold: +8.5% on the
+  largest `examples/` programs, +3.4% on the 2300-line benchmark
+  workload, +37.2% on the self-hosted parser (the worst case) and
+  +36.2% on a synthetic 200-pattern call chain (§12.3's +50% bound).
+- All 475 `.mlog` files of the repository: `mlog check` changed on the
+  four B1–B4 pin files and nowhere else.
+- Recursion: a mutually recursive program that leaks nothing stays
+  clean (the self-hosted parser is the pin), while a leak through a
+  recursive pattern refuses.
+
+### Still open after this migration
+
+The intraprocedural label losses (threat-model rows B5–B8 — the `each`
+accumulator, the secret in an `http_get` URL, the flow output, the
+`Secret` entity read back via `to_string`) are №951, and dynamic
+dispatch beyond the static lattice (row B12) is №952. Until those land,
+an annotated parameter and a redact before the sink remain the honest
+defence on those shapes.
+
+### Pinned by
+
+- `tests/naryad_950_interproc_summaries.rs` — both halves at depths
+  1…20, the recursive leak and the benign recursion, the
+  no-false-positive cases, the per-axis sanitizer credit, tool
+  methods, the three rule families, the transition window (including
+  that it does NOT downgrade an intraprocedural refusal), and the
+  frozen `check_id` vocabulary.
+- `tests/naryad_948_boundary_pins.rs` — the B1–B4 pins, flipped from
+  «check passes today» into blocking leak-suite negatives.

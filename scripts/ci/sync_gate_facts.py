@@ -43,7 +43,7 @@ The facts and their machine sources:
                        typed/precise parameters).
   fact_branch_protection_audit
                        the conclusion of the LAST COMPLETED run of the
-                       branch-protection-audit (weekly) workflow via
+                       branch-protection-audit (daily) workflow via
                        the GitHub API (success → GREEN, any other
                        completed conclusion → RED; an API failure or
                        no completed runs → exit 2 — an unreadable
@@ -228,7 +228,7 @@ def sensitive_surface_observed() -> dict:
 def branch_protection_audit_observed(token: str) -> dict:
     """The gh#1000-closure PR (2026-10-08; the В34 addendum Z-3,
     ADR-0186 §5): the VERDICT of the LAST COMPLETED run of the
-    branch-protection-audit (weekly) workflow. success → GREEN, any
+    branch-protection-audit (daily) workflow. success → GREEN, any
     other completed conclusion (failure/cancelled/timed out) → RED; an
     API failure or no completed runs → exit 2 (loud INFRA — the №525
     rule: an unreadable state is not a pass). Any ref counts: the audit

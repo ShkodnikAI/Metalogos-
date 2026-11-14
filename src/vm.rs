@@ -986,7 +986,7 @@ impl Vm {
         if !crate::runtime_labels::is_gated_dispatch(name) {
             return Ok(());
         }
-        if name == "kv_set" {
+        if name == crate::recipe_ops::NAME_KV_SET {
             if let (Some(crate::interpreter::values::Value::String(key)), Some(label)) =
                 (args.first(), arg_labels.get(1))
             {

@@ -115,7 +115,10 @@ pub struct Interpreter {
     /// name-keyed, VM parity (`Vm::label_env`, №328). Fed at the binding
     /// sites (LetBinding/Assign/entity writes/parameter seeding), read by
     /// the pure walk (`labels::label_of_expr`) and the sink gate.
-    pub(super) label_env: std::cell::RefCell<BTreeMap<String, crate::labels::Label>>,
+    /// `Mutex` not `RefCell`: the Interpreter crosses thread boundaries
+    /// on the serve paths (the route_handler constraint — the transport
+    /// shares the interpreter), so every interior field must stay Sync.
+    pub(super) label_env: std::sync::Mutex<BTreeMap<String, crate::labels::Label>>,
     /// №952: the CURRENT flow value's runtime label (the edge contract —
     /// consumed by the first step's parameter seeding; the value path has
     /// no expression to walk, so the label rides this field).
@@ -357,7 +360,7 @@ impl Interpreter {
         let (distill_tx, distill_rx) = std::sync::mpsc::channel();
         Interpreter {
             variables: HashMap::new(),
-            label_env: std::cell::RefCell::new(BTreeMap::new()),
+            label_env: std::sync::Mutex::new(BTreeMap::new()),
             flow_current_label: crate::labels::Label::bottom(),
             capability_permits: crate::capability::CapabilityPermits::default(),
             call_depth: std::sync::atomic::AtomicUsize::new(0),

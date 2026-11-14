@@ -50,7 +50,13 @@ impl Interpreter {
             Expr::Ident { name, .. } => overlay
                 .get(name)
                 .cloned()
-                .or_else(|| self.label_env.borrow().get(name).cloned())
+                .or_else(|| {
+                    self.label_env
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .get(name)
+                        .cloned()
+                })
                 .unwrap_or_else(Label::bottom),
             Expr::FieldAccess { object, .. } => self.label_of_expr_env(object, depth, overlay),
             Expr::FnCall { name, args, .. } => self.label_of_call(name, args, depth, overlay),
@@ -211,10 +217,15 @@ impl Interpreter {
     /// The overlay env for `label_source`: the ambient `label_env` plus
     /// the walk's parameter overlay.
     fn label_env_for(&self, overlay: &BTreeMap<String, Label>) -> BTreeMap<String, Label> {
+        let ambient = self
+            .label_env
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         if overlay.is_empty() {
-            return self.label_env.borrow().clone();
+            return ambient;
         }
-        let mut env = self.label_env.borrow().clone();
+        let mut env = ambient;
         for (k, v) in overlay {
             env.insert(k.clone(), v.clone());
         }

@@ -299,11 +299,8 @@ fn n948_b05_b06_b08_in_pattern_losses_are_the_refusal() {
 /// class), and its .expected documents the RUNTIME twin — the same
 /// program refuses with [SINK_CLEARANCE_RUNTIME] on both backends under
 /// the test-only static-off flag (tests/naryad_952_value_labels.rs).
-const FLIPPED_952_PINS: &[(&str, &str, &str)] = &[(
-    "b12_runtime_value_label.mlog",
-    "B12",
-    "PII_EGRESS_OUTPUT",
-)];
+const FLIPPED_952_PINS: &[(&str, &str, &str)] =
+    &[("b12_runtime_value_label.mlog", "B12", "PII_EGRESS_OUTPUT")];
 
 /// B12 pin — FLIPPED TO THE LEAK-SUITE NEGATIVE by №952 (the №948
 /// contract): the runtime value-label second line's fixture refuses at

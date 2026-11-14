@@ -14,7 +14,10 @@ impl Interpreter {
         let _contour_budget_scope = crate::builtins::embed_seam::ContourBudgetScope::new();
         // №952: the runtime value-label env resets per program run — the
         // VM twin resets in `load_program`; the TW twin here (parity).
-        self.label_env.borrow_mut().clear();
+        self.label_env
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         self.flow_current_label = crate::labels::Label::bottom();
         let mut output: Option<String> = None;
 
@@ -98,10 +101,13 @@ impl Interpreter {
                     // the B8 seeding (the initializer walk joined over the
                     // value-variant floor).
                     let seed = self.label_of_expr(&e.value, 0);
-                    self.label_env.borrow_mut().insert(
-                        e.name.clone(),
-                        seed.join(&Self::value_variant_label(&value)),
-                    );
+                    self.label_env
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(
+                            e.name.clone(),
+                            seed.join(&Self::value_variant_label(&value)),
+                        );
                     self.variables.insert(e.name.clone(), value);
                 }
                 Declaration::Rule(r) => {
@@ -1188,10 +1194,13 @@ impl Interpreter {
         let edge_label =
             std::mem::replace(&mut self.flow_current_label, crate::labels::Label::bottom());
         for (param, value) in pattern.params.iter().zip(args.iter()) {
-            self.label_env.borrow_mut().insert(
-                param.name.clone(),
-                Self::value_variant_label(value).join(&edge_label),
-            );
+            self.label_env
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(
+                    param.name.clone(),
+                    Self::value_variant_label(value).join(&edge_label),
+                );
         }
         // Bind parameters with Fluid collapse
         // ADR-0089: reset propagated confidence before collapse
@@ -1412,7 +1421,10 @@ impl Interpreter {
                     // №952: the binding site propagates the label — the
                     // pure walk of the SAME expression (no re-evaluation).
                     let lab = self.label_of_expr(value, 0);
-                    self.label_env.borrow_mut().insert(name.clone(), lab);
+                    self.label_env
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(name.clone(), lab);
                     // №612 (P0 bugfix): a binding statement produces NO value.
                     // The block's implicit-return value (№13) must not leak
                     // from a bare call EARLIER in the block — the stale value
@@ -1430,7 +1442,10 @@ impl Interpreter {
                     // №952: the assignment propagates the label too (the
                     // each/while accumulators ride this site — B5).
                     let lab = self.label_of_expr(value, 0);
-                    self.label_env.borrow_mut().insert(name.clone(), lab);
+                    self.label_env
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(name.clone(), lab);
                     // №612: same poison class — an assignment produces no
                     // value; the tail position of a block ending in an
                     // assignment is Unit, never the stale expression value
@@ -1475,7 +1490,8 @@ impl Interpreter {
                         // over the elements is the iterable's label).
                         let iter_lab = self.label_of_expr(iterable, 0);
                         self.label_env
-                            .borrow_mut()
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
                             .insert(variable.clone(), iter_lab);
                         let cf = self.eval_statements_cf(body, env, mutable_vars)?;
                         match cf {
@@ -1542,7 +1558,8 @@ impl Interpreter {
                         // label (the index is a public position).
                         let iter_lab = self.label_of_expr(iterable, 0);
                         self.label_env
-                            .borrow_mut()
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
                             .insert(item_var.clone(), iter_lab);
                         let cf = self.eval_statements_cf(body, env, mutable_vars)?;
                         match cf {
@@ -2991,7 +3008,10 @@ impl Interpreter {
                 // runtime): the callee's own sinks check against them.
                 for (param, arg) in pattern.params.iter().zip(args.iter()) {
                     let lab = self.label_of_expr(arg, 0);
-                    self.label_env.borrow_mut().insert(param.name.clone(), lab);
+                    self.label_env
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(param.name.clone(), lab);
                 }
                 // Bind parameters with Fluid collapse
                 // ADR-0089: reset propagated confidence before collapse

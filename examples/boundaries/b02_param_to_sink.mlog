@@ -1,7 +1,9 @@
-// №948 boundary pin B2 (audit PoC p18): the parameter reaches a sink
-// inside the pattern — the call site does not check the clearance.
-// CURRENT behavior (v0.39.0): mlog check passes. Flip target: №950 —
-// per-parameter required clearance -> SECRET_LEAK.
+// №948 boundary pin B2 (audit PoC p18) — FLIPPED by №950.
+// The parameter reaches a sink inside the pattern; on v0.39.0 the call
+// site did not check the clearance (the open world of Appendix A). Now
+// the per-parameter required clearance is checked at the call site
+// (ADR-0154 §12.2 (б)) and this program is the [PII_EGRESS_OUTPUT]
+// refusal — a leak-suite negative.
 pattern Show(v: String) -> String { print(v) return "ok" }
 pattern P(x: String) -> String { return Show(env("SP")) }
 flow Main { input: String = "x" -> P -> output }

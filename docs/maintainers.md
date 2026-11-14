@@ -209,6 +209,36 @@ EXISTS, not its filter semantics (a path- or types-filtered producer
 still counts) — the №809 class is "no PR producer at all"; narrower
 filter abuse stays a human read.
 
+Two further directions ride it since №960 (issue #1927, the gh#1892
+breakdown — [docs/ci/gh1892-merge-ci-breakdown.md](ci/gh1892-merge-ci-breakdown.md)):
+
+- **Per class, never one number.** A divergence line carries its class
+  (`no-ci-silent`, `no-ci`, `not-green`, `convention`, `no-pr`,
+  `unverified`, `blind`) and the report leads with the BY CLASS head.
+  gh#1892's «51 merges without green required checks» was a sum over
+  four incomparable things: ten verified merges with a message-convention
+  break, 33 charged for a context that did not exist yet, eight commits
+  that were not PR squashes, and 48 lines belonging to exactly TWO pull
+  requests. A context is now charged only from its own birth date
+  (`REQUIRED_SINCE` / `required_at`).
+- **The dispatcher state at merge time.** A `NO RUN` line is tagged
+  `no-ci-silent` when nothing was dispatched repo-wide for ≥90 minutes
+  before the merge AND the next run is the merge's own push within 120 s
+  — the shape both gh#1892 merges have (2 h 07 m and 3 h 26 m of silence,
+  resumption 3 s after the merge). That is an infrastructure event to
+  escalate, not a merge performed in disregard of a verdict, and the two
+  must never share a count again. A long gap alone is not the signature:
+  a quiet night is also a long gap, and the self-test pins that case as
+  NOT silent.
+
+**The title convention (the preventive half, №960).** A PR title must
+NOT end with `(#N)`. The squash merge appends ` (#<PR number>)` itself,
+and every machine downstream reads that tail as the PR number; a title
+that already carries one puts an issue number in the PR number's
+position, which is where gh#1892's ten `convention` lines came from. The
+issue belongs in the title's `(issue #N, …)` field. The check rides the
+existing `Naryad numbering (blocking)` gate — no new required context.
+
 ### The parked-features lane and the soft release rule (№809, the C3-a T3 form)
 
 The four feature-gated pillar jobs (candle / vision / voice / video)
@@ -307,7 +337,7 @@ document records the checklist; the executor cannot apply it. Settings
       toggle.
 
 The checklist above is machine-audited (naryad №586, audit d63cc1d
-X-4): the `branch-protection-audit (weekly)` job reads the live
+X-4): the `branch-protection-audit (daily)` job reads the live
 protection via the read-only `BRANCH_PROTECTION_TOKEN` repo secret
 (Administration: read-only, 90-day rotation) and compares it to THIS
 checklist — the state is fixated, not assumed. A documented required
@@ -319,6 +349,22 @@ report line lands in the run's summary and artifact; the job is
 read-only and never modifies the protection. Applying the divergent
 toggles remains the OWNER's admin action — the first audit run
 (2026-10-05) is fixated in the №586 record (gh#1000).
+
+**The cadence is DAILY since naryad №960** (issue #1927, 13.11), and the
+reason is a limit the weekly form hit. The gh#1892 breakdown needed the
+protection state at two specific merges (2026-11-02 13:51Z and
+2026-11-04 16:48Z); the nearest snapshots were 2026-10-26 and 2026-11-02
+16:27Z, so both merges sat INSIDE a snapshot window. The audit could
+report only that the protection was in force 2 h 36 m after the first of
+them (GREEN, `contexts=23 strict=True enforce_admins=True`) — which
+refutes "the protection was never applied" but cannot refute a toggle
+around the merge itself. A weekly snapshot cannot witness a short
+window; a daily one narrows any divergence to a day. **What no cadence
+can witness is the toggle event itself** — only the audit log records
+that (`protected_branch.policy_override`, `protected_branch.update`,
+`repo.actions_enabled`), and reading it needs owner-level access, so a
+merge that the merge button should have refused stays an OWNER read, not
+an agent inference (see [docs/ci/gh1892-merge-ci-breakdown.md](ci/gh1892-merge-ci-breakdown.md)).
 
 ## Escalation
 

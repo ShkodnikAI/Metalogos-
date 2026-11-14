@@ -1142,11 +1142,12 @@ owner's ADR gate.
 | OFFLINE_SUITE — the 8E-1/C5 machine fact (№881) | 10000 bp (12/12) |
 | JURISDICTION_MATRIX — the 8D-2/C10 machine fact (№888) | 3 (3/3) jurisdictions |
 | REPLAY_MATCH — the 8G/C8 machine fact (№894) | 10000 bp (2/2) |
-| TAINT_SATURATION — the 8F-2/C9 machine fact (№906) | 324241748923742258252688 |
+| TAINT_GENERATOR_SPACE — the 8F-2/C9 machine fact (№906) | 324241748923742258252688 |
 | REPRO_BITFORBIT — the 8E-2/C7+C12 machine fact (№912) | 10000 bp (11/11) |
 | INSTITUTIONAL_READY — the 8H-1/C13б machine fact (№918) | 12/12 items |
 | VERTICAL_PROFILES — the 8H-2/C13а machine fact (№921) | 12/12 anchors |
 | TERMINAL_STOP — the W-T aggregate machine fact (№924) | 13/13 slots |
+| TERMINAL_STOP by class (№959) | structural 13/13 · behavioural 1/13 · user-surface 6/13 |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

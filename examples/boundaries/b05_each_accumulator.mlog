@@ -1,5 +1,8 @@
-// №948 boundary pin B5 (audit PoC l03): label loss through the each
-// iterator into an outer accumulator — intraprocedural.
-// CURRENT behavior (v0.39.0): mlog check passes. Flip target: №951.
+// №948 boundary pin B5 (audit PoC p07) — FLIPPED by №951.
+// The each-accumulator loss: the loop body raised the label of `acc`, and
+// the sink-gate walker DISCARDED the body environment at loop exit, while
+// the neighbouring `while` arm folded it back. That asymmetry was the gap.
+// Now the fold is the same for both loop forms and this program is the
+// [PII_EGRESS_OUTPUT] refusal — a leak-suite negative.
 pattern P(x: String) -> String { let mut acc = "" each c in split(env("SP"), "") { acc = acc + c } print(acc) return "ok" }
 flow Main { input: String = "x" -> P -> output }

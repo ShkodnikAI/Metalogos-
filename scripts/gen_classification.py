@@ -213,6 +213,8 @@ pub fn sql_arg_position(name: &str) -> Option<usize> {
         .map(|(_, pos)| *pos)
 }
 
+
+
 #[cfg(test)]
 // №475: the test mods exercise the REAL filesystem for fixtures — the
 // ratchet targets production I/O (see clippy.toml).

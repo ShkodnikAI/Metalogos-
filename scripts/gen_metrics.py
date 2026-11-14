@@ -174,9 +174,9 @@ REPLAY_MATCH_FLOOR_OWNER_BP = 10000
 DECISION_TRACE_RS = REPO / "src" / "decision_trace.rs"
 REPLAY_E2E_RS = REPO / "tests" / "naryad_893_replay_coverage.rs"
 
-# №906 (wave 81 — W-J): the 8F-2/C9 machine fact — TAINT_SATURATION with
+# №906 (wave 81 — W-J): the 8F-2/C9 machine fact — TAINT_GENERATOR_SPACE with
 # its own only-up floor file. The floor VALUE 10⁹ is the wave-81 dispatch
-# constant (gh#1803: the 0.44 gate, TAINT_SATURATION >= 10^9). The
+# constant (gh#1803: the 0.44 gate, TAINT_GENERATOR_SPACE >= 10^9). The
 # definition lives in ADR-0217 §2 (the №903 record): the EXACT count of
 # distinct taint-relevant programs the wave-81 generator can emit — an
 # integer product over LIVE anchors, never declared (the №894 form: the
@@ -200,7 +200,7 @@ REPLAY_E2E_RS = REPO / "tests" / "naryad_893_replay_coverage.rs"
 #   ScenarioVariants = T × L × S × K × Z;
 #   SequenceSpace = Σ_{k=0..B} F^k (python int — no overflow).
 GATE_042_GOALS = REPO / "scripts" / "ci" / "gate_042_goals.txt"
-TAINT_SATURATION_FLOOR_OWNER = 1_000_000_000
+TAINT_GENERATOR_SPACE_FLOOR_OWNER = 1_000_000_000
 TAINT_FUZZER_RS = REPO / "tests" / "naryad_465_diff_fuzzer.rs"
 TAINT_LANE_MODULES = (
     REPO / "src" / "html_label.rs",
@@ -1329,7 +1329,7 @@ def replay_match_pair(
     return covered, total
 
 
-# ── №906 (wave 81 — W-J, ADR-0217 §2): the TAINT_SATURATION machine ─────
+# ── №906 (wave 81 — W-J, ADR-0217 §2): the TAINT_GENERATOR_SPACE machine ─────
 
 def _taint_roster_rows(fuzzer_text: str | None = None) -> list[tuple[str, ...]]:
     """The №904 scenario roster (the №862 quoted-region form): the rows
@@ -1469,7 +1469,7 @@ def _taint_generator_fb(fuzzer_text: str | None = None) -> tuple[int, int]:
     return len(forms), int(m.group(1))
 
 
-def taint_saturation(
+def taint_generator_space(
     roster: list[tuple[str, ...]] | None = None,
     lanes: int | None = None,
     sinks: int | None = None,
@@ -1477,7 +1477,7 @@ def taint_saturation(
     forms: int | None = None,
     budget: int | None = None,
 ) -> int:
-    """TAINT_SATURATION — the exact count of distinct taint-relevant
+    """TAINT_GENERATOR_SPACE — the exact count of distinct taint-relevant
     programs the wave-81 generator can emit, an integer product over
     LIVE anchors (№906, ADR-0217 §2):
 
@@ -1506,6 +1506,265 @@ def taint_saturation(
     scenario_variants = t_variants * l_lanes * s_sources * k_sinks * z_sanitizers
     sequence_space = sum(f_forms**k for k in range(b_budget + 1))
     return scenario_variants * sequence_space
+
+
+# ── №959 (issue #1926): the fact CLASSES and the slot SURFACES ──────────
+#
+# The Phase-8 machine facts count the PRESENCE OF AN ANCHOR. An anchor is
+# a real thing to check, but it is not a behaviour: a tree can carry every
+# anchor of a capability no user can invoke, and `TERMINAL_STOP 13/13`
+# then says more than the tree supports. So every fact declares its class
+# and every slot its surface, in `scripts/ci/slot_class_roster.txt`, and
+# BOTH are checked against the live tree.
+SLOT_CLASS_ROSTER = REPO / "scripts" / "ci" / "slot_class_roster.txt"
+
+# The directories that constitute a USER surface: a builtin, the CLI, or
+# the declaration layer of the server. The analyzer path (semantic/audit)
+# is NOT one of these — a user exercises it by running `check`, but
+# nothing in the language addresses it, which is a different claim.
+_SURFACE_DIRS = ("src/builtins/", "metalogos-server/src/")
+_LEGAL_CLASSES = ("structural", "behavioural")
+_LEGAL_SURFACES = ("builtin", "cli", "declaration", "analyzer", "kernel-only")
+
+
+def _slot_class_rows(content: str | None = None) -> list[dict]:
+    """The №959 roster rows. A malformed row is a loud fail — a roster
+    that silently parses to nothing would read as «no facts», and a
+    vacuous count must never read as a pass (the №525 rule).
+
+    The fields are parsed by NAME, not by splitting on whitespace: an
+    `evidence`/`exec` needle is a literal and may contain spaces (`pub
+    fn`), and a naive split turned that into a parse error."""
+    if content is None:
+        if not SLOT_CLASS_ROSTER.exists():
+            raise ValueError(
+                "slot_class_roster.txt is gone — the fact classes and slot "
+                "surfaces have no machine source"
+            )
+        content = SLOT_CLASS_ROSTER.read_text(encoding="utf-8")
+    field_re = re.compile(
+        r"\b(fact|class|surface|module|evidence|exec)="
+        r"(.*?)(?=\s+\b(?:fact|class|surface|module|evidence|exec)=|$)"
+    )
+    rows: list[dict] = []
+    for raw in content.splitlines():
+        line = raw.strip()
+        if not line.startswith("slot "):
+            continue
+        head = line.split(None, 2)
+        if len(head) < 3:
+            raise ValueError(f"row carries no fields: {line}")
+        row: dict = {"slot": head[1]}
+        for m in field_re.finditer(line):
+            row[m.group(1)] = m.group(2).strip()
+        for required in ("fact", "class", "surface", "module", "evidence"):
+            if required not in row:
+                raise ValueError(f"row is missing {required}=: {line}")
+        if row["class"] not in _LEGAL_CLASSES:
+            raise ValueError(f"unknown class {row['class']!r}: {line}")
+        if row["surface"] not in _LEGAL_SURFACES:
+            raise ValueError(f"unknown surface {row['surface']!r}: {line}")
+        rows.append(row)
+    if not rows:
+        raise ValueError("slot_class_roster.txt parsed to ZERO rows")
+    return rows
+
+
+def _needle_lives(spec: str) -> bool:
+    """`<path>#<needle>` — the needle as a literal substring of the file."""
+    if "#" not in spec:
+        return False
+    path, needle = spec.split("#", 1)
+    f = REPO / path
+    if not f.exists():
+        return False
+    return needle in f.read_text(encoding="utf-8", errors="replace")
+
+
+def _module_has_user_surface(module: str) -> bool:
+    """A live reachability scan: does a BUILTIN or the SERVER/CLI name this
+    module? The scan looks for `<leaf>::`, which catches both
+    `crate::nn::attest::f()` and a bare `attest::f()` after a `use`. The
+    first version of this scan searched `crate::<leaf>::` only and
+    reported «no references» for every nested module — a scanner defect
+    that read as a finding, which is why the direction is checked here
+    rather than trusted from the roster."""
+    leaf = module.rsplit("/", 1)[-1].removesuffix(".rs")
+    if leaf == "mod":
+        leaf = module.rsplit("/", 2)[-2]
+    pattern = re.compile(r"(^|[^A-Za-z0-9_])" + re.escape(leaf) + r"::")
+    for d in _SURFACE_DIRS:
+        base = REPO / d
+        if not base.exists():
+            continue
+        for f in base.rglob("*.rs"):
+            rel = str(f.relative_to(REPO))
+            if rel == module:
+                continue
+            if pattern.search(f.read_text(encoding="utf-8", errors="replace")):
+                return True
+    return False
+
+
+def slot_class_problems(rows: list[dict] | None = None) -> list[str]:
+    """Every divergence between the roster and the live tree, named.
+    Empty list = in sync.
+
+    The two directions:
+      * the evidence needle must be LIVE (a verdict with no file behind it
+        is not a verdict);
+      * a `behavioural` row must carry a live `exec=` needle — that is the
+        mutation the issue names: declare a structural fact behavioural
+        without an executable test and this goes RED;
+      * the declared surface must AGREE with the reachability scan — a
+        `kernel-only` row fails the moment a builtin or the CLI starts
+        naming the module (the row must then be updated, in the same PR as
+        the wiring), and a user-surface row fails if the reference goes.
+    """
+    if rows is None:
+        rows = _slot_class_rows()
+    problems: list[str] = []
+    for row in rows:
+        tag = f"{row['slot']}/{row['fact']}"
+        if not _needle_lives(row["evidence"]):
+            problems.append(f"{tag}: the evidence needle is DEAD ({row['evidence']})")
+        if row["class"] == "behavioural":
+            if "exec" not in row:
+                problems.append(
+                    f"{tag}: class=behavioural with NO exec= — a behavioural "
+                    f"fact is a number an executed test asserts; without the "
+                    f"test it is a structural fact wearing the other name"
+                )
+            elif not _needle_lives(row["exec"]):
+                problems.append(
+                    f"{tag}: the exec needle is DEAD ({row['exec']}) — the "
+                    f"executed test no longer binds the number"
+                )
+        reachable = _module_has_user_surface(row["module"])
+        if row["surface"] in ("builtin", "cli", "declaration") and not reachable:
+            problems.append(
+                f"{tag}: surface={row['surface']} but no builtin/CLI file "
+                f"names {row['module']} any more"
+            )
+        if row["surface"] == "kernel-only" and reachable:
+            problems.append(
+                f"{tag}: surface=kernel-only but a builtin/CLI file NOW names "
+                f"{row['module']} — the capability gained a user surface; "
+                f"update the roster row in the same PR as the wiring"
+            )
+    return problems
+
+
+def slot_class_counts(rows: list[dict] | None = None) -> dict:
+    """The three honest counts over the 13 slots: how many carry a
+    structural fact, how many a BEHAVIOURAL one, and how many have a USER
+    surface (builtin/cli/declaration — the analyzer path is not one).
+
+    A slot counts for `behavioural` only if one of its facts is
+    behavioural AND its roster row is problem-free; the same for the
+    surface. Fail-closed: any roster problem zeroes the behavioural and
+    surface counts rather than reporting a number that the tree does not
+    support."""
+    if rows is None:
+        rows = _slot_class_rows()
+    slots = sorted({r["slot"] for r in rows}, key=lambda s: int(s[1:]))
+    broken = bool(slot_class_problems(rows))
+    structural = sum(
+        1 for s in slots if any(r["slot"] == s and r["class"] == "structural" for r in rows)
+    )
+    behavioural = 0 if broken else sum(
+        1 for s in slots if any(r["slot"] == s and r["class"] == "behavioural" for r in rows)
+    )
+    surfaced = 0 if broken else sum(
+        1
+        for s in slots
+        if any(
+            r["slot"] == s and r["surface"] in ("builtin", "cli", "declaration")
+            for r in rows
+        )
+    )
+    def slots_with(*surfaces: str) -> list[str]:
+        return [
+            s
+            for s in slots
+            if any(r["slot"] == s and r["surface"] in surfaces for r in rows)
+        ]
+
+    user = set(slots_with("builtin", "cli", "declaration"))
+    # A slot is ANALYZER only if it has no user surface at all: C9's own
+    # modules run on the `mlog check` path, which a user exercises, but
+    # nothing in the language addresses them — calling that «kernel-only»
+    # would be the same overclaim in the other direction.
+    analyzer = [s for s in slots_with("analyzer") if s not in user]
+    return {
+        "slots": len(slots),
+        "structural": structural,
+        "behavioural": behavioural,
+        "user_surface": surfaced,
+        "analyzer_only": analyzer,
+        "kernel_only": [
+            s for s in slots if s not in user and s not in set(analyzer)
+        ],
+    }
+
+
+# ── №956 (issue #1923): the EXECUTED-programs counter ───────────────────
+#
+# TAINT_GENERATOR_SPACE above is a PRODUCT — the size of a space. It answers
+# "how many programs COULD the generator emit", which no run ever emits,
+# and the audit of 12.11 showed what that buys: the space read 10^23 while
+# every scenario in it put the source and the sink in one pattern, and the
+# interprocedural breach lived for two months under a green gate.
+#
+# This counter is the other kind of number: the programs a run really
+# generates and analyzes. It is read from the LIVE №956 roster (the cells
+# between the markers) times the rotation passes declared beside them, and
+# the test itself prints the count and asserts it equals this function —
+# so the fact and the run cannot drift apart.
+TAINT_DELIVERY_RS = REPO / "tests" / "naryad_956_delivery_forms.rs"
+
+
+def _delivery_cells(text: str | None = None) -> int:
+    """The №956 cell count: the `(` blocks between the delivery-roster
+    markers. A lost marker is a loud fail (the №906 form) — the count
+    cannot silently shrink to zero and read as a pass."""
+    if text is None:
+        if not TAINT_DELIVERY_RS.exists():
+            raise ValueError(
+                f"{TAINT_DELIVERY_RS.name} is gone — the №956 delivery roster "
+                "is the machine source of the executed-programs fact"
+            )
+        text = TAINT_DELIVERY_RS.read_text(encoding="utf-8")
+    begin = text.find("№956 delivery roster BEGIN")
+    if begin < 0:
+        raise ValueError("the №956 delivery roster marker BEGIN is lost")
+    rel_end = text[begin:].find("№956 delivery roster END")
+    if rel_end < 0:
+        raise ValueError("the №956 delivery roster marker END is lost")
+    section = text[begin : begin + rel_end]
+    # Each cell is a `(` that opens a tuple of string fields (rustfmt may
+    # wrap); count the tuple openings at depth 1 of the slice.
+    return len(re.findall(r"\n    \(\n", section))
+
+
+def _delivery_rotation_passes(text: str | None = None) -> int:
+    """`ROTATION_PASSES` as DECLARED in the same live file."""
+    if text is None:
+        text = TAINT_DELIVERY_RS.read_text(encoding="utf-8")
+    m = re.search(r"pub const ROTATION_PASSES: usize = (\d+);", text)
+    if not m:
+        raise ValueError("ROTATION_PASSES is lost from the №956 roster file")
+    return int(m.group(1))
+
+
+def taint_programs_per_run() -> int:
+    """TAINT_PROGRAMS_PER_RUN — the programs the taint delivery matrix
+    really generates and analyzes per run: cells × (1 + rotation passes).
+    A count over a run, not a product over a space."""
+    cells = _delivery_cells()
+    if cells == 0:
+        return 0
+    return cells * (1 + _delivery_rotation_passes())
 
 
 # ── №918 (wave 83 — W-L1, ADR-0219 §2): the INSTITUTIONAL_READY machine ──
@@ -1928,9 +2187,12 @@ TERMINAL_SLOT_MAP: dict[str, tuple[dict, ...]] = {
          "owner": REPLAY_MATCH_FLOOR_OWNER_BP},
     ),
     "C9": (
-        {"name": "TAINT_SATURATION", "checker": taint_saturation,
+        {"name": "TAINT_GENERATOR_SPACE", "checker": taint_generator_space,
+         # №959: the FACT is renamed, the roster FLOOR KEY is not — the key
+         # is read out of gate_042_goals.txt, and renaming a live gate key
+         # is an owner transaction over the floor, not a rename of a name.
          "roster": GATE_042_GOALS, "floor_key": "goal_taint_saturation_min",
-         "owner": TAINT_SATURATION_FLOOR_OWNER},
+         "owner": TAINT_GENERATOR_SPACE_FLOOR_OWNER},
     ),
     "C10": (
         {"name": "JURISDICTION_MATRIX", "checker": jurisdiction_matrix_count,
@@ -2131,10 +2393,32 @@ def terminal_stop_gate_check(
             file=sys.stderr,
         )
         return 1
+    # №959: the floor still reads the STRUCTURAL count — the anchors are
+    # real and the only-up floor over them stands. What changes is that the
+    # number no longer travels alone: the behavioural and user-surface
+    # counts print beside it, so «13/13» can never again be read as
+    # readiness. The ADR-0221 amendment (§2.4, Proposed) is what moves the
+    # 1.0 gate itself onto the behavioural count — on the owner's «принято».
+    problems = slot_class_problems()
+    if problems:
+        print(
+            "FACT-CLASS DIVERGENCE (№959): the roster and the live tree "
+            "disagree — " + "; ".join(problems),
+            file=sys.stderr,
+        )
+        return 1
+    cls = slot_class_counts()
     print(
         f"OK: the №924 floor holds — TERMINAL_STOP {green}/{total} "
         f"(gate_046 floor {term_floor}, only-up) — the 13 capability "
         "slots of the Phase-8 train (ADR-0221 §2)"
+    )
+    print(
+        f"TERMINAL_STOP: structural {cls['structural']}/{cls['slots']} · "
+        f"behavioural {cls['behavioural']}/{cls['slots']} · "
+        f"user-surface {cls['user_surface']}/{cls['slots']} "
+        f"(№959; analyzer-only: {', '.join(cls['analyzer_only']) or 'none'}; "
+        f"kernel-only: {', '.join(cls['kernel_only']) or 'none'})"
     )
     return 0
 
@@ -2748,19 +3032,19 @@ def tamper_test() -> int:
         )
         return 1
 
-    # ── №906 traps: the TAINT_SATURATION machine catches the tamper ──
+    # ── №906 traps: the TAINT_GENERATOR_SPACE machine catches the tamper ──
     # (the наряд-трэпы (а)–(д): the roster row loss, the dead anchor
     # region, the removed lane/sink, the lowered floor, the vacuum).
-    full_taint = taint_saturation()
+    full_taint = taint_generator_space()
 
     # Trap 40 (the clean-tree assertion, the №1306 form): the clean tree
     # carries a space at or above the owner constant (the wave-81
     # dispatch floor: 10^9).
-    if full_taint < TAINT_SATURATION_FLOOR_OWNER:
+    if full_taint < TAINT_GENERATOR_SPACE_FLOOR_OWNER:
         print(
-            "tamper-test: TRAP FAILED — the clean tree reads TAINT_SATURATION "
+            "tamper-test: TRAP FAILED — the clean tree reads TAINT_GENERATOR_SPACE "
             f"{full_taint} below the owner constant "
-            f"({TAINT_SATURATION_FLOOR_OWNER}): a live anchor or the "
+            f"({TAINT_GENERATOR_SPACE_FLOOR_OWNER}): a live anchor or the "
             "generator's reach drifted",
             file=sys.stderr,
         )
@@ -2769,7 +3053,7 @@ def tamper_test() -> int:
     # Trap 41 (the vacuum control, the наряд-трэп (д), the №875 Trap 27
     # form): an EMPTY roster reads 0 — a vacuous class is a gate
     # failure, never a pass (the №621 lesson).
-    if taint_saturation(roster=[]) != 0:
+    if taint_generator_space(roster=[]) != 0:
         print(
             "tamper-test: TRAP FAILED — the empty roster must read 0 (the vacuous "
             "class is a failure, never a pass)",
@@ -2785,7 +3069,7 @@ def tamper_test() -> int:
     # floor arithmetically; the machine still MUST move with the source.)
     if len(_taint_roster_rows()) > 0:
         shrunk_roster = _taint_roster_rows()[:-1]
-        if taint_saturation(roster=shrunk_roster) >= full_taint:
+        if taint_generator_space(roster=shrunk_roster) >= full_taint:
             print(
                 "tamper-test: TRAP FAILED — dropping a roster scenario did NOT "
                 "lower the saturation space (the declaration counted, not the code)",
@@ -2810,14 +3094,14 @@ def tamper_test() -> int:
     # Trap 44 (the lane/sink removal, the наряд-трэп (в)): a removed lane
     # module zeroes the L factor; a removed sink name lowers K — both
     # move the machine (the lane-zero is the ADR's fail-closed form).
-    if taint_saturation(lanes=0) != 0:
+    if taint_generator_space(lanes=0) != 0:
         print(
             "tamper-test: TRAP FAILED — a removed lane module must ZERO the space "
             "(the lane semantics are gone — the ADR-0217 fail-closed form)",
             file=sys.stderr,
         )
         return 1
-    if taint_saturation(sinks=_taint_sinks_alive() - 1) >= full_taint:
+    if taint_generator_space(sinks=_taint_sinks_alive() - 1) >= full_taint:
         print(
             "tamper-test: TRAP FAILED — a removed sink name did NOT lower the "
             "saturation space",
@@ -2828,7 +3112,7 @@ def tamper_test() -> int:
     # Trap 45 (the sanitizer removal): the escape_html entry gone → the
     # clean-twin half of the roster is unsanitizable → the space reads 0
     # (the Z factor is the ADR's fail-closed form).
-    if taint_saturation(sanitizers=0) != 0:
+    if taint_generator_space(sanitizers=0) != 0:
         print(
             "tamper-test: TRAP FAILED — a removed sanitizer entry must ZERO the "
             "space (the ADR-0217 fail-closed form)",
@@ -2841,11 +3125,11 @@ def tamper_test() -> int:
     # refusal (the floor is only-up — the wave-81 dispatch constant 10^9).
     rep42_strict = load_floors_strict(GATE_042_GOALS)
     taint_floor = rep42_strict.get("goal_taint_saturation_min")
-    if taint_floor is None or taint_floor < TAINT_SATURATION_FLOOR_OWNER:
+    if taint_floor is None or taint_floor < TAINT_GENERATOR_SPACE_FLOOR_OWNER:
         print(
             "tamper-test: TRAP FAILED — the gate_042 floor is below the owner "
             "constant (the wave-81 dispatch constant: "
-            f"{TAINT_SATURATION_FLOOR_OWNER}) — the lowering is refused",
+            f"{TAINT_GENERATOR_SPACE_FLOOR_OWNER}) — the lowering is refused",
             file=sys.stderr,
         )
         return 1
@@ -3313,7 +3597,7 @@ def tamper_test() -> int:
         f"APPROVAL_COVERAGE {full_appr} bp, ATTEST_MAP {full_att} live rows, "
         f"PROVENANCE_SHARE {full_prov} bp, OFFLINE_SUITE {full_off} bp, "
         f"JURISDICTION_MATRIX {full_jur}, REPLAY_MATCH {full_rep} bp, "
-        f"TAINT_SATURATION {full_taint}, REPRO_BITFORBIT {full_repro} bp, "
+        f"TAINT_GENERATOR_SPACE {full_taint}, REPRO_BITFORBIT {full_repro} bp, "
         f"INSTITUTIONAL_READY {inst_full}/12, VERTICAL_PROFILES {vert_full}/12, "
         f"TERMINAL_STOP {term_full}/{term_total}; "
         "the traps lowered all)"
@@ -3352,6 +3636,7 @@ def full_block() -> str:
     n_vert, t_vert = vertical_profiles_pair()
     # №924: the aggregate rides the same GENERATED block (the №900 form).
     n_term, t_term = terminal_stop_pair()
+    _cls = slot_class_counts()  # №959: the honesty split
     return (
         f"| Metric | Value (generated — do not hand-edit) |\n"
         f"| ------ | ------------------------------------- |\n"
@@ -3374,11 +3659,13 @@ def full_block() -> str:
         f"| OFFLINE_SUITE (the 8E-1/C5 machine fact, №881) | {offline_suite_bp()} bp ({n_off}/{t_off}) — the registered LLM-surface checks that execute without the external network (ADR-0208 §2.5; the gate_039 floor 8000 bp, only-up) |\n"
         f"| JURISDICTION_MATRIX (the 8D-2/C10 machine fact, №888) | {jurisdiction_matrix_count()} — the registered jurisdictions with ≥ 1 live rule in the seed matrix (ADR-0209 §4; the gate_040 floor 3, only-up) |\n"
         f"| REPLAY_MATCH (the 8G/C8 machine fact, №894) | {replay_match_bp()} bp ({n_repl}/{t_repl}) — the registered decision carriers whose trace is written through the Ledger ACTION contour and verified by the replay_gate REPLAY_MATCH contract (ADR-0210 §3-4; the gate_041 floor 10000 bp, only-up) |\n"
-        f"| TAINT_SATURATION (the 8F-2/C9 machine fact, №906) | {taint_saturation()} — the exact reachable taint-program space of the wave-81 generator, the integer product over the live anchors (ADR-0217 §2; the gate_042 floor 10^9, only-up) |\n"
+        f"| TAINT_GENERATOR_SPACE (the 8F-2/C9 machine fact, №906; named TAINT_GENERATOR_SPACE until №959) | {taint_generator_space()} — the exact reachable taint-program space of the wave-81 generator, the integer product over the live anchors (ADR-0217 §2; the gate_042 floor 10^9, only-up) |\n"
+        f"| TAINT_PROGRAMS_PER_RUN (the \u2116956 honest counter) | {taint_programs_per_run()} \u2014 the programs the delivery matrix really generates and analyzes per run ({_delivery_cells()} cells \u00d7 (1 + {_delivery_rotation_passes()}) rotation passes), printed and asserted by the run itself \u2014 a count over a run, not the size of a space |\n"
         f"| REPRO_BITFORBIT (the 8E-2/C7+C12 machine fact, №912) | {repro_bitforbit_bp()} bp ({n_repro}/{t_repro}) — the registered reproduction carriers whose bit-for-bit chain is live-wired: the registry package path + the release digest chain (ADR-0218 §2; the gate_043 floor 10000 bp, only-up; the toolchain build stays behind the C7 trigger — §5) |\n"
         f"| INSTITUTIONAL_READY (the 8H-1/C13б machine fact, №918) | {institutional_ready()}/{t_inst} — the CHECKED items of the 12-item institutional roster over the live carriers: TRADEMARK.md + docs/SUCCESSION.md + the GOVERNANCE Phase-2 frame (ADR-0219 §2; the gate_044 floor 12, only-up; the documents ≠ the owner's acts — §5) |\n"
         f"| VERTICAL_PROFILES (the 8H-2/C13а machine fact, №921) | {vertical_profiles()}/{t_vert} — the CHECKED anchors of the 12-element vertical roster (2 profiles × 6 mandatory contours) over the live kernel src/vertical.rs (ADR-0220 §2; the gate_045 floor 12, only-up; the profile ≠ certification ≠ legal advice — §5) |\n"
         f"| TERMINAL_STOP (the W-T aggregate machine fact, №924) | {n_term}/{t_term} — the GREEN capability slots C1–C13 over the live Phase-8 fact machines, every slot answered by the registered live checker (ADR-0221 §2; the gate_046 floor 13, only-up; the 1.0 gate ≠ a service-quality guarantee ≠ a certification ≠ a legal advice — §5) |\n"
+        f"| TERMINAL_STOP by CLASS (the №959 honesty split) | structural {_cls['structural']}/{_cls['slots']} · behavioural {_cls['behavioural']}/{_cls['slots']} · user-surface {_cls['user_surface']}/{_cls['slots']} — a STRUCTURAL fact counts an anchor in the tree; a BEHAVIOURAL one is a number an executed test asserts against the fact itself; USER-SURFACE means the slot's capability is reachable through a builtin, the CLI or a declaration. Analyzer-only (runs on the check path, nothing in the language addresses it): {', '.join(_cls['analyzer_only']) or 'none'}. Kernel-only (library and tests only): {', '.join(_cls['kernel_only']) or 'none'}. The aggregate above counts the STRUCTURAL verdicts — the ADR-0221 §2.4 amendment (Proposed) is what moves the 1.0 gate onto the behavioural count |\n"
     )
 
 
@@ -3449,6 +3736,7 @@ def plan_summary_block() -> str:
     n_vert, t_vert = vertical_profiles_pair()
     # №924: the aggregate rides the same GENERATED numbers block.
     n_term, t_term = terminal_stop_pair()
+    _cls2 = slot_class_counts()  # №959: the honesty split
     return (
         f"| Machine fact (generated — do not hand-edit) | Value |\n"
         f"| --- | --- |\n"
@@ -3466,11 +3754,12 @@ def plan_summary_block() -> str:
         f"| OFFLINE_SUITE — the 8E-1/C5 machine fact (№881) | {offline_suite_bp()} bp ({n_off}/{t_off}) |\n"
         f"| JURISDICTION_MATRIX — the 8D-2/C10 machine fact (№888) | {jurisdiction_matrix_count()} ({n_jur}/{t_jur}) jurisdictions |\n"
         f"| REPLAY_MATCH — the 8G/C8 machine fact (№894) | {replay_match_bp()} bp ({n_repl}/{t_repl}) |\n"
-        f"| TAINT_SATURATION — the 8F-2/C9 machine fact (№906) | {taint_saturation()} |\n"
+        f"| TAINT_GENERATOR_SPACE — the 8F-2/C9 machine fact (№906) | {taint_generator_space()} |\n"
         f"| REPRO_BITFORBIT — the 8E-2/C7+C12 machine fact (№912) | {repro_bitforbit_bp()} bp ({n_repro}/{t_repro}) |\n"
         f"| INSTITUTIONAL_READY — the 8H-1/C13б machine fact (№918) | {institutional_ready()}/{t_inst} items |\n"
         f"| VERTICAL_PROFILES — the 8H-2/C13а machine fact (№921) | {vertical_profiles()}/{t_vert} anchors |\n"
         f"| TERMINAL_STOP — the W-T aggregate machine fact (№924) | {n_term}/{t_term} slots |\n"
+        f"| TERMINAL_STOP by class (№959) | structural {_cls2['structural']}/{_cls2['slots']} · behavioural {_cls2['behavioural']}/{_cls2['slots']} · user-surface {_cls2['user_surface']}/{_cls2['slots']} |\n"
     )
 
 
@@ -3572,6 +3861,18 @@ def main() -> int:
     check = "--check" in sys.argv
     if "--denominator-self-test" in sys.argv:
         return denominator_gate_self_test()
+    # №959: the fact-class roster is checked FIRST and on its own. It feeds
+    # the generated blocks, so a divergence would otherwise surface as a
+    # generic «generated blocks are stale» — true, but it buries the reason.
+    # The specific refusal must be the thing the reader sees.
+    class_problems = slot_class_problems()
+    if class_problems:
+        print(
+            "FACT-CLASS DIVERGENCE (№959): the roster and the live tree "
+            "disagree — " + "; ".join(class_problems),
+            file=sys.stderr,
+        )
+        return 1
     stale = []
     denominator_gate(full_block(), "docs/metrics.md")
     denominator_gate(plan_summary_block(), "docs/PLAN-SUMMARY.md")
@@ -4037,7 +4338,7 @@ def main() -> int:
             f"({rep_share // 100} live-wired %)"
         )
 
-    # №906: the gate_042 only-up floor over the TAINT_SATURATION space
+    # №906: the gate_042 only-up floor over the TAINT_GENERATOR_SPACE space
     # (the gate_040/041 form): the owner-pinned wave-81 dispatch constant
     # (10^9) can rise, never fall; the live product must hold the floor —
     # a dead anchor (the roster region, a lane module, the sanitizer
@@ -4055,19 +4356,19 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 2
-        if taint_floor < TAINT_SATURATION_FLOOR_OWNER:
+        if taint_floor < TAINT_GENERATOR_SPACE_FLOOR_OWNER:
             print(
                 "FLOOR LOWERING REFUSED: gate_042 "
                 f"({taint_floor}) is below the owner constant "
-                f"({TAINT_SATURATION_FLOOR_OWNER} — the wave-81 dispatch constant, "
+                f"({TAINT_GENERATOR_SPACE_FLOOR_OWNER} — the wave-81 dispatch constant, "
                 "gh#1803); the floor is only-up — the change is an explicit owner transaction",
                 file=sys.stderr,
             )
             return 1
-        taint_space = taint_saturation()
+        taint_space = taint_generator_space()
         if taint_space < taint_floor:
             print(
-                f"FLOOR BREACH: TAINT_SATURATION {taint_space} < the gate_042 floor "
+                f"FLOOR BREACH: TAINT_GENERATOR_SPACE {taint_space} < the gate_042 floor "
                 f"{taint_floor} (only-up) — a live anchor of the saturation product "
                 "died (the roster region, a lane module, the sanitizer entry, a "
                 "sink name) or the generator's reach collapsed "
@@ -4077,7 +4378,7 @@ def main() -> int:
             return 1
         t_roster = _taint_roster_rows()
         print(
-            f"OK: the №906 floor holds — TAINT_SATURATION {taint_space} "
+            f"OK: the №906 floor holds — TAINT_GENERATOR_SPACE {taint_space} "
             f"(gate_042 floor {taint_floor}, only-up) — roster: "
             f"{len(t_roster)} scenario rows, "
             f"{len({row[2] for row in t_roster})} live sources"

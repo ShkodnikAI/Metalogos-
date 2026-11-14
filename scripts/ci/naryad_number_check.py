@@ -244,7 +244,46 @@ def audit_history(repo_dir: str, limit: int) -> int:
     return 0
 
 
+SQUASH_TAIL_RE = re.compile(r"\(#(\d+)\)\s*$")
+
+
+def squash_tail_claim(title: str) -> int | None:
+    """№960 (gh#1892): a PR title that ALREADY ends with `(#N)`.
+
+    The squash merge appends ` (#<PR number>)` to the subject, and every
+    downstream machine reads that tail as the PR number — the merge↔CI
+    detective resolves the merge through it, the ledger attributes
+    through it. A title that already carries such a tail produces a
+    subject with TWO of them, or, when the squash title is edited back
+    to one, a tail that is an ISSUE number wearing the PR number's
+    position. Ten of the 81 gh#1892 divergence lines are exactly that:
+    the detective 404s on the trailing ref and has to recover the real
+    PR through the commit-association lane. The merges themselves were
+    verified; the ambiguity was pure cost.
+
+    The tail is refused at the SOURCE — in the title, before the merge —
+    because after the squash the information needed to disambiguate is
+    already gone. The issue number belongs in the title's `(issue #N)`
+    field, which this script's own grammar reads.
+    """
+    m = SQUASH_TAIL_RE.search(title or "")
+    return int(m.group(1)) if m else None
+
+
 def check(title: str, occupied: dict[int, list[str]], body: str = "") -> int:
+    tail = squash_tail_claim(title)
+    if tail is not None:
+        print(
+            f"::error::The PR title ends with a squash tail `(#{tail})` "
+            f"(№960, gh#1892): the squash merge appends ` (#<PR number>)` "
+            f"itself, so this tail lands in the PR-number position and the "
+            f"merge↔CI detective reads an issue number as a PR."
+        )
+        print(
+            "::error::Name the issue in the title's `(issue #N, …)` field and "
+            "drop the trailing `(#N)` — the merge will carry its own."
+        )
+        return 1
     if not NARYAD_RE.search(title):
         print("No naryad claim in the title — nothing to check.")
         return 0
@@ -333,6 +372,13 @@ def self_test() -> int:
     bad = [
         ("Naryad №474 (issue #999): a DIFFERENT work on a busy number", 1, None),
         ("naryad 495 (issue #900): another DistillHub-style work", 1, None),
+        # №960 (gh#1892): the squash tail in the TITLE — the tail lands in
+        # the PR-number position and the detective reads an issue as a PR.
+        # Refused even on a FREE number (the ambiguity is the defect, not
+        # the collision) and even with no naryad claim at all.
+        ("Naryad №999 (issue #1329, wave 50): the work (#1329)", 1, None),
+        ("Bump serde from 1.0.1 to 1.0.2 (#1291)", 1, None),
+        ("Naryad №999 (issue #1329): trailing space after the tail (#1329) ", 1, None),
     ]
     # The №587 body cases: the title is №574.1's, the bodies speak for
     # themselves (the b678def synthetic reconstruction first).

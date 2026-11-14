@@ -1,4 +1,4 @@
-name: branch-protection-audit (weekly)
+name: branch-protection-audit (daily)
 
 # Наряд №586 (Волна 29, P2, [process]/[ci]; аудит d63cc1d X-4):
 # еженедельная сверка ФАКТИЧЕСКОЙ branch protection ветки main с
@@ -30,9 +30,19 @@ name: branch-protection-audit (weekly)
 # merge-ci-audit №551), а не регрессия: тумблеры — admin-действия
 # владельца, разбор — в gh#1000.
 
+# Naryad №960 (issue #1927, 13.11): WEEKLY → DAILY. The gh#1892 breakdown
+# needed the protection state at two specific merges (2026-11-02 13:51Z,
+# 2026-11-04 16:48Z) and the nearest snapshots were 2026-10-26 and
+# 2026-11-02 16:27Z — the merges sat INSIDE the snapshot window, so the
+# audit could neither confirm nor refute a toggle around them. It could
+# only report that the protection was in force 2 h 36 m later (GREEN,
+# contexts=23, enforce_admins=True). A weekly snapshot cannot witness a
+# short window; a daily one narrows any divergence to a day. The job
+# stays read-only and the per-run step summary stays the fixation record.
+
 on:
   schedule:
-    - cron: "30 6 * * 1" # понедельник 06:30 UTC — после merge-ci-audit (05:00)
+    - cron: "30 6 * * *" # 06:30 UTC ежедневно — после merge-ci-audit (05:00)
   workflow_dispatch:
 
 permissions:

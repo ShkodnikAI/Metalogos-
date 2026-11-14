@@ -1619,7 +1619,7 @@ const VALID_METHODS: &[&str] = &["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"
 /// contour. The cure is the existing one: `redact` (the ONLY downward
 /// move, ADR-0136/№326). RED-first proof:
 /// tests/naryad_689_private_field_flow.rs.
-fn registry_private_flow_label(fn_name: &str) -> Option<Label> {
+pub(crate) fn registry_private_flow_label(fn_name: &str) -> Option<Label> {
     let spec = crate::builtins::registry::BUILTIN_REGISTRY
         .iter()
         .find(|s| s.name == fn_name)?;
@@ -1661,7 +1661,11 @@ pub struct LabelInference {
 /// the same way, projected via the ADR-0154 §5 table. `None` = not a
 /// source (the caller falls back to argument propagation).
 #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
-fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> Option<Label> {
+pub(crate) fn label_source(
+    fn_name: &str,
+    args: &[Expr],
+    env: &BTreeMap<String, Label>,
+) -> Option<Label> {
     // Static kind names only — the ADR-0154 §5 table covers them (pinned
     // by the exhaustiveness test in audit.rs); the fallback never fires.
     let kind_label = |kind: &str| legacy_taint_label(kind).unwrap_or_else(Label::bottom);
@@ -6408,6 +6412,147 @@ pub const READBACK_PAIRS: &[ReadbackPair] = &[
     },
 ];
 
+/// Clearance check for one sink argument. Returns the reason the
+/// argument fails, if any.
+/// №952: `pub(crate)` — the RUNTIME value-label lane calls this SAME
+/// rule (`runtime_labels::runtime_sink_check`), so the static gate and
+/// the runtime agree on the verdict by construction, not by parallel
+/// copy.
+#[allow(clippy::wildcard_enum_match_arm)] // the №325 clearance table — the sink-kind vocabulary is closed by the exhaustiveness pin (audit.rs)
+pub(crate) fn clearance_failure(fn_name: &str, label: &Label) -> Option<&'static str> {
+    // №335: the quarantine sink is the ONLY legal egress for a
+    // poisoned value (unconditional audit event; №326 posture) —
+    // exempt from every clearance class here. Every OTHER sink
+    // still refuses poisoned below (quarantine absorbs them).
+    if fn_name == "quarantine_write" {
+        return None;
+    }
+    // Quarantine clears nothing, anywhere (ADR-0154 §2.1).
+    if label.conf == crate::labels::Conf::Poisoned {
+        return Some("poisoned");
+    }
+    match sink_kind(fn_name) {
+        // Command execution: untrusted data must not drive it, and
+        // secrets must never enter it.
+        "exec" => {
+            if label.integrity == crate::labels::Integrity::Untrusted {
+                Some("untrusted-exec")
+            } else if label.conf != crate::labels::Conf::Public {
+                Some("secret-exec")
+            } else {
+                None
+            }
+        }
+        // Media generation: №331 Phase-2 boundary — the marking
+        // machinery (MEDIA_SYNTHETIC_UNMARKED, №320) owns it here.
+        "media" => None,
+        // №951 (the B6 family): the request side of a bidirectional
+        // builtin is gated on CONFIDENTIALITY ONLY.
+        //
+        // Sending a secret out in a URL, a query or a prompt is a
+        // leak — that is pin B6 and the whole `http_get("?k=" +
+        // env(...))` family. Sending UNTRUSTED text out is not: the
+        // integrity axis is about data coming IN and about data that
+        // DECIDES something, and asking a model about the user's own
+        // message is the language's primary use. Gating both axes
+        // here — the first shape of this rule — refused
+        // `call_llm(system, json_body().text)` in the repository's own
+        // benchmark workload, which is not a leak but the intended
+        // program. The integrity half of the LLM lane is owned by the
+        // separate `TAINT_INTERP` contour (the №449 prompt-egress
+        // chain), which reports it without blocking the ordinary call.
+        "request" => {
+            if label.conf != crate::labels::Conf::Public {
+                Some("private-egress")
+            } else {
+                None
+            }
+        }
+        // Voice egress requires a consent scope (Phase-2 sources, №335;
+        // until then the scope is empty by default — loud by design).
+        "voice" => {
+            if label.consent.is_empty() {
+                Some("voice-unconsented")
+            } else {
+                None
+            }
+        }
+        // Irreversible DB writes with destructive literals are gated
+        // regardless of label (grant algebra is Phase 3, №339).
+        // NOTE: only schema-destroying forms (DROP/TRUNCATE) —
+        // DELETE/ALTER are parameterized CRUD, gated by SQL_DYNAMIC.
+        "db" => {
+            if label.conf != crate::labels::Conf::Public {
+                Some("private-db")
+            } else {
+                None
+            }
+        }
+        // Public-output and memory sinks also refuse UNTRUSTED data
+        // (the HTML-injection and taint-persistence vocabularies —
+        // the leak-suite classes; the general integrity gate is
+        // №327, these two special cases start here). Everything else:
+        // confidentiality clearance (public only); network sinks
+        // additionally refuse untrusted data (UNTRUSTED_EGRESS_*).
+        _ => {
+            let kind = sink_kind(fn_name);
+            if label.conf != crate::labels::Conf::Public {
+                Some("private-egress")
+            } else if label.integrity == crate::labels::Integrity::Untrusted
+                // №391 bridge: "vcs" joins the integrity-gated kinds —
+                // an untrusted URL must not drive git_push (the
+                // systematization of the point rules; the class stays
+                // UNTRUSTED_EGRESS_NETWORK, the leak-suite vocabulary).
+                && matches!(kind, "network" | "vcs" | "output" | "memory")
+            {
+                Some("untrusted-egress")
+            } else {
+                None
+            }
+        }
+    }
+}
+
+pub(crate) fn sink_kind(name: &str) -> &'static str {
+    // №331 boundary (loud): media GENERATION sinks (vision_*/video_*)
+    // produce synthetic content — their egress is gated by the
+    // marking machinery (MEDIA_SYNTHETIC_UNMARKED, №320) and their
+    // label-side gating is Phase 2; they are outside №325.
+    if name.starts_with("vision_") || name.starts_with("video_") || name == "tts_synthesize" {
+        return "media";
+    }
+    match name {
+        "exec" | "exec_argv" => "exec",
+        "git_push" => "vcs",
+        "tts_send" => "voice",
+        "db_execute" => "db",
+        "print"
+        | "respond"
+        | "respond_html"
+        | "respond_html_status"
+        | "respond_html_doc"
+        | "html_response" => "output",
+        "write_file" | "append_file" | "delete_file" => "file",
+        // Persistent memory writes: untrusted data must not persist
+        // (the TAINT_PERSISTENCE vocabulary; №266 statement forms are
+        // covered separately).
+        "memorize" | "mem_set" | "mtree_store" | "kv_set" => "memory",
+        // №331 (ADR-0162): the sanctioned media materialization sink
+        // is FILE egress — private-labelled handles fail the
+        // default clearance (`private-egress`) at compile time; the
+        // runtime backstop (MEDIA_SEALED_EGRESS) refuses non-public
+        // entries even if the static layer was bypassed.
+        "media_save" => "file",
+        // №951 (the B6 family): the REQUEST side of a bidirectional
+        // builtin — a `Role::Source` classified `Label::Network`
+        // sends data out to produce its answer. Its own kind, because
+        // the clearance differs from a network SINK's by one axis
+        // (see `clearance_failure`).
+        n if REQUEST_EGRESS_NAMES.contains(&n) => "request",
+        _ => "network",
+    }
+}
+
 #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolation> {
     let mut violations = Vec::new();
@@ -6525,142 +6670,6 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
         // here. The table is the honest interim: narrow, evidence-backed,
         // and each row says why it is in.
         REQUEST_EGRESS_NAMES.contains(&name)
-    }
-
-    fn sink_kind(name: &str) -> &'static str {
-        // №331 boundary (loud): media GENERATION sinks (vision_*/video_*)
-        // produce synthetic content — their egress is gated by the
-        // marking machinery (MEDIA_SYNTHETIC_UNMARKED, №320) and their
-        // label-side gating is Phase 2; they are outside №325.
-        if name.starts_with("vision_") || name.starts_with("video_") || name == "tts_synthesize" {
-            return "media";
-        }
-        match name {
-            "exec" | "exec_argv" => "exec",
-            "git_push" => "vcs",
-            "tts_send" => "voice",
-            "db_execute" => "db",
-            "print"
-            | "respond"
-            | "respond_html"
-            | "respond_html_status"
-            | "respond_html_doc"
-            | "html_response" => "output",
-            "write_file" | "append_file" | "delete_file" => "file",
-            // Persistent memory writes: untrusted data must not persist
-            // (the TAINT_PERSISTENCE vocabulary; №266 statement forms are
-            // covered separately).
-            "memorize" | "mem_set" | "mtree_store" | "kv_set" => "memory",
-            // №331 (ADR-0162): the sanctioned media materialization sink
-            // is FILE egress — private-labelled handles fail the
-            // default clearance (`private-egress`) at compile time; the
-            // runtime backstop (MEDIA_SEALED_EGRESS) refuses non-public
-            // entries even if the static layer was bypassed.
-            "media_save" => "file",
-            // №951 (the B6 family): the REQUEST side of a bidirectional
-            // builtin — a `Role::Source` classified `Label::Network`
-            // sends data out to produce its answer. Its own kind, because
-            // the clearance differs from a network SINK's by one axis
-            // (see `clearance_failure`).
-            n if REQUEST_EGRESS_NAMES.contains(&n) => "request",
-            _ => "network",
-        }
-    }
-
-    /// Clearance check for one sink argument. Returns the reason the
-    /// argument fails, if any.
-    fn clearance_failure(fn_name: &str, label: &Label) -> Option<&'static str> {
-        // №335: the quarantine sink is the ONLY legal egress for a
-        // poisoned value (unconditional audit event; №326 posture) —
-        // exempt from every clearance class here. Every OTHER sink
-        // still refuses poisoned below (quarantine absorbs them).
-        if fn_name == "quarantine_write" {
-            return None;
-        }
-        // Quarantine clears nothing, anywhere (ADR-0154 §2.1).
-        if label.conf == crate::labels::Conf::Poisoned {
-            return Some("poisoned");
-        }
-        match sink_kind(fn_name) {
-            // Command execution: untrusted data must not drive it, and
-            // secrets must never enter it.
-            "exec" => {
-                if label.integrity == crate::labels::Integrity::Untrusted {
-                    Some("untrusted-exec")
-                } else if label.conf != crate::labels::Conf::Public {
-                    Some("secret-exec")
-                } else {
-                    None
-                }
-            }
-            // Media generation: №331 Phase-2 boundary — the marking
-            // machinery (MEDIA_SYNTHETIC_UNMARKED, №320) owns it here.
-            "media" => None,
-            // №951 (the B6 family): the request side of a bidirectional
-            // builtin is gated on CONFIDENTIALITY ONLY.
-            //
-            // Sending a secret out in a URL, a query or a prompt is a
-            // leak — that is pin B6 and the whole `http_get("?k=" +
-            // env(...))` family. Sending UNTRUSTED text out is not: the
-            // integrity axis is about data coming IN and about data that
-            // DECIDES something, and asking a model about the user's own
-            // message is the language's primary use. Gating both axes
-            // here — the first shape of this rule — refused
-            // `call_llm(system, json_body().text)` in the repository's own
-            // benchmark workload, which is not a leak but the intended
-            // program. The integrity half of the LLM lane is owned by the
-            // separate `TAINT_INTERP` contour (the №449 prompt-egress
-            // chain), which reports it without blocking the ordinary call.
-            "request" => {
-                if label.conf != crate::labels::Conf::Public {
-                    Some("private-egress")
-                } else {
-                    None
-                }
-            }
-            // Voice egress requires a consent scope (Phase-2 sources, №335;
-            // until then the scope is empty by default — loud by design).
-            "voice" => {
-                if label.consent.is_empty() {
-                    Some("voice-unconsented")
-                } else {
-                    None
-                }
-            }
-            // Irreversible DB writes with destructive literals are gated
-            // regardless of label (grant algebra is Phase 3, №339).
-            // NOTE: only schema-destroying forms (DROP/TRUNCATE) —
-            // DELETE/ALTER are parameterized CRUD, gated by SQL_DYNAMIC.
-            "db" => {
-                if label.conf != crate::labels::Conf::Public {
-                    Some("private-db")
-                } else {
-                    None
-                }
-            }
-            // Public-output and memory sinks also refuse UNTRUSTED data
-            // (the HTML-injection and taint-persistence vocabularies —
-            // the leak-suite classes; the general integrity gate is
-            // №327, these two special cases start here). Everything else:
-            // confidentiality clearance (public only); network sinks
-            // additionally refuse untrusted data (UNTRUSTED_EGRESS_*).
-            _ => {
-                let kind = sink_kind(fn_name);
-                if label.conf != crate::labels::Conf::Public {
-                    Some("private-egress")
-                } else if label.integrity == crate::labels::Integrity::Untrusted
-                    // №391 bridge: "vcs" joins the integrity-gated kinds —
-                    // an untrusted URL must not drive git_push (the
-                    // systematization of the point rules; the class stays
-                    // UNTRUSTED_EGRESS_NETWORK, the leak-suite vocabulary).
-                    && matches!(kind, "network" | "vcs" | "output" | "memory")
-                {
-                    Some("untrusted-egress")
-                } else {
-                    None
-                }
-            }
-        }
     }
 
     let check_calls = |expr: &Expr,

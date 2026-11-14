@@ -12,6 +12,13 @@ impl Interpreter {
         // applies per request/tick/program run — the charges of `embed` et
         // al. accumulate within the run and reset at the next boundary).
         let _contour_budget_scope = crate::builtins::embed_seam::ContourBudgetScope::new();
+        // №952: the runtime value-label env resets per program run — the
+        // VM twin resets in `load_program`; the TW twin here (parity).
+        self.label_env
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        self.flow_current_label = crate::labels::Label::bottom();
         let mut output: Option<String> = None;
 
         // №845 (ADR-0203 §2.4): resolve the capability permit roster BEFORE
@@ -90,6 +97,17 @@ impl Interpreter {
                         .map(|s| s.as_str())
                         .unwrap_or(&e.type_name);
                     let value = Self::coerce_to_declared_type(value, resolved_type)?;
+                    // №952: the entity write seeds the runtime label env —
+                    // the B8 seeding (the initializer walk joined over the
+                    // value-variant floor).
+                    let seed = self.label_of_expr(&e.value, 0);
+                    self.label_env
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(
+                            e.name.clone(),
+                            seed.join(&Self::value_variant_label(&value)),
+                        );
                     self.variables.insert(e.name.clone(), value);
                 }
                 Declaration::Rule(r) => {
@@ -1072,6 +1090,11 @@ impl Interpreter {
             return Self::maybe_wrap_with_confidence(result, conf);
         }
 
+        // №952: the runtime value-label gate (the flow-step path — the
+        // argument labels here are the VALUE-variant floors; the flow
+        // EDGE labels ride №965). BEFORE the registry lookup — the gate
+        // must not hold the builtins borrow.
+        self.runtime_sink_gate(name, &args, &[], 0)?;
         // Check builtins
         if let Some(builtin_fn) = self.builtins.get(name) {
             // Phase 7.5: Sandbox enforcement — filesystem isolation
@@ -1164,6 +1187,21 @@ impl Interpreter {
             ));
         }
 
+        // №952: the flow-step pattern call seeds the runtime label env
+        // with the VALUE-variant floors joined over the FLOW EDGE label
+        // (the edge contract: the first step's argument carries the
+        // source's label; №965 owns the full per-edge chain).
+        let edge_label =
+            std::mem::replace(&mut self.flow_current_label, crate::labels::Label::bottom());
+        for (param, value) in pattern.params.iter().zip(args.iter()) {
+            self.label_env
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(
+                    param.name.clone(),
+                    Self::value_variant_label(value).join(&edge_label),
+                );
+        }
         // Bind parameters with Fluid collapse
         // ADR-0089: reset propagated confidence before collapse
         *self
@@ -1380,6 +1418,13 @@ impl Interpreter {
                         mutable_vars.insert(name.clone());
                     }
                     env.insert(name.clone(), val);
+                    // №952: the binding site propagates the label — the
+                    // pure walk of the SAME expression (no re-evaluation).
+                    let lab = self.label_of_expr(value, 0);
+                    self.label_env
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(name.clone(), lab);
                     // №612 (P0 bugfix): a binding statement produces NO value.
                     // The block's implicit-return value (№13) must not leak
                     // from a bare call EARLIER in the block — the stale value
@@ -1394,6 +1439,13 @@ impl Interpreter {
                     }
                     let val = self.eval_expr_with_env(value, env)?;
                     env.insert(name.clone(), val);
+                    // №952: the assignment propagates the label too (the
+                    // each/while accumulators ride this site — B5).
+                    let lab = self.label_of_expr(value, 0);
+                    self.label_env
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(name.clone(), lab);
                     // №612: same poison class — an assignment produces no
                     // value; the tail position of a block ending in an
                     // assignment is Unit, never the stale expression value
@@ -1433,6 +1485,14 @@ impl Interpreter {
                             ));
                         }
                         env.insert(variable.clone(), item);
+                        // №952: the loop variable carries the ITERABLE's
+                        // label (the conservative element rule — the join
+                        // over the elements is the iterable's label).
+                        let iter_lab = self.label_of_expr(iterable, 0);
+                        self.label_env
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .insert(variable.clone(), iter_lab);
                         let cf = self.eval_statements_cf(body, env, mutable_vars)?;
                         match cf {
                             ControlFlow::Break => break, // absorb Break — loop exits normally
@@ -1494,6 +1554,13 @@ impl Interpreter {
                         }
                         env.insert(index_var.clone(), Value::Float(idx as f64));
                         env.insert(item_var.clone(), item);
+                        // №952: the item variable carries the iterable's
+                        // label (the index is a public position).
+                        let iter_lab = self.label_of_expr(iterable, 0);
+                        self.label_env
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .insert(item_var.clone(), iter_lab);
                         let cf = self.eval_statements_cf(body, env, mutable_vars)?;
                         match cf {
                             ControlFlow::Break => break, // absorb Break — loop exits normally
@@ -1914,6 +1981,13 @@ impl Interpreter {
                 args,
                 ..
             } => {
+                // №952: the same pre-eval gate on the qualified path (the
+                // tool-namespace sinks and the request-egress family).
+                if crate::runtime_labels::is_gated_dispatch(function) {
+                    let arg_labels: Vec<crate::labels::Label> =
+                        args.iter().map(|a| self.label_of_expr(a, 0)).collect();
+                    crate::runtime_labels::gate_labels_only(function, &arg_labels)?;
+                }
                 let mut eval_args = Vec::new();
                 for arg in args {
                     eval_args.push(self.eval_expr_with_env(arg, env)?);
@@ -2073,6 +2147,15 @@ impl Interpreter {
                 })
             }
             Expr::FnCall { name, args, .. } => {
+                // №952: the runtime value-label gate BEFORE any intercept —
+                // the intercepted builtins (print/http_get/kv_*) bypass the
+                // generic registry site below, so the gate lives at the arm
+                // head (the walk is pure: no re-evaluation, no side effects).
+                if crate::runtime_labels::is_gated_dispatch(name) {
+                    let arg_labels: Vec<crate::labels::Label> =
+                        args.iter().map(|a| self.label_of_expr(a, 0)).collect();
+                    crate::runtime_labels::gate_labels_only(name, &arg_labels)?;
+                }
                 let mut eval_args = Vec::new();
                 for (i, arg) in args.iter().enumerate() {
                     // Наряд №115: render(TemplateName, ...) — bare Ident is the template name
@@ -2920,6 +3003,16 @@ impl Interpreter {
                     ));
                 }
 
+                // №952: the pattern call seeds the runtime label env with
+                // the arguments' labels (the B2 parameter→sink contract at
+                // runtime): the callee's own sinks check against them.
+                for (param, arg) in pattern.params.iter().zip(args.iter()) {
+                    let lab = self.label_of_expr(arg, 0);
+                    self.label_env
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(param.name.clone(), lab);
+                }
                 // Bind parameters with Fluid collapse
                 // ADR-0089: reset propagated confidence before collapse
                 *self

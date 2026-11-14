@@ -219,6 +219,34 @@ the marker format (`[mock-llm:<hex>]`, №487) are byte-identical.
   with the named carrier and paths; migrated per this page it passes
   both gates on both backends.
 
+## 0.39.1 → 0.40.0 (the value-label second line, №952)
+
+**What changed:** the label now rides the VALUE at runtime on both
+backends. A program whose runtime flow the static lattice missed REFUSES
+at the sink with `[SINK_CLEARANCE_RUNTIME]` (exit ≠ 0) where 0.39.1
+executed the leak silently.
+
+**The migration recipe (in order):**
+1. Run `mlog check` — the static line reports the audited shapes first
+   (the №950/№951 machinery). Fix every reported site: annotate the
+   parameter `String<private>`, or redact before the sink per the
+   ADR-0154 §10 table (`redact(x, "all")` → public; `hash_keyed` →
+   public; conservative policies stay private).
+2. If `mlog check` is clean but `mlog run` refuses: the flow crossed a
+   boundary the static lane cannot see (a kv round-trip, a dynamic
+   dispatch, a flow edge). The refusal message names the sink, the
+   argument position and the deny-reason class — the SAME class the
+   static gate would use. Sanitize at the SOURCE (redact before the
+   store/sink), never by widening the sink.
+3. Escaping does NOT clear a secret: `escape_html(env("K"))` still
+   refuses (the A2 rule — escaping restores integrity only). Use
+   `redact` with a literal policy; unknown policy words are loud
+   runtime errors.
+4. `profile legacy { egress: permissive_with_audit }` (the №325
+   window, ADR-0161) downgrades the runtime refusals to audit events
+   for the ONE transition window — the events stay in the audit log,
+   the roster never extends, and the window is the owner's to close.
+
 ## 0.39.0 → 0.39.1 (the security patch — three BREAKING sharp edges)
 
 The unplanned security slice (ADR-0189 §2.6): the audit 12.11's P0 fix

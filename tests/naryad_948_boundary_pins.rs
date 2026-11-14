@@ -294,6 +294,46 @@ fn n948_b05_b06_b08_in_pattern_losses_are_the_refusal() {
     }
 }
 
+/// The row FLIPPED by №952 — the value-label second line: the fixture is
+/// a blocking leak-suite negative (the static line refuses with the B1
+/// class), and its .expected documents the RUNTIME twin — the same
+/// program refuses with [SINK_CLEARANCE_RUNTIME] on both backends under
+/// the test-only static-off flag (tests/naryad_952_value_labels.rs).
+const FLIPPED_952_PINS: &[(&str, &str, &str)] =
+    &[("b12_runtime_value_label.mlog", "B12", "PII_EGRESS_OUTPUT")];
+
+/// B12 pin — FLIPPED TO THE LEAK-SUITE NEGATIVE by №952 (the №948
+/// contract): the runtime value-label second line's fixture refuses at
+/// check with the B1 class; the RUNTIME proof (static off, both
+/// backends) lives in tests/naryad_952_value_labels.rs.
+#[test]
+fn n948_b12_value_labels_second_line_is_the_refusal() {
+    for (fixture, row, check_id) in FLIPPED_952_PINS {
+        let src = fs::read_to_string(boundary_dir().join(fixture))
+            .unwrap_or_else(|e| panic!("cannot read {}: {}", fixture, e));
+        let result = metalogos::check_program(&src)
+            .unwrap_or_else(|e| panic!("row {}: parse failed — the pin is broken: {}", row, e));
+        let rendered = result
+            .errors
+            .iter()
+            .map(|e| format!("{:?}", e))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains(check_id),
+            "row {} ({}): the value-label fixture must refuse with {} (№952 static line); got: {}",
+            row,
+            fixture,
+            check_id,
+            if rendered.is_empty() {
+                "<no errors — the second line is back to silence>"
+            } else {
+                &rendered
+            }
+        );
+    }
+}
+
 /// B10 pin — FLIPPED TO THE LEAK-SUITE NEGATIVE by №953 (PR #1931, the
 /// №948 contract): `check_program_with_root` is STATIC now — zero
 /// execution, no `Interpreter` on the path. The regression gate: if the

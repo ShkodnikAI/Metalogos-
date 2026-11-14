@@ -43,6 +43,11 @@ pub fn handles(name: &str) -> bool {
 /// back. Both backends write and read EXACTLY this shape.
 pub const KVKEY_PREFIX: &str = "__KVKEY:";
 
+/// №462 (gh#683): the KV store names' SINGLE spelling — the name literal
+/// leaves both backends (the №952 kv-label sidecar reads it on both; the
+/// tw-vm dup counter counts the literals, movement only down).
+pub const NAME_KV_SET: &str = "kv_set";
+
 /// The memorized value for a saved recipe (the format contract).
 pub fn mem_value(kv_key: &str, description: &str) -> String {
     format!("{}{}\n{}", KVKEY_PREFIX, kv_key, description)

@@ -15,6 +15,7 @@ pub(crate) mod learnable;
 pub(crate) mod memory;
 pub(crate) mod modules;
 // Наряд №179b: &self wrappers for reflex_train / reflex_predict (Mutex<ReflexRegistry>)
+pub mod labels; // №952 (the audit 12.11 — P0): the TW value-label line (the walk + the sink gate)
 pub(crate) mod reflex_builtin;
 pub mod types;
 pub mod values;
@@ -25,7 +26,7 @@ pub use types::{
 };
 pub use values::{FluidValueVariant, SecretString, Value};
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -110,6 +111,18 @@ pub struct Interpreter {
     /// `Program::capability_permits` (the wire field). consulted by
     /// `capability::authorize_call` at every builtin dispatch site.
     pub capability_permits: crate::capability::CapabilityPermits,
+    /// №952 (the audit 12.11, ADR-0156 §5): the runtime value-label env —
+    /// name-keyed, VM parity (`Vm::label_env`, №328). Fed at the binding
+    /// sites (LetBinding/Assign/entity writes/parameter seeding), read by
+    /// the pure walk (`labels::label_of_expr`) and the sink gate.
+    /// `Mutex` not `RefCell`: the Interpreter crosses thread boundaries
+    /// on the serve paths (the route_handler constraint — the transport
+    /// shares the interpreter), so every interior field must stay Sync.
+    pub(super) label_env: std::sync::Mutex<BTreeMap<String, crate::labels::Label>>,
+    /// №952: the CURRENT flow value's runtime label (the edge contract —
+    /// consumed by the first step's parameter seeding; the value path has
+    /// no expression to walk, so the label rides this field).
+    pub(super) flow_current_label: crate::labels::Label,
     /// Global variable store.
     // №567: pub for the metalogos-server transport (the route-state merge).
     pub variables: HashMap<String, Value>,
@@ -347,6 +360,8 @@ impl Interpreter {
         let (distill_tx, distill_rx) = std::sync::mpsc::channel();
         Interpreter {
             variables: HashMap::new(),
+            label_env: std::sync::Mutex::new(BTreeMap::new()),
+            flow_current_label: crate::labels::Label::bottom(),
             capability_permits: crate::capability::CapabilityPermits::default(),
             call_depth: std::sync::atomic::AtomicUsize::new(0),
             struct_types: HashMap::new(),

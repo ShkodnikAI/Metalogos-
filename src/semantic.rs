@@ -7643,6 +7643,72 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                     &mut violations,
                 );
             }
+            Declaration::Flow(f) => {
+                // ── №965 (gh#1953, the B7 row — the owner decision
+                // 13–14.11): the flow edge carries the step-return label.
+                // The AXIS is the named owner choice — CONFIDENTIALITY
+                // only; the integrity half is №966's measured package
+                // (the idiom form), so this arm reads `seen.conf` and
+                // never `seen.integrity` — a named choice in code, not a
+                // side effect of the implementation.
+                //
+                // The pipeline step IS the flow's call site: the step's
+                // param→sink facts (the №950 hook (б) machinery) are
+                // re-decided here with the ACTUAL incoming edge label —
+                // the refusal carries the inner sink's own class, the
+                // №385 vocabulary stays frozen. The step's RETURN label
+                // (the summary's return_internal, the №950 (а) half)
+                // joins into the outgoing edge.
+                //
+                // The flow OUTPUT is the implicit print of the final
+                // edge value (the threat-model row B7: «метка возврата
+                // шага потока теряется на ребре ->») — gated as the
+                // print channel it is, with the SAME frozen class.
+                let mut env = seed.clone();
+                let mut edge = expr_label(&f.source, &env);
+                for step_name in &f.pipeline {
+                    if let Some(summary) = interproc_summary_of(step_name) {
+                        if let Some(facts) = summary.param_sinks.first() {
+                            for (sink, sink_arg, inner_reason, axis) in facts {
+                                // The №965 axis choice: the flow edge
+                                // re-decides CONFIDENTIALITY only; the
+                                // duty/untrusted-file facts belong to the
+                                // №966 integrity package.
+                                if *inner_reason == "duty-materialization"
+                                    || *inner_reason == "untrusted-file-path"
+                                {
+                                    continue;
+                                }
+                                let seen = axis.view(&edge);
+                                if let Some(reason) = clearance_failure(sink, &seen) {
+                                    violations.push(SinkViolation {
+                                        container: format!("flow {}", f.name),
+                                        fn_name: (*sink).to_string(),
+                                        arg_index: *sink_arg,
+                                        span: f.span.clone(),
+                                        label: seen,
+                                        reason,
+                                    });
+                                }
+                            }
+                        }
+                        edge = edge.join(&summary.return_internal);
+                    }
+                }
+                if edge.conf != crate::labels::Conf::Public {
+                    // The output edge is the print channel (the flow's
+                    // stdout emission) — the frozen class of the print
+                    // sink, no new check_id (ADR-0154 §12.4).
+                    violations.push(SinkViolation {
+                        container: format!("flow {}", f.name),
+                        fn_name: "print".to_string(),
+                        arg_index: 0,
+                        span: f.span.clone(),
+                        reason: "private-egress",
+                        label: edge.clone(),
+                    });
+                }
+            }
             _ => {}
         }
     }

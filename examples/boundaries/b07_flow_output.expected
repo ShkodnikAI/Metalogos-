@@ -1,4 +1,4 @@
 row: B7
-flip: №951
-status: CURRENT-PIN — mlog check passes on v0.39.0 (the gap №948 documents; the PoC lives in FOSVED-office-v2 → docs/projects/metalogos/audit_2026-11-12/).
-On the fix (№951): the flow step returning a source value carries the label to the flow output — this program refuses with SECRET_LEAK and this pin becomes the leak-suite negative.
+flip: №965 — DONE
+status: LEAK-SUITE NEGATIVE — mlog check REFUSES with [PII_EGRESS_OUTPUT] (the flow output edge carries the step return label - the confidentiality axis; the integrity half is №966; the gap №948 documents the history; the PoC lives in FOSVED-office-v2 → docs/projects/metalogos/audit_2026-11-12/).
+On the fix (№965): the flow step returning a source value carries the label to the flow output — this program refuses with [PII_EGRESS_OUTPUT] (the frozen print-channel class) and this pin became the leak-suite negative.

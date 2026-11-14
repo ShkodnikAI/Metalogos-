@@ -22,7 +22,11 @@ pattern Log(msg: String) -> String ⟨io, audit⟩ {
 pattern Run() -> String ⟨io, audit⟩ {
   let k = Fetch("APP_KEY")
   let r = Log(k)
-  return r
+  // №965 (the B7 fix, the owner decision 13–14.11): the flow OUTPUT edge
+  // carries the step's return label — this demo printed the env-derived
+  // value and the audit's B7 caught it. The sanctioned downgrade is the
+  // redact policy (ADR-0154 §10), never a gate bypass.
+  return redact(r, "all")
 }
 
 flow Main { input: String = "" -> Run -> output }

@@ -71,8 +71,8 @@ reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls", "mul
 # verified the stack in the N5-pre probe, issue #1214 — MIT /
 # Apache-2.0 / Unicode-3.0 only, zero copyleft; the `scraper` stack was
 # rejected for its MPL-2.0 transitive deps).
-html5ever = { version = "0.39", optional = true }
-markup5ever_rcdom = { version = "0.39.0", optional = true }
+html5ever = { version = "0.40.1", optional = true }
+markup5ever_rcdom = { version = "0.40.1", optional = true }
 # The WHATWG URL parser (servo lineage) for html_links relative→absolute
 # resolution — hand-rolling RFC 3986 resolution is high-risk for zero
 # benefit (ADR-0192 §2.3).
@@ -83,12 +83,14 @@ url = { version = "2", optional = true }
 # expanded — the XML5 grammar has no custom-entity mechanism (XXE-safe
 # by construction, pinned by the negative tests).
 # №707 (gh#1307, wave 48): the extraction family moved 0.27/0.18/0.3 →
-# the 0.39 line (html5ever 0.39 + xml5ever 0.39 + markup5ever_rcdom
-# 0.39.0+unofficial — the newest COMPILABLE pair: no rcdom release
-# exists under markup5ever 0.40, the №700 reports gh#1286/gh#1288;
-# the 0.39 line unifies on ONE markup5ever 0.39 graph, verified by
-# cargo tree).
-xml5ever = { version = "0.39", optional = true }
+# the 0.39 line (the №700 reports gh#1286/gh#1288), and on 14.11 → the
+# 0.40 line: html5ever 0.40.1 + xml5ever 0.40.0 + markup5ever_rcdom
+# 0.40.1+unofficial (PR #1940 — a dependabot rcdom-only bump skewed the
+# graph, TWO markup5ever majors in one tree: html5ever 0.39 consumed the
+# 0.39 TreeSink while rcdom 0.40.1 implements only the 0.40 TreeSink, so
+# the html lane could not compile; the line moves TOGETHER). The 0.40
+# line unifies on ONE markup5ever 0.40 graph, verified by cargo tree).
+xml5ever = { version = "0.40.0", optional = true }
 
 # Phase 7.3: Real encryption
 argon2 = "0.6"

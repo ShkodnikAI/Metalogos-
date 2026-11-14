@@ -125,6 +125,57 @@ inference dressed as a fact, and the rule the project already carries
 conclusions too. The owner's read is one query; until it happens, the
 cause is OPEN and the two mechanisms above are the candidates.
 
+### 5a. The exact read that would settle it (the owner's action)
+
+Recorded here rather than left as «ask the audit log», because the next
+person to face this class should not have to reconstruct the query. No CI
+token in this repository can perform it, and an agent session bound to the
+repository cannot either: every non-repository API path is refused
+("sessions are bound to their configured repositories"), so this is an
+owner action by construction, not by policy.
+
+**Where.** If `ShkodnikAI` is an organization: Settings → Archives →
+Audit log (API: `GET /orgs/ShkodnikAI/audit-log`, a token with
+`read:audit_log`). If it is a personal account: the account's Security log
+at `https://github.com/settings/security-log` — the per-account equivalent,
+which also records repository-administration events.
+
+**What to search.** Three action families, each answering a different half
+of the open question:
+
+| Query | Answers |
+|---|---|
+| `action:repo.actions_disabled` and `action:repo.actions_enabled` | whether Actions was switched off for the repository inside the two silences — the mechanism that explains the repo-wide silence AND the 3-second resumption |
+| `action:protected_branch.policy_override` | whether a protected-branch rule was BYPASSED at merge time. This is the decisive event: GitHub logs an override when an admin merges past a required check |
+| `action:protected_branch.update` and `action:protected_branch.destroy` | whether the rule itself was changed and restored around the merges (what the weekly snapshot could not witness) |
+
+**The two windows** (UTC), each from the last run before the silence to
+the merge's own push:
+
+* **2026-11-02 11:43:55Z → 13:51:20Z** (PR #1752, merged 13:51:17Z)
+* **2026-11-04 13:22:48Z → 16:48:34Z** (PR #1804, merged 16:48:31Z)
+
+**How to read the answer.**
+
+* A `policy_override` inside a window ⇒ the merge went past the required
+  checks deliberately, with the protection in force. The process answer is
+  a habit, not a gate change: the gate already refuses, and the override
+  is the thing to stop using.
+* An `actions_disabled` / `actions_enabled` pair bracketing a window ⇒ the
+  silence and the resumption are explained, and the merge became possible
+  because the required contexts could never report. The repair is to never
+  disable Actions on a repository whose protection requires reported
+  checks — or to expect, and accept, that merges are blocked while it is
+  off.
+* **Neither present in either window** ⇒ mechanism (b): a GitHub-side
+  dispatch-and-enforcement failure. Nothing in this repository is at
+  fault, the correct action is a support report with these timestamps, and
+  the detective changes of §6 are what make the next occurrence visible
+  within a day instead of a month.
+
+Whatever the answer, it belongs in §5 of this document, dated, replacing
+the OPEN verdict — not in a chat log.
+
 ## 6. What changed so that either mechanism is visible next time
 
 1. **`REQUIRED_SINCE` / `required_at`** — the born-later class cannot

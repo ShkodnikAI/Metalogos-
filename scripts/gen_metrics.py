@@ -1508,6 +1508,65 @@ def taint_saturation(
     return scenario_variants * sequence_space
 
 
+# ── №956 (issue #1923): the EXECUTED-programs counter ───────────────────
+#
+# TAINT_SATURATION above is a PRODUCT — the size of a space. It answers
+# "how many programs COULD the generator emit", which no run ever emits,
+# and the audit of 12.11 showed what that buys: the space read 10^23 while
+# every scenario in it put the source and the sink in one pattern, and the
+# interprocedural breach lived for two months under a green gate.
+#
+# This counter is the other kind of number: the programs a run really
+# generates and analyzes. It is read from the LIVE №956 roster (the cells
+# between the markers) times the rotation passes declared beside them, and
+# the test itself prints the count and asserts it equals this function —
+# so the fact and the run cannot drift apart.
+TAINT_DELIVERY_RS = REPO / "tests" / "naryad_956_delivery_forms.rs"
+
+
+def _delivery_cells(text: str | None = None) -> int:
+    """The №956 cell count: the `(` blocks between the delivery-roster
+    markers. A lost marker is a loud fail (the №906 form) — the count
+    cannot silently shrink to zero and read as a pass."""
+    if text is None:
+        if not TAINT_DELIVERY_RS.exists():
+            raise ValueError(
+                f"{TAINT_DELIVERY_RS.name} is gone — the №956 delivery roster "
+                "is the machine source of the executed-programs fact"
+            )
+        text = TAINT_DELIVERY_RS.read_text(encoding="utf-8")
+    begin = text.find("№956 delivery roster BEGIN")
+    if begin < 0:
+        raise ValueError("the №956 delivery roster marker BEGIN is lost")
+    rel_end = text[begin:].find("№956 delivery roster END")
+    if rel_end < 0:
+        raise ValueError("the №956 delivery roster marker END is lost")
+    section = text[begin : begin + rel_end]
+    # Each cell is a `(` that opens a tuple of string fields (rustfmt may
+    # wrap); count the tuple openings at depth 1 of the slice.
+    return len(re.findall(r"\n    \(\n", section))
+
+
+def _delivery_rotation_passes(text: str | None = None) -> int:
+    """`ROTATION_PASSES` as DECLARED in the same live file."""
+    if text is None:
+        text = TAINT_DELIVERY_RS.read_text(encoding="utf-8")
+    m = re.search(r"pub const ROTATION_PASSES: usize = (\d+);", text)
+    if not m:
+        raise ValueError("ROTATION_PASSES is lost from the №956 roster file")
+    return int(m.group(1))
+
+
+def taint_programs_per_run() -> int:
+    """TAINT_PROGRAMS_PER_RUN — the programs the taint delivery matrix
+    really generates and analyzes per run: cells × (1 + rotation passes).
+    A count over a run, not a product over a space."""
+    cells = _delivery_cells()
+    if cells == 0:
+        return 0
+    return cells * (1 + _delivery_rotation_passes())
+
+
 # ── №918 (wave 83 — W-L1, ADR-0219 §2): the INSTITUTIONAL_READY machine ──
 
 def _institutional_registry(content: str | None = None) -> list[dict]:
@@ -3375,6 +3434,7 @@ def full_block() -> str:
         f"| JURISDICTION_MATRIX (the 8D-2/C10 machine fact, №888) | {jurisdiction_matrix_count()} — the registered jurisdictions with ≥ 1 live rule in the seed matrix (ADR-0209 §4; the gate_040 floor 3, only-up) |\n"
         f"| REPLAY_MATCH (the 8G/C8 machine fact, №894) | {replay_match_bp()} bp ({n_repl}/{t_repl}) — the registered decision carriers whose trace is written through the Ledger ACTION contour and verified by the replay_gate REPLAY_MATCH contract (ADR-0210 §3-4; the gate_041 floor 10000 bp, only-up) |\n"
         f"| TAINT_SATURATION (the 8F-2/C9 machine fact, №906) | {taint_saturation()} — the exact reachable taint-program space of the wave-81 generator, the integer product over the live anchors (ADR-0217 §2; the gate_042 floor 10^9, only-up) |\n"
+        f"| TAINT_PROGRAMS_PER_RUN (the \u2116956 honest counter) | {taint_programs_per_run()} \u2014 the programs the delivery matrix really generates and analyzes per run ({_delivery_cells()} cells \u00d7 (1 + {_delivery_rotation_passes()}) rotation passes), printed and asserted by the run itself \u2014 a count over a run, not the size of a space |\n"
         f"| REPRO_BITFORBIT (the 8E-2/C7+C12 machine fact, №912) | {repro_bitforbit_bp()} bp ({n_repro}/{t_repro}) — the registered reproduction carriers whose bit-for-bit chain is live-wired: the registry package path + the release digest chain (ADR-0218 §2; the gate_043 floor 10000 bp, only-up; the toolchain build stays behind the C7 trigger — §5) |\n"
         f"| INSTITUTIONAL_READY (the 8H-1/C13б machine fact, №918) | {institutional_ready()}/{t_inst} — the CHECKED items of the 12-item institutional roster over the live carriers: TRADEMARK.md + docs/SUCCESSION.md + the GOVERNANCE Phase-2 frame (ADR-0219 §2; the gate_044 floor 12, only-up; the documents ≠ the owner's acts — §5) |\n"
         f"| VERTICAL_PROFILES (the 8H-2/C13а machine fact, №921) | {vertical_profiles()}/{t_vert} — the CHECKED anchors of the 12-element vertical roster (2 profiles × 6 mandatory contours) over the live kernel src/vertical.rs (ADR-0220 §2; the gate_045 floor 12, only-up; the profile ≠ certification ≠ legal advice — §5) |\n"

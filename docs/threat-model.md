@@ -174,6 +174,41 @@ Every row is a flow the analyzer/executable surface did NOT stop on the PUBLISHE
 | B11 | FIXED by №954 (PR #1932): permits come from the ENTRY program only — an imported `profile capability` is the loud `[CAPABILITY_PROFILE_IN_IMPORT]` refusal at check/run/compile/serve; the legacy transition window (`profile capability legacy: warn` in the entry) downgrades it to a loud stderr warning while the roster STILL never extends and the carrier refuses at the sink (was: the permit roster UNIONED the import — any dependency granted itself network/exec) | root imports `dep/evil` whose `profile capability { allow_carrier: "http_post" }` — the check refuses loudly, POST never leaves | `examples/boundaries/b11_capability_import/` (the pin flipped to the leak-suite negative — `tests/naryad_948_boundary_pins.rs`) | №954 — DONE |
 | B12 | Dynamic dispatch beyond the static lattice — a label that only a runtime value check could catch | any flow the static lattice mis-follows (the second line of defense) | — (lands with the №952 machinery) | №952 (labels on VALUES in VM and TW: the sink checks the value's label at runtime — the refusal even when the static analysis was wrong) |
 
+**The delivery-form matrix (№956) — what the rows look like from the
+fuzzer's side.** The taint line of the differential fuzzer carried 8
+scenarios over 7 triples, and in every one the source and the sink stood
+in the SAME pattern with a direct flow between them. That is why this
+whole boundary lived from September to November under green gates: the
+generator only ever emitted the shape the analyzer already handled.
+`tests/naryad_956_delivery_forms.rs` adds the second axis — every triple
+× eleven DELIVERY FORMS (direct; a pattern's return; a parameter into a
+pattern that sinks it; two levels of calls; an `each` accumulator; a
+`while` accumulator; a struct field; a list element; a `match` arm; a
+`flow` output; a URL position), 77 cells, each with the verdict MEASURED
+on this tree and run on both backends. Two facts came out of it:
+
+- **the reach of B7 is five of the seven triples**, not one fixture: the
+  flow edge drops the step's return label for `print`, `write_file`,
+  `http_get`, the `Secret` entity and the model-output lane alike. The
+  two SQL triples refuse only because the sink's own argument rule fires
+  on any non-literal, not because the edge carried the label;
+- **the №950 summary returned `bottom` for an entity-seeded return.** A
+  `Secret`-aliased entity returned from a callee and printed by the
+  caller was NOT refused while the direct form was —
+  `infer_pattern_labels` seeds parameters only, so the B8 seeds were
+  invisible to the summary. Closed in №956 by giving the summary the
+  same `entity_seed_env` the intraprocedural gate uses (ADR-0154 §12(а)
+  already calls the return label the join of the body's internal
+  sources, and an entity-seeded identifier is one); the 475-file corpus
+  sweep is byte-identical before and after.
+
+Two cells pass BY DESIGN and say so: an untrusted-but-PUBLIC value in a
+request position gates confidentiality only (B6), so the SQL triples'
+`url_position` cells are accepted statically and refused at runtime by
+the SSRF guard. Every PASS cell in the roster must name an open row or a
+design reason — a test enforces that, because a PASS without a recorded
+reason is how a gap hides.
+
 **A second surface beyond the audit's rows (№951):** the lattice's SOURCE VOCABULARY was hand-written. `src/semantic.rs::label_source` named 25 builtins while the registry classifies **153** as `Role::Source`, so 128 sources entered the lattice as bottom — public and trusted. Verified on the published binary: `print(env_or("SP","d"))`, `print(generate_key(32))`, `print(web_search("q"))` and `print(http_download(url, f))` all passed `mlog check`. №951 DERIVES the two unambiguous registry classes — `Label::Secret` → private, `Label::Network` → untrusted (the answer is remote data). The `Label::Internal` class (94 names, 295 corpus uses) is NOT derived: `default_label` is the CHANNEL class of №316, not a lattice label, and `Internal` covers both «own store» (`recall`, `kv_get`, `query`) and «untrusted request body» (`json_body` is itself `Internal` and is named by hand as untrusted). It goes to the owner name by name (the decision of 13.11, variant 1). `world_state` is excluded by design — its materialization refusal belongs to the runtime layer (ADR-0159).
 
 **The open model question behind B6:** the №316 role model names ONE direction per builtin, and the registry carries no direction PER ARGUMENT. That is why the address/query family is a documented table rather than a derivation: for `http_get` the argument is an address transmitted verbatim, for `call_llm` it is prose, and gating prose on confidentiality collides with the literal-marker rule of ADR-0161 §3 — a prompt that merely mentions «private» would refuse. A direction per argument, or a duplex role, is the real fix and an owner decision.

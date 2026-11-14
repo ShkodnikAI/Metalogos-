@@ -127,13 +127,13 @@ pub fn label_of_expr(expr: &Expr, vars: &HashMap<String, Type>) -> Option<Type> 
             // №964: a SINK's value is a RECEIPT — an id, a path, a
             // count — and carries none of the payload's labels. The
             // table and its reasons live with the classification
-            // (`builtins_classification::is_sink_receipt`), so this lane
+            // (`sink_receipt::is_sink_receipt`), so this lane
             // and the lattice cannot disagree about what a receipt is.
             // Measured false positive this closes: a LEGAL quarantine
             // write passes, and `print(receipt)` was then refused as
             // SECRET_LEAK — the program did the right thing and got a
             // refusal for logging the quarantine id (`w1_consent_revoke`).
-            if crate::builtins_classification::is_sink_receipt(name) {
+            if crate::sink_receipt::is_sink_receipt(name) {
                 return declared_base_type(name);
             }
             // Any other call: the label joins from the arguments (the

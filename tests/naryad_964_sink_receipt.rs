@@ -23,7 +23,7 @@
 // while printing the secret, because the quarantine call is legal and the
 // echo would arrive at `print` unlabelled. Clearance for ONE channel is
 // not clearance for another. So the claim is made per name, with the
-// reason, in `builtins_classification::SINK_RECEIPT_NAMES`, and this file
+// reason, in `sink_receipt::SINK_RECEIPT_NAMES`, and this file
 // checks every name against the live registry — a typo would otherwise
 // disable the rule silently (the №951 lesson).
 //
@@ -32,7 +32,8 @@
 // `String` are deliberately NOT in it.
 #![allow(clippy::disallowed_methods)]
 
-use metalogos::builtins_classification::{classify, is_sink_receipt, Role, SINK_RECEIPT_NAMES};
+use metalogos::builtins_classification::{classify, Role};
+use metalogos::sink_receipt::{is_sink_receipt, SINK_RECEIPT_NAMES};
 
 /// The refusal class of a program, or PASS / PARSE_ERROR.
 fn verdict(src: &str) -> String {

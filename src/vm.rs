@@ -49,6 +49,21 @@ pub struct Vm {
     /// Runtime label environment (Наряд №328): variable → ADR-0154
     /// label. Seeded by LabelJoin, consulted by SinkCheck.
     label_env: std::collections::BTreeMap<String, crate::labels::Label>,
+    /// №952 (the audit 12.11, ADR-0156 §5): the runtime VALUE-label
+    /// shadow of the operand stack — kept IN LOCKSTEP with `stack` at
+    /// every push/pop/write of both execution loops, so a label rides
+    /// the value through builtins, pattern returns, collections and
+    /// fields even where the static lattice was blind (the second line
+    /// of defense; the "static off" contract).
+    stack_labels: Vec<crate::labels::Label>,
+    /// №952: the global-slot label shadow (StoreGlobal/LoadGlobal).
+    global_labels: Vec<crate::labels::Label>,
+    /// №952: the value-register label shadow (№370 value expressions).
+    value_register_labels: Vec<crate::labels::Label>,
+    /// №952: the label of the LAST `Return`-popped value — the label
+    /// rides the `Result<Value>` boundary of `execute_code` (the caller
+    /// pushes the value; the label is consumed from here).
+    last_return_label: crate::labels::Label,
     /// №845 (ADR-0203 §2.4): the program's capability permit roster —
     /// loaded from `Program::capability_permits` in `load_program`
     /// (the TW twin lives on Interpreter::capability_permits); consulted
@@ -402,6 +417,10 @@ impl Vm {
     pub fn new() -> Self {
         Vm {
             label_env: std::collections::BTreeMap::new(),
+            stack_labels: Vec::new(),
+            global_labels: Vec::new(),
+            value_register_labels: Vec::new(),
+            last_return_label: crate::labels::Label::bottom(),
             capability_permits: crate::capability::CapabilityPermits::default(),
             call_depth: 0,
             value_registers: Vec::new(),
@@ -772,6 +791,13 @@ impl Vm {
         // a variable name in request A must not clear sink checks in
         // request B.
         self.label_env = std::collections::BTreeMap::new();
+        // №952: the value-label shadows reset with the same per-request
+        // boundary — a label earned in request A never clears a sink
+        // check in request B.
+        self.stack_labels = Vec::new();
+        self.global_labels = Vec::new();
+        self.value_register_labels = Vec::new();
+        self.last_return_label = crate::labels::Label::bottom();
         // Mutate log: per-execution messages, never carried over.
         self.mutate_log = Vec::new();
         // Propagated confidence (ADR-0089): resets to the neutral 1.0.
@@ -859,6 +885,120 @@ impl Vm {
         // memory_persist_path + db re-open + schema DDL + re-registration
         // of reflex/vision/origin declarations on the (now empty) tables.
         self.load_program(program)
+    }
+
+    // ── №952: the value-label shadow helpers ─────────────────────────
+    // The shadow is BEST-EFFORT in lockstep: a missing entry reads
+    // `bottom` (fail-open for exotic pushes) — it can never panic or
+    // corrupt the value stack. The probes pin the shapes that matter.
+
+    #[inline]
+    fn push_label(&mut self, l: crate::labels::Label) {
+        self.stack_labels.push(l);
+    }
+
+    #[inline]
+    fn pop_label(&mut self) -> crate::labels::Label {
+        self.stack_labels.pop().unwrap_or_default()
+    }
+
+    #[inline]
+    fn tos_label(&self) -> crate::labels::Label {
+        self.stack_labels.last().cloned().unwrap_or_default()
+    }
+
+    #[inline]
+    fn bottom() -> crate::labels::Label {
+        crate::labels::Label::bottom()
+    }
+
+    /// Keep the shadow in lockstep after `stack.truncate(n)`.
+    #[inline]
+    fn sync_truncate(&mut self, stack: &[Value]) {
+        if self.stack_labels.len() > stack.len() {
+            self.stack_labels.truncate(stack.len());
+        }
+    }
+
+    /// Keep the shadow in lockstep after `stack.resize(n, Unit)`.
+    #[inline]
+    fn sync_resize(&mut self, stack: &[Value]) {
+        if self.stack_labels.len() < stack.len() {
+            self.stack_labels.resize(stack.len(), Self::bottom());
+        }
+    }
+
+    /// The value-variant floor (the typed opaque contracts: `Secret`
+    /// private/trusted, `WorldState` private — Phase 6.4 / №355).
+    fn variant_floor(v: &Value) -> crate::labels::Label {
+        crate::runtime_labels::value_variant_floor(v)
+    }
+
+    /// The result label of a builtin call (the classification-driven
+    /// mapping; the dispatch GATE is `vm_runtime_sink_gate` below).
+    fn builtin_result_label(
+        &self,
+        name: &str,
+        args: &[Value],
+        arg_labels: &[crate::labels::Label],
+    ) -> crate::labels::Label {
+        use crate::builtins_classification::{classify, Role};
+        let joined = arg_labels.iter().fold(Self::bottom(), |acc, l| acc.join(l));
+        match classify(name).map(|c| c.role) {
+            Some(Role::Source) => crate::runtime_labels::source_return_label(name, args),
+            Some(Role::Sink) => {
+                // №964: a sink's value is a RECEIPT, not the payload.
+                if crate::sink_receipt::is_sink_receipt(name) {
+                    Self::bottom()
+                } else {
+                    joined
+                }
+            }
+            Some(Role::Lift) => {
+                if name == "redact" {
+                    #[allow(clippy::wildcard_enum_match_arm)]
+                    // №952: the policy word is a String or nothing — any other variant keeps the conservative join (redact_return_label's «private» fallback)
+                    let policy = args.get(1).and_then(|v| match v {
+                        Value::String(s) => Some(s.as_str()),
+                        _ => None,
+                    });
+                    crate::runtime_labels::redact_return_label(policy, arg_labels)
+                } else {
+                    crate::runtime_labels::lift_return_label(name, arg_labels)
+                }
+            }
+            _ => joined,
+        }
+    }
+
+    /// The №952 dispatcher-level sink gate: EVERY classified sink checks
+    /// its arguments' runtime labels against the SAME clearance rule the
+    /// static gate applies (`semantic::clearance_failure` — one rule,
+    /// two lanes), whether or not the compiler armed a SinkCheck. The
+    /// kv sidecar records what went INTO the store.
+    fn vm_runtime_sink_gate(
+        &mut self,
+        name: &str,
+        args: &[Value],
+        arg_labels: &[crate::labels::Label],
+    ) -> Result<(), String> {
+        // №952 gate = SINKS + the №951 B6 request-egress family.
+        if !crate::runtime_labels::is_gated_dispatch(name) {
+            return Ok(());
+        }
+        if name == "kv_set" {
+            if let (Some(crate::interpreter::values::Value::String(key)), Some(label)) =
+                (args.first(), arg_labels.get(1))
+            {
+                crate::runtime_labels::kv_label_record(key, label);
+            }
+        }
+        for (i, value) in args.iter().enumerate() {
+            let walk_label = arg_labels.get(i).cloned().unwrap_or_default();
+            let label = walk_label.join(&Self::variant_floor(value));
+            crate::runtime_labels::runtime_sink_check(name, i, &label, 0)?;
+        }
+        Ok(())
     }
 
     /// №780 (audit-23.10 A1): the LabelJoin executor shared by BOTH
@@ -1027,6 +1167,9 @@ impl Vm {
             match instr {
                 // ── Constants & Variables ─────────────────────
                 Instruction::Const(v) => {
+                    // №952: the const's label is the value-variant floor
+                    // (a `secret("x")` literal is Const(Value::Secret)).
+                    self.push_label(Self::variant_floor(v));
                     stack.push((**v).clone());
                     ip += 1;
                 }
@@ -1052,6 +1195,8 @@ impl Vm {
                     let val = self.globals.get(*slot).cloned().ok_or_else(|| {
                         underflow_err(&format!("LoadGlobal (global slot {slot} out of range)"))
                     })?;
+                    // №952: the global slot's shadow label rides the load.
+                    self.push_label(self.global_labels.get(*slot).cloned().unwrap_or_default());
                     stack.push(val);
                     ip += 1;
                 }
@@ -1088,13 +1233,28 @@ impl Vm {
                             format!("undefined variable: {}", name),
                         )
                     })?;
+                    // №952: the by-name global read — the shadow tracks the
+                    // slot when the name resolves; bottom otherwise.
+                    if let Some(slot) = program.globals.iter().position(|n| n == name) {
+                        self.push_label(self.global_labels.get(slot).cloned().unwrap_or_default());
+                    } else {
+                        self.push_label(Self::bottom());
+                    }
                     stack.push(val);
                     ip += 1;
                 }
                 Instruction::StoreGlobal(slot) => {
                     let val = stack.pop().ok_or_else(|| underflow_err("StoreGlobal"))?;
+                    // №952: the shadow pop precedes the store; the slot
+                    // label = the value's variant floor joined over the
+                    // popped shadow (the store boundary).
+                    let lab = self.pop_label().join(&Self::variant_floor(&val));
                     if *slot < self.globals.len() {
                         self.globals[*slot] = val;
+                        if *slot >= self.global_labels.len() {
+                            self.global_labels.resize(*slot + 1, Self::bottom());
+                        }
+                        self.global_labels[*slot] = lab;
                     }
                     ip += 1;
                 }
@@ -1105,6 +1265,9 @@ impl Vm {
                     let val = stack.get(idx).cloned().ok_or_else(|| {
                         underflow_err(&format!("LoadLocal (local slot {idx} out of range)"))
                     })?;
+                    // №952: the local SLOT's label rides the load (locals
+                    // are stack cells — the shadow is index-aligned).
+                    self.push_label(self.stack_labels.get(idx).cloned().unwrap_or_default());
                     stack.push(val);
                     ip += 1;
                 }
@@ -1112,9 +1275,15 @@ impl Vm {
                     let bp = call_stack.last().map(|f| f.base_bp).unwrap_or(0);
                     let idx = bp + slot;
                     let val = stack.pop().ok_or_else(|| underflow_err("StoreLocal"))?;
+                    let lab = self.pop_label().join(&Self::variant_floor(&val));
                     if idx >= stack.len() {
                         stack.resize(idx + 1, Value::Unit);
                     }
+                    self.sync_resize(&stack);
+                    if idx >= self.stack_labels.len() {
+                        self.stack_labels.resize(idx + 1, Self::bottom());
+                    }
+                    self.stack_labels[idx] = lab;
                     stack[idx] = val;
                     ip += 1;
                 }
@@ -1140,9 +1309,16 @@ impl Vm {
                     let val = stack
                         .pop()
                         .ok_or_else(|| underflow_err("StoreAssignLocal"))?;
+                    // №952: same binding boundary as StoreLocal.
+                    let lab = self.pop_label().join(&Self::variant_floor(&val));
                     if idx >= stack.len() {
                         stack.resize(idx + 1, Value::Unit);
                     }
+                    self.sync_resize(&stack);
+                    if idx >= self.stack_labels.len() {
+                        self.stack_labels.resize(idx + 1, Self::bottom());
+                    }
+                    self.stack_labels[idx] = lab;
                     stack[idx] = val;
                     ip += 1;
                 }
@@ -1238,7 +1414,13 @@ impl Vm {
                         .cloned()
                         .unwrap_or_else(|| "unknown".to_string());
                     let mut args = Vec::new();
+                    // №952: the shadow pops in lockstep (the FIRST popped
+                    // label belongs to the LAST argument — insert(0)
+                    // reverses the values, the appended labels stay in
+                    // pop order; reversed below into argument order).
+                    let mut arg_labels_pop_order: Vec<crate::labels::Label> = Vec::new();
                     for _ in 0..*arity {
+                        arg_labels_pop_order.push(self.pop_label());
                         args.insert(
                             0,
                             stack.pop().ok_or_else(|| {
@@ -1246,9 +1428,19 @@ impl Vm {
                             })?,
                         );
                     }
+                    let arg_labels: Vec<crate::labels::Label> =
+                        arg_labels_pop_order.iter().rev().cloned().collect();
+                    // №952: the dispatcher-level sink gate — the second
+                    // line of defense, no compiler cooperation needed.
+                    self.vm_runtime_sink_gate(&name, &args, &arg_labels)?;
                     // Problem B: map(list, "pattern_name") — needs pattern table access
                     if name == "map" {
                         if let Ok(result) = self.vm_map(&args, program) {
+                            // №952: map's output carries the join of its
+                            // argument labels (the element labels included).
+                            self.push_label(
+                                arg_labels.iter().fold(Self::bottom(), |acc, l| acc.join(l)),
+                            );
                             stack.push(result);
                             ip += 1;
                             continue;
@@ -1307,6 +1499,9 @@ impl Vm {
                         }
                         Err(e) => return Err(e),
                     };
+                    // №952: the result label rides the value (source/lift/
+                    // receipt/join per the classification).
+                    self.push_label(self.builtin_result_label(&name, &args, &arg_labels));
                     stack.push(result);
                     ip += 1;
                 }
@@ -1328,7 +1523,11 @@ impl Vm {
                     // ── VM bytecode path ────────────────────────
                     // Pop arguments (in reverse) and bind as locals
                     let mut locals = Vec::new();
+                    // №952: the argument labels pop in lockstep (the SAME
+                    // reversed order as `locals` — see insert(0) above).
+                    let mut local_labels: Vec<crate::labels::Label> = Vec::new();
                     for _ in 0..*arity {
+                        local_labels.push(self.pop_label());
                         locals.insert(
                             0,
                             stack.pop().ok_or_else(|| {
@@ -1343,7 +1542,11 @@ impl Vm {
                     call_stack.push(CallFrame { return_ip, base_bp });
 
                     // Push locals onto stack
-                    for local in locals {
+                    for (local, lab) in locals.into_iter().zip(local_labels) {
+                        // №952: the parameter's label seeds the shadow —
+                        // the callee's sinks check against it (B2 at
+                        // runtime).
+                        self.push_label(lab.join(&Self::variant_floor(&local)));
                         stack.push(local);
                     }
 
@@ -1355,6 +1558,11 @@ impl Vm {
                     //  execute_code's Return only pops the return value, leaving
                     //  locals behind). Truncate back to pre-call size, then push result.
                     stack.truncate(base_bp);
+                    self.sync_truncate(&stack);
+                    // №952: the return value's label rides the Result
+                    // boundary (the callee's Return arm parked it).
+                    let ret_lab = std::mem::replace(&mut self.last_return_label, Self::bottom());
+                    self.push_label(ret_lab.join(&Self::variant_floor(&result)));
                     stack.push(result);
                     // IP already advanced by 1 (return_ip)
                     ip = return_ip;
@@ -1365,9 +1573,13 @@ impl Vm {
                     // instruction — not from nested pattern calls (those go
                     // through execute_code which has its own Return handler).
                     // For correctness, truncate the stack and stop execution.
+                    // №952: the returned value's label — the flow OUTPUT
+                    // label surface (consumed by №965; parked for now).
+                    self.last_return_label = self.pop_label();
                     let return_val = stack.pop().ok_or_else(|| underflow_err("Return"))?;
                     if let Some(frame) = call_stack.pop() {
                         stack.truncate(frame.base_bp);
+                        self.sync_truncate(&stack);
                     }
                     flow_output = match return_val {
                         Value::String(s) => Some(s),
@@ -1386,6 +1598,10 @@ impl Vm {
                         );
                     }
                     let result = self.call_llm(*idx, &args)?;
+                    // №952: model output is untrusted (the LlmOutput kind).
+                    self.push_label(crate::runtime_labels::source_return_label(
+                        "call_llm", &args,
+                    ));
                     stack.push(result);
                     ip += 1;
                 }
@@ -1394,24 +1610,36 @@ impl Vm {
                 Instruction::Add => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
+                    // №952: the derived value joins its operands' labels.
+                    let lab = self.pop_label().join(&self.pop_label());
+                    self.push_label(lab);
                     stack.push(self.eval_binop(left, crate::ast::BinOp::Add, right)?);
                     ip += 1;
                 }
                 Instruction::Sub => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
+                    // №952: the derived value joins its operands' labels.
+                    let lab = self.pop_label().join(&self.pop_label());
+                    self.push_label(lab);
                     stack.push(self.eval_binop(left, crate::ast::BinOp::Sub, right)?);
                     ip += 1;
                 }
                 Instruction::Mul => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
+                    // №952: the derived value joins its operands' labels.
+                    let lab = self.pop_label().join(&self.pop_label());
+                    self.push_label(lab);
                     stack.push(self.eval_binop(left, crate::ast::BinOp::Mul, right)?);
                     ip += 1;
                 }
                 Instruction::Div => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
+                    // №952: the derived value joins its operands' labels.
+                    let lab = self.pop_label().join(&self.pop_label());
+                    self.push_label(lab);
                     stack.push(self.eval_binop(left, crate::ast::BinOp::Div, right)?);
                     ip += 1;
                 }
@@ -1419,36 +1647,54 @@ impl Vm {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
                     let result = self.eval_contains(left, right)?;
+                    let lab_right = self.pop_label();
+                    let lab_left = self.pop_label();
+                    self.push_label(lab_left.join(&lab_right));
                     stack.push(result);
                     ip += 1;
                 }
                 Instruction::CmpGt => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
+                    let lab_right = self.pop_label();
+                    let lab_left = self.pop_label();
+                    self.push_label(lab_left.join(&lab_right));
                     stack.push(self.eval_cmp(left, right, AstCompareOp::Gt)?);
                     ip += 1;
                 }
                 Instruction::CmpLt => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
+                    let lab_right = self.pop_label();
+                    let lab_left = self.pop_label();
+                    self.push_label(lab_left.join(&lab_right));
                     stack.push(self.eval_cmp(left, right, AstCompareOp::Lt)?);
                     ip += 1;
                 }
                 Instruction::CmpGe => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
+                    let lab_right = self.pop_label();
+                    let lab_left = self.pop_label();
+                    self.push_label(lab_left.join(&lab_right));
                     stack.push(self.eval_cmp(left, right, AstCompareOp::Ge)?);
                     ip += 1;
                 }
                 Instruction::CmpLe => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
+                    let lab_right = self.pop_label();
+                    let lab_left = self.pop_label();
+                    self.push_label(lab_left.join(&lab_right));
                     stack.push(self.eval_cmp(left, right, AstCompareOp::Le)?);
                     ip += 1;
                 }
                 Instruction::CmpEq => {
                     let right = stack.pop().ok_or_else(|| underflow_err("CmpEq (right)"))?;
                     let left = stack.pop().ok_or_else(|| underflow_err("CmpEq (left)"))?;
+                    let lab_right = self.pop_label();
+                    let lab_left = self.pop_label();
+                    self.push_label(lab_left.join(&lab_right));
                     stack.push(self.eval_cmp(left, right, AstCompareOp::Eq)?);
                     ip += 1;
                 }
@@ -1490,6 +1736,16 @@ impl Vm {
                     for (name, val) in field_names.iter().zip(values.iter()) {
                         fields.insert(name.clone(), val.clone());
                     }
+                    // №952: the struct's label is the JOIN of its field
+                    // labels (the conservative container rule — the
+                    // extracted field keeps the container's join).
+                    let struct_labels: Vec<crate::labels::Label> =
+                        (0..field_names.len()).map(|_| self.pop_label()).collect();
+                    self.push_label(
+                        struct_labels
+                            .into_iter()
+                            .fold(Self::bottom(), |acc, l| acc.join(&l)),
+                    );
                     stack.push(Value::Struct {
                         type_name: type_name.clone(),
                         fields,
@@ -1505,6 +1761,10 @@ impl Vm {
                     // — the №604 class-4 silently-wrong shape; ADR-0075
                     // resolved). The run() loop site.
                     let result = val.get_field(field).cloned()?;
+                    // №952: the extracted field keeps the container's
+                    // label (the conservative container rule).
+                    let container_lab = self.pop_label();
+                    self.push_label(container_lab);
                     stack.push(result);
                     ip += 1;
                 }
@@ -1530,6 +1790,11 @@ impl Vm {
                         }
                         _ => Value::Unit,
                     };
+                    // №952: the element keeps the CONTAINER's label (the
+                    // index label is not part of the data).
+                    let _idx_lab = self.pop_label();
+                    let base_lab = self.pop_label();
+                    self.push_label(base_lab);
                     stack.push(result);
                     ip += 1;
                 }
@@ -1541,6 +1806,8 @@ impl Vm {
                     // Pop count pairs
                     let mut pairs: Vec<(Value, Value)> = Vec::new();
                     for _ in 0..*count {
+                        let _conf_lab = self.pop_label();
+                        let _val_lab = self.pop_label();
                         let confidence = stack.pop().unwrap_or(Value::Float(0.0));
                         let value = stack
                             .pop()
@@ -1571,6 +1838,7 @@ impl Vm {
                     ip = *target;
                 }
                 Instruction::JumpIfNot(target) => {
+                    let _ = self.pop_label();
                     let val = stack.pop().ok_or_else(|| underflow_err("JumpIfNot"))?;
                     if !is_truthy(&val) {
                         ip = *target;
@@ -1593,6 +1861,7 @@ impl Vm {
                     }
                 }
                 Instruction::JumpIfLow(threshold, target) => {
+                    let _ = self.pop_label();
                     let val = stack.pop().ok_or_else(|| underflow_err("JumpIfLow"))?;
                     let below = match &val {
                         Value::Float(f) => *f < *threshold,
@@ -1856,13 +2125,21 @@ impl Vm {
                     let stack_depth = stack.len();
                     let frame_depth = call_stack.len();
                     match self.execute_code(&inner, &mut stack, &mut call_stack, program) {
-                        Ok(val) => stack.push(crate::interpreter::values::try_result_struct(
-                            true, val, None,
-                        )),
+                        Ok(val) => {
+                            // №952: the envelope's label joins the value's
+                            // (the Result boundary parked it).
+                            let vlab =
+                                std::mem::replace(&mut self.last_return_label, Self::bottom());
+                            self.push_label(vlab);
+                            stack.push(crate::interpreter::values::try_result_struct(
+                                true, val, None,
+                            ));
+                        }
                         Err(e) => {
                             // №385 (ADR-0169): the SAME shared classifier as the
                             // TW — one error string, one code, both backends.
                             stack.truncate(stack_depth);
+                            self.sync_truncate(&stack);
                             call_stack.truncate(frame_depth);
                             eprintln!("[try] caught error: {}", e);
                             stack.push(crate::interpreter::values::try_result_struct(
@@ -1903,6 +2180,14 @@ impl Vm {
                                 .ok_or_else(|| underflow_err("MakeList (element)"))?,
                         );
                     }
+                    // №952: the list's label is the join of its elements'.
+                    let item_labels: Vec<crate::labels::Label> =
+                        (0..items.len()).map(|_| self.pop_label()).collect();
+                    self.push_label(
+                        item_labels
+                            .into_iter()
+                            .fold(Self::bottom(), |acc, l| acc.join(&l)),
+                    );
                     stack.push(Value::List(items));
                     ip += 1;
                 }
@@ -1923,10 +2208,13 @@ impl Vm {
                             ));
                         }
                     };
+                    let _val_lab = self.pop_label();
+                    self.push_label(Self::bottom());
                     stack.push(Value::Float(len));
                     ip += 1;
                 }
                 Instruction::Pop => {
+                    let _ = self.pop_label();
                     stack.pop();
                     ip += 1;
                 }
@@ -1935,6 +2223,7 @@ impl Vm {
                 // value ends with PushUnit, so the route exit's stack.pop()
                 // reads Unit (the TW `200 OK` parity), NEVER a local slot.
                 Instruction::PushUnit => {
+                    self.push_label(Self::bottom());
                     stack.push(Value::Unit);
                     ip += 1;
                 }
@@ -1951,6 +2240,9 @@ impl Vm {
                         }
                         _ => Value::Bool(false),
                     };
+                    let lab_right = self.pop_label();
+                    let lab_left = self.pop_label();
+                    self.push_label(lab_left.join(&lab_right));
                     stack.push(result);
                     ip += 1;
                 }
@@ -1978,20 +2270,26 @@ impl Vm {
                             other.matches(&scrutinee, &Value::Unit)
                         }
                     };
+                    let _ = self.pop_label(); // may have popped 1 or 2
+                    self.push_label(Self::bottom());
                     stack.push(Value::Bool(ok));
                     ip += 1;
                 }
                 // ── Value expressions (№370, ADR-0141 Stage 1.2) ──
                 Instruction::Dup => {
+                    let lab = self.tos_label();
+                    self.push_label(lab);
                     let top = stack.last().cloned().ok_or_else(|| underflow_err("Dup"))?;
                     stack.push(top);
                     ip += 1;
                 }
                 Instruction::BeginValueExpr => {
                     self.value_registers.push(Value::Unit);
+                    self.value_register_labels.push(Self::bottom());
                     ip += 1;
                 }
                 Instruction::KeepLastValue => {
+                    let popped_lab = self.pop_label();
                     // TW eval_statements_cf contract: only a NON-Unit value
                     // updates the register; a trailing Unit-valued
                     // statement does not reset it.
@@ -2000,10 +2298,15 @@ impl Vm {
                         if let Some(reg) = self.value_registers.last_mut() {
                             *reg = val;
                         }
+                        if let Some(rl) = self.value_register_labels.last_mut() {
+                            *rl = popped_lab;
+                        }
                     }
                     ip += 1;
                 }
                 Instruction::EndValueExpr => {
+                    let reg_lab = self.value_register_labels.pop().unwrap_or_default();
+                    self.push_label(reg_lab);
                     let reg = self.value_registers.pop().unwrap_or(Value::Unit);
                     stack.push(reg);
                     ip += 1;
@@ -2110,6 +2413,9 @@ impl Vm {
                     let val = stack.get(idx).cloned().ok_or_else(|| {
                         underflow_err(&format!("LoadLocal (local slot {idx} out of range)"))
                     })?;
+                    // №952: the local SLOT's label rides the load (locals
+                    // are stack cells — the shadow is index-aligned).
+                    self.push_label(self.stack_labels.get(idx).cloned().unwrap_or_default());
                     stack.push(val);
                     ip += 1;
                 }
@@ -2117,10 +2423,19 @@ impl Vm {
                     let bp = call_stack.last().map(|f| f.base_bp).unwrap_or(0);
                     let idx = bp + slot;
                     let val = stack.pop().ok_or_else(|| underflow_err("StoreLocal"))?;
+                    // №952: the popped shadow label becomes the slot's
+                    // label (joined over the variant floor) — the binding
+                    // boundary of the VM lane.
+                    let lab = self.pop_label().join(&Self::variant_floor(&val));
                     // Ensure stack has space at idx
                     if idx >= stack.len() {
                         stack.resize(idx + 1, Value::Unit);
                     }
+                    self.sync_resize(stack);
+                    if idx >= self.stack_labels.len() {
+                        self.stack_labels.resize(idx + 1, Self::bottom());
+                    }
+                    self.stack_labels[idx] = lab;
                     stack[idx] = val;
                     ip += 1;
                 }
@@ -2141,14 +2456,27 @@ impl Vm {
                     let val = stack
                         .pop()
                         .ok_or_else(|| underflow_err("StoreAssignLocal"))?;
+                    // №952: same binding boundary as StoreLocal.
+                    // №952: the popped shadow label becomes the slot's
+                    // label (joined over the variant floor) — the binding
+                    // boundary of the VM lane.
+                    let lab = self.pop_label().join(&Self::variant_floor(&val));
                     // Ensure stack has space at idx
                     if idx >= stack.len() {
                         stack.resize(idx + 1, Value::Unit);
                     }
+                    self.sync_resize(stack);
+                    if idx >= self.stack_labels.len() {
+                        self.stack_labels.resize(idx + 1, Self::bottom());
+                    }
+                    self.stack_labels[idx] = lab;
                     stack[idx] = val;
                     ip += 1;
                 }
                 Instruction::Const(v) => {
+                    // №952: the const's label is the value-variant floor
+                    // (a `secret("x")` literal is Const(Value::Secret)).
+                    self.push_label(Self::variant_floor(v));
                     stack.push((**v).clone());
                     ip += 1;
                 }
@@ -2156,6 +2484,8 @@ impl Vm {
                     let val = self.globals.get(*slot).cloned().ok_or_else(|| {
                         underflow_err(&format!("LoadGlobal (global slot {slot} out of range)"))
                     })?;
+                    // №952: the global slot's shadow label rides the load.
+                    self.push_label(self.global_labels.get(*slot).cloned().unwrap_or_default());
                     stack.push(val);
                     ip += 1;
                 }
@@ -2166,7 +2496,13 @@ impl Vm {
                         .cloned()
                         .unwrap_or_else(|| "unknown".to_string());
                     let mut args = Vec::new();
+                    // №952: the shadow pops in lockstep (the FIRST popped
+                    // label belongs to the LAST argument — insert(0)
+                    // reverses the values, the appended labels stay in
+                    // pop order; reversed below into argument order).
+                    let mut arg_labels_pop_order: Vec<crate::labels::Label> = Vec::new();
                     for _ in 0..*arity {
+                        arg_labels_pop_order.push(self.pop_label());
                         args.insert(
                             0,
                             stack.pop().ok_or_else(|| {
@@ -2174,9 +2510,19 @@ impl Vm {
                             })?,
                         );
                     }
+                    let arg_labels: Vec<crate::labels::Label> =
+                        arg_labels_pop_order.iter().rev().cloned().collect();
+                    // №952: the dispatcher-level sink gate — the second
+                    // line of defense, no compiler cooperation needed.
+                    self.vm_runtime_sink_gate(&name, &args, &arg_labels)?;
                     // Problem B: map(list, "pattern_name") — needs pattern table access
                     if name == "map" {
                         if let Ok(result) = self.vm_map(&args, program) {
+                            // №952: map's output carries the join of its
+                            // argument labels (the element labels included).
+                            self.push_label(
+                                arg_labels.iter().fold(Self::bottom(), |acc, l| acc.join(l)),
+                            );
                             stack.push(result);
                             ip += 1;
                             continue;
@@ -2230,6 +2576,9 @@ impl Vm {
                         }
                         Err(e) => return Err(e),
                     };
+                    // №952: the result label rides the value (source/lift/
+                    // receipt/join per the classification).
+                    self.push_label(self.builtin_result_label(&name, &args, &arg_labels));
                     stack.push(result);
                     ip += 1;
                 }
@@ -2246,7 +2595,11 @@ impl Vm {
                         ));
                     }
                     let mut locals = Vec::new();
+                    // №952: the argument labels pop in lockstep (the SAME
+                    // reversed order as `locals`).
+                    let mut local_labels: Vec<crate::labels::Label> = Vec::new();
                     for _ in 0..*arity {
+                        local_labels.push(self.pop_label());
                         locals.insert(
                             0,
                             stack.pop().ok_or_else(|| {
@@ -2259,7 +2612,10 @@ impl Vm {
                         return_ip: ip + 1,
                         base_bp,
                     });
-                    for local in locals {
+                    for (local, lab) in locals.into_iter().zip(local_labels) {
+                        // №952: the parameter's label seeds the shadow
+                        // (B2 at runtime, the inner-loop site).
+                        self.push_label(lab.join(&Self::variant_floor(&local)));
                         stack.push(local);
                     }
                     let result = self.execute_code(&pattern.code, stack, call_stack, program)?;
@@ -2268,35 +2624,56 @@ impl Vm {
                     // execute_code's Return pops only the return value.
                     // Truncate back to pre-call boundary before pushing result.
                     stack.truncate(base_bp);
+                    self.sync_truncate(stack);
                     call_stack.pop();
+                    // №952: the return value's label rides the Result
+                    // boundary (the callee's Return arm parked it).
+                    let ret_lab = std::mem::replace(&mut self.last_return_label, Self::bottom());
+                    self.push_label(ret_lab.join(&Self::variant_floor(&result)));
                     stack.push(result);
                     ip += 1;
                 }
                 Instruction::Add => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
+                    // №952: the derived value joins its operands' labels.
+                    let lab = self.pop_label().join(&self.pop_label());
+                    self.push_label(lab);
                     stack.push(self.eval_binop(left, crate::ast::BinOp::Add, right)?);
                     ip += 1;
                 }
                 Instruction::Sub => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
+                    // №952: the derived value joins its operands' labels.
+                    let lab = self.pop_label().join(&self.pop_label());
+                    self.push_label(lab);
                     stack.push(self.eval_binop(left, crate::ast::BinOp::Sub, right)?);
                     ip += 1;
                 }
                 Instruction::Mul => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
+                    // №952: the derived value joins its operands' labels.
+                    let lab = self.pop_label().join(&self.pop_label());
+                    self.push_label(lab);
                     stack.push(self.eval_binop(left, crate::ast::BinOp::Mul, right)?);
                     ip += 1;
                 }
                 Instruction::Div => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
+                    // №952: the derived value joins its operands' labels.
+                    let lab = self.pop_label().join(&self.pop_label());
+                    self.push_label(lab);
                     stack.push(self.eval_binop(left, crate::ast::BinOp::Div, right)?);
                     ip += 1;
                 }
                 Instruction::Return => {
+                    // №952: the return label parks here — the CALLER's
+                    // CallPattern arm consumes it when it pushes the value
+                    // (the label crosses the execute_code Result boundary).
+                    self.last_return_label = self.pop_label();
                     return stack.pop().ok_or_else(|| underflow_err("Return"));
                 }
                 // Phase 5.1: control flow in pattern bodies
@@ -2304,6 +2681,7 @@ impl Vm {
                     ip = *target;
                 }
                 Instruction::JumpIfNot(target) => {
+                    let _ = self.pop_label();
                     let val = stack.pop().ok_or_else(|| underflow_err("JumpIfNot"))?;
                     if !is_truthy(&val) {
                         ip = *target;
@@ -2314,6 +2692,7 @@ impl Vm {
                 Instruction::JumpIfNotCond(target) => {
                     // №651 (S-VAL-013): the condition path in pattern bodies —
                     // the same TW `as_bool` mirror as the main loop's arm.
+                    let _ = self.pop_label();
                     let val = stack.pop().ok_or_else(|| underflow_err("JumpIfNotCond"))?;
                     if !val.as_bool()? {
                         ip = *target;
@@ -2325,30 +2704,45 @@ impl Vm {
                 Instruction::CmpGt => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
+                    let lab_right = self.pop_label();
+                    let lab_left = self.pop_label();
+                    self.push_label(lab_left.join(&lab_right));
                     stack.push(self.eval_cmp(left, right, AstCompareOp::Gt)?);
                     ip += 1;
                 }
                 Instruction::CmpLt => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
+                    let lab_right = self.pop_label();
+                    let lab_left = self.pop_label();
+                    self.push_label(lab_left.join(&lab_right));
                     stack.push(self.eval_cmp(left, right, AstCompareOp::Lt)?);
                     ip += 1;
                 }
                 Instruction::CmpGe => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
+                    let lab_right = self.pop_label();
+                    let lab_left = self.pop_label();
+                    self.push_label(lab_left.join(&lab_right));
                     stack.push(self.eval_cmp(left, right, AstCompareOp::Ge)?);
                     ip += 1;
                 }
                 Instruction::CmpLe => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
+                    let lab_right = self.pop_label();
+                    let lab_left = self.pop_label();
+                    self.push_label(lab_left.join(&lab_right));
                     stack.push(self.eval_cmp(left, right, AstCompareOp::Le)?);
                     ip += 1;
                 }
                 Instruction::CmpEq => {
                     let right = stack.pop().ok_or_else(|| underflow_err("CmpEq (right)"))?;
                     let left = stack.pop().ok_or_else(|| underflow_err("CmpEq (left)"))?;
+                    let lab_right = self.pop_label();
+                    let lab_left = self.pop_label();
+                    self.push_label(lab_left.join(&lab_right));
                     stack.push(self.eval_cmp(left, right, AstCompareOp::Eq)?);
                     ip += 1;
                 }
@@ -2378,6 +2772,10 @@ impl Vm {
                     // resolved). The execute_code_inner() loop site (the
                     // pattern/route/function bodies).
                     let result = val.get_field(field).cloned()?;
+                    // №952: the extracted field keeps the container's
+                    // label (the conservative container rule).
+                    let container_lab = self.pop_label();
+                    self.push_label(container_lab);
                     stack.push(result);
                     ip += 1;
                 }
@@ -2400,6 +2798,13 @@ impl Vm {
                             format!("undefined variable: {}", name),
                         )
                     })?;
+                    // №952: the by-name global read — the shadow tracks the
+                    // slot when the name resolves; bottom otherwise.
+                    if let Some(slot) = program.globals.iter().position(|n| n == name) {
+                        self.push_label(self.global_labels.get(slot).cloned().unwrap_or_default());
+                    } else {
+                        self.push_label(Self::bottom());
+                    }
                     stack.push(val);
                     ip += 1;
                 }
@@ -2426,6 +2831,11 @@ impl Vm {
                         }
                         _ => Value::Unit,
                     };
+                    // №952: the element keeps the CONTAINER's label (the
+                    // index label is not part of the data).
+                    let _idx_lab = self.pop_label();
+                    let base_lab = self.pop_label();
+                    self.push_label(base_lab);
                     stack.push(result);
                     ip += 1;
                 }
@@ -2446,6 +2856,10 @@ impl Vm {
                         );
                     }
                     let result = self.call_llm(*idx, &args)?;
+                    // №952: model output is untrusted (the LlmOutput kind).
+                    self.push_label(crate::runtime_labels::source_return_label(
+                        "call_llm", &args,
+                    ));
                     stack.push(result);
                     ip += 1;
                 }
@@ -2537,6 +2951,14 @@ impl Vm {
                                 .ok_or_else(|| underflow_err("MakeList (element)"))?,
                         );
                     }
+                    // №952: the list's label is the join of its elements'.
+                    let item_labels: Vec<crate::labels::Label> =
+                        (0..items.len()).map(|_| self.pop_label()).collect();
+                    self.push_label(
+                        item_labels
+                            .into_iter()
+                            .fold(Self::bottom(), |acc, l| acc.join(&l)),
+                    );
                     stack.push(Value::List(items));
                     ip += 1;
                 }
@@ -2557,10 +2979,13 @@ impl Vm {
                             ));
                         }
                     };
+                    let _val_lab = self.pop_label();
+                    self.push_label(Self::bottom());
                     stack.push(Value::Float(len));
                     ip += 1;
                 }
                 Instruction::Pop => {
+                    let _ = self.pop_label();
                     stack.pop();
                     ip += 1;
                 }
@@ -2569,6 +2994,7 @@ impl Vm {
                 // value ends with PushUnit, so the route exit's stack.pop()
                 // reads Unit (the TW `200 OK` parity), NEVER a local slot.
                 Instruction::PushUnit => {
+                    self.push_label(Self::bottom());
                     stack.push(Value::Unit);
                     ip += 1;
                 }
@@ -2585,6 +3011,9 @@ impl Vm {
                         }
                         _ => Value::Bool(false),
                     };
+                    let lab_right = self.pop_label();
+                    let lab_left = self.pop_label();
+                    self.push_label(lab_left.join(&lab_right));
                     stack.push(result);
                     ip += 1;
                 }
@@ -2610,29 +3039,40 @@ impl Vm {
                             other.matches(&scrutinee, &Value::Unit)
                         }
                     };
+                    let _ = self.pop_label(); // may have popped 1 or 2
+                    self.push_label(Self::bottom());
                     stack.push(Value::Bool(ok));
                     ip += 1;
                 }
                 // ── Value expressions (№370) — see execute_main_code ──
                 Instruction::Dup => {
+                    let lab = self.tos_label();
+                    self.push_label(lab);
                     let top = stack.last().cloned().ok_or_else(|| underflow_err("Dup"))?;
                     stack.push(top);
                     ip += 1;
                 }
                 Instruction::BeginValueExpr => {
                     self.value_registers.push(Value::Unit);
+                    self.value_register_labels.push(Self::bottom());
                     ip += 1;
                 }
                 Instruction::KeepLastValue => {
+                    let popped_lab = self.pop_label();
                     let val = stack.pop().ok_or_else(|| underflow_err("KeepLastValue"))?;
                     if !matches!(val, Value::Unit) {
                         if let Some(reg) = self.value_registers.last_mut() {
                             *reg = val;
                         }
+                        if let Some(rl) = self.value_register_labels.last_mut() {
+                            *rl = popped_lab;
+                        }
                     }
                     ip += 1;
                 }
                 Instruction::EndValueExpr => {
+                    let reg_lab = self.value_register_labels.pop().unwrap_or_default();
+                    self.push_label(reg_lab);
                     let reg = self.value_registers.pop().unwrap_or(Value::Unit);
                     stack.push(reg);
                     ip += 1;
@@ -2665,6 +3105,16 @@ impl Vm {
                     for (name, val) in field_names.iter().zip(values.iter()) {
                         fields.insert(name.clone(), val.clone());
                     }
+                    // №952: the struct's label is the JOIN of its field
+                    // labels (the conservative container rule — the
+                    // extracted field keeps the container's join).
+                    let struct_labels: Vec<crate::labels::Label> =
+                        (0..field_names.len()).map(|_| self.pop_label()).collect();
+                    self.push_label(
+                        struct_labels
+                            .into_iter()
+                            .fold(Self::bottom(), |acc, l| acc.join(&l)),
+                    );
                     stack.push(Value::Struct {
                         type_name: type_name.clone(),
                         fields,
@@ -2678,6 +3128,10 @@ impl Vm {
                     let haystack = stack
                         .pop()
                         .ok_or_else(|| underflow_err("Contains (haystack)"))?;
+                    // №952: the shadow pops in lockstep (the verdict's
+                    // label is set at the push below).
+                    let _needle_lab = self.pop_label();
+                    let _hay_lab = self.pop_label();
                     let result = match (&haystack, &needle) {
                         (Value::String(h), Value::String(n)) => Value::Bool(h.contains(n.as_str())),
                         (Value::List(items), _) => Value::Bool(
@@ -2913,6 +3367,7 @@ impl Vm {
         // cleanup the CallPattern arm performs (a leftover frame would
         // shadow the caller's base_bp and corrupt every later StoreLocal).
         stack.truncate(base_bp);
+        self.sync_truncate(stack);
         call_stack.pop();
         result.map(|_| ())
     }
@@ -5482,6 +5937,7 @@ mod n403_reset_tests {
             distill_states,
             distill_hub,
             capability_permits,
+            ..
         } = vm;
         // Note: `label_env` sits in a private type alias position; the
         // tuple returns references so nothing here runs — this function

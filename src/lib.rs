@@ -78,6 +78,7 @@ pub mod labels;
 pub mod llm;
 pub mod mcp_session; // №793: the MCP stdio session layer (the gateway upstream pool form)
 pub mod model_passport; // №838 (ADR-0202, wave 71 — W-A): the model passport — the License-Typed Model Layer (the 8D-1 subphase)
+pub mod sink_receipt;
 /// №685 (gh#1252, В44): the shared template tokenizer + the raw-insert
 /// scan — the UNGATED home (render() is ungated, the raw-insert gates
 /// must hold on every configuration; the gated template_render engine

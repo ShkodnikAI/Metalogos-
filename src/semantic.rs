@@ -2106,6 +2106,13 @@ fn expr_label(expr: &Expr, env: &BTreeMap<String, Label>) -> Label {
             if let Some(l) = registry_private_flow_label(name) {
                 return l;
             }
+            // ── №964: a SINK's value is a RECEIPT, not the payload.
+            // After the private-field bridge (a typed struct return
+            // declares its own field labels and those win) and before the
+            // argument join (which is what poisoned the receipt).
+            if crate::sink_receipt::is_sink_receipt(name) {
+                return Label::bottom();
+            }
             // Data flows through ordinary functions: join of the arguments.
             let mut acc = Label::bottom();
             for a in args {

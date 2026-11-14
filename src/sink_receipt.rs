@@ -50,7 +50,6 @@ use crate::builtins_classification::{classify, Role};
 /// the request, nothing in the registry says otherwise, and the
 /// conservative join costs those programs nothing — a delivery sink's
 /// receipt is rarely read.
-
 pub const SINK_RECEIPT_NAMES: &[&str] = &[
     "quarantine_write",
     "write_file",

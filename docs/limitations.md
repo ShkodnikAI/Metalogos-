@@ -233,3 +233,42 @@
 | Limitation | Primary source | Status / condition for removal |
 |---|---|---|
 | The field-label metadata is a REGISTRY side-table, not a language type: the form `Struct<Name>{field:label,...}` lives in the builtin spec strings, the `Type` enum stays erased (the stage-2 minimality; the ENFORCEMENT of labels on fields is filed now — the blocking rule №661 (2026-10-09, the К-Б verdict gh#1144 verbatim: stage-2 on the stage-0 vocabulary internal/untrusted/private, the first private labels on the secret/credential surface; the labels-as-language-types stay a SEPARATE ADR draft line, not blocking)). The grammar is deliberately machine-checkable minimalism: NO spaces, the ASCII-only field names `[A-Za-z0-9_]+`, the label tokens are exactly the stage-0 vocabulary (`internal`/`private`/`untrusted`), a flat comma list — no nested braces, no per-element metadata for List rows (a brace tail on a `List<...>` head is an honest `Unknown`). The per-field vocabulary exists ONLY where the handler's treatment is a verifiable file fact: the dynamic-shape builtins (`json_body`, `form_data` — the fields are whatever the user sent) stay OUTSIDE the per-field table by construction; the whole-value fact for them is the `UserInput` taint, not a field list. A malformed section never launders into a typed row: `from_path` erases it to `Unknown` and the in-tree grammar armor fails the build | [src/builtins/sig_types.rs](../src/builtins/sig_types.rs) (the form grammar, `field_meta_well_formed`, `parse_field_meta`); [src/builtins/registry.rs](../src/builtins/registry.rs) (the first honest package — the handler-read facts in the comments); [scripts/ci/type_signature_fieldmeta_baseline.txt](../scripts/ci/type_signature_fieldmeta_baseline.txt) (the floor); [tests/type_signature_metric.rs](../tests/type_signature_metric.rs) (the in-tree armor) | The richer surface (nested field types, labeled List elements, per-field metadata in the language's own type syntax) is stage-2 territory behind the owner's enforcement gate; the grammar widens only by a registry PR that raises the fourth metric's floor in the same PR (the №757 procedure), never by loosening the checker |
+
+## The Phase-8 capability slots — kernel → surface (№959, the audit 12.11)
+
+The thirteen Phase-8 machine facts count the PRESENCE OF AN ANCHOR in the
+tree. An anchor is a real thing to check, but it is not a behaviour: the
+tree can carry every anchor of a capability no user can invoke. Read as
+readiness, `TERMINAL_STOP 13/13` says more than the tree supports. The
+split below is MEASURED (`scripts/ci/slot_class_roster.txt`, checked in
+both directions by `gen_metrics.py`: a behavioural claim without a live
+executed test is a RED gate, and a `kernel-only` row fails the moment a
+builtin or the CLI starts naming its module).
+
+Counts today: **structural 13/13 · behavioural 1/13 · user-surface 6/13.**
+
+| Slot | Fact(s) | Surface | What a user can reach |
+|---|---|---|---|
+| C1 | ATTEST_MAP | builtin | the attestation builtins + `mlog` |
+| C2 | GRANT_COVERAGE | builtin | the grants builtins |
+| C3 | PROVENANCE_SHARE | builtin | the I/O + attestation builtins |
+| C4 | LICENSED_FLOOR, PASSPORT_FRESH | **kernel-only** | nothing — `model_passport` is reached from library code and tests only |
+| C5 | OFFLINE_SUITE | builtin | the LLM builtins + `serve` |
+| C6 | SEMA_EXTERNAL | analyzer-only | nothing addressable — `semantic_types` runs on the `mlog check` path |
+| C7 | REPRO_BITFORBIT | **kernel-only** | nothing — `compliance_pack` is library + tests |
+| C8 | REPLAY_MATCH | **kernel-only** | nothing — `decision_trace` is library + tests |
+| C9 | TAINT_GENERATOR_SPACE (structural), TAINT_PROGRAMS_PER_RUN (**behavioural**) | analyzer-only | the refusals of `mlog check`; no builtin or CLI addresses the lane directly |
+| C10 | JURISDICTION_MATRIX | declaration | the `mcp_policy` declaration |
+| C11 | APPROVAL_COVERAGE | builtin | the approval builtins |
+| C12 | REPRO_BITFORBIT | **kernel-only** | nothing — `compliance` is library + tests |
+| C13 | INSTITUTIONAL_READY, VERTICAL_PROFILES | **kernel-only** | nothing — `provider_contract` / `vertical` are library + tests |
+
+The condition for removal is per slot and explicit: a `kernel-only` row
+leaves this table when the capability gains a builtin, a CLI subcommand or
+a declaration — and the roster row must be updated in the SAME PR as the
+wiring, because the gate fails on the understated row as loudly as on the
+overstated one. A `structural` fact becomes `behavioural` when an executed
+test asserts its number against the fact itself (the C9 form, naryad №956).
+
+The 1.0 gate's own reading of these counts is the subject of the ADR-0221
+§2.3a amendment — **Proposed**, pending the owner's explicit acceptance.

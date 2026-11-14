@@ -2512,8 +2512,101 @@ fn infer_stmt(st: &Statement, env: &mut BTreeMap<String, Label>, output: &mut La
 /// Parameters: annotated → parsed label; unannotated → `bottom`. The
 /// result is what №325's sink-gate will read; see ADR-0154 Appendix A
 /// for the per-statement contracts and REFERENCE §2.2 for the table.
+/// Наряд №951 (B8) + №956: the entity-seeded label environment of a
+/// program — the ONE builder, shared by the intraprocedural sink gate and
+/// by the №950 pattern summaries.
+///
+/// It was inline inside `sink_clearance_violations`, and the №956 delivery
+/// matrix found what that cost: `infer_pattern_labels` seeds PARAMETERS
+/// only, so a callee whose `return` names an entity returned `bottom` and
+/// the caller's sink saw nothing. The direct form refused (the gate reads
+/// the seed) while `pattern Src() -> String { return secret_note }` plus
+/// `print(Src())` passed — a `Secret`-aliased entity leaking through the
+/// one path the summary was built to close. ADR-0154 §12(а) says the
+/// return label is the join of the body's INTERNAL sources; an
+/// entity-seeded identifier is such a source, so this is the contract
+/// being implemented, not extended.
+///
+/// The three seeds (the B8 inventory): the literal-marker rule, the
+/// initializer's own label, and the DECLARED type or explicit annotation
+/// (`entity key: Secret = …`, `entity k: String<private> = …`), with
+/// one-level `type Token = Secret` alias resolution.
+fn entity_seed_env(declarations: &[Declaration]) -> BTreeMap<String, Label> {
+    // The module denies wildcard enum arms (№532: a new `Value` variant
+    // must not slip through a `_`). Here the wildcard is over
+    // `Declaration`, and the seed env is about ENTITIES and type aliases
+    // only: every other declaration kind contributes no entity label by
+    // construction, and a new declaration kind that did would be adding an
+    // entity form, which lands with its own naryad and its own arm.
+    #[allow(clippy::wildcard_enum_match_arm)]
+    let secret_aliases: HashSet<&str> = declarations
+        .iter()
+        .filter_map(|d| match d {
+            Declaration::TypeAlias(a) if a.target == "Secret" => Some(a.alias.as_str()),
+            _ => None,
+        })
+        .collect();
+    let declared_label = |type_name: &str, ann: Option<&LabelAnn>| -> Label {
+        let mut l = Label::bottom();
+        if type_name == "Secret" || secret_aliases.contains(type_name) {
+            l = l.join(&Label {
+                conf: crate::labels::Conf::Private,
+                integrity: crate::labels::Integrity::Trusted,
+                consent: Default::default(),
+            });
+        }
+        if let Some(a) = ann {
+            if let Ok(parsed) = Label::parse(&a.raw) {
+                l = l.join(&parsed);
+            }
+        }
+        l
+    };
+    let empty_env: BTreeMap<String, Label> = BTreeMap::new();
+    let mut seed: BTreeMap<String, Label> = BTreeMap::new();
+    #[allow(clippy::wildcard_enum_match_arm)]
+    for decl in declarations {
+        match decl {
+            Declaration::EntitySimple(e) => {
+                let l = entity_seed_label(Some(&e.value))
+                    .join(&expr_label(&e.value, &empty_env))
+                    .join(&declared_label(&e.type_name, e.label.as_ref()));
+                seed.insert(e.name.clone(), l);
+            }
+            Declaration::EntityRecord(e) => {
+                // Record entities are maps; the entity name itself seeds
+                // with the strongest field fact.
+                let strongest = e
+                    .fields
+                    .iter()
+                    .map(|f| {
+                        entity_seed_label(Some(&f.value)).join(&expr_label(&f.value, &empty_env))
+                    })
+                    .fold(Label::bottom(), |a, b| a.join(&b));
+                seed.insert(
+                    e.name.clone(),
+                    strongest.join(&declared_label(&e.type_name, e.label.as_ref())),
+                );
+            }
+            _ => {}
+        }
+    }
+    seed
+}
+
 pub fn infer_pattern_labels(pattern: &PatternDecl) -> LabelInference {
-    let mut env: BTreeMap<String, Label> = BTreeMap::new();
+    infer_pattern_labels_seeded(pattern, &BTreeMap::new())
+}
+
+/// `infer_pattern_labels` with a pre-seeded environment (the program's
+/// entity labels). A PARAMETER of the same name shadows the entity, as it
+/// does in the executor — the seeds go in first and the parameters
+/// overwrite them.
+pub fn infer_pattern_labels_seeded(
+    pattern: &PatternDecl,
+    seed: &BTreeMap<String, Label>,
+) -> LabelInference {
+    let mut env: BTreeMap<String, Label> = seed.clone();
     for prm in &pattern.params {
         let l = match &prm.label {
             Some(ann) => Label::parse(&ann.raw).unwrap_or_else(|_| Label::bottom()),
@@ -2845,7 +2938,12 @@ fn compute_interproc_summary(context: &[Declaration], p: &PatternDecl) -> Interp
     // (а) the body's OWN sources: every parameter forced to bottom, so
     // whatever the output label carries came from INSIDE the body.
     let baseline_pattern = pattern_with_probe(p, ProbeSel::None);
-    let return_internal = infer_pattern_labels(&baseline_pattern).output_label;
+    // №956: the entity seeds ride the summary too. Without them a callee
+    // whose `return` names a `Secret`-aliased entity summarized as
+    // `bottom` and the caller's sink saw nothing — the one path the
+    // summary exists to close (the delivery matrix found it).
+    let seed = entity_seed_env(context);
+    let return_internal = infer_pattern_labels_seeded(&baseline_pattern, &seed).output_label;
     if nparams == 0 {
         return InterprocSummary {
             return_internal,
@@ -2861,7 +2959,7 @@ fn compute_interproc_summary(context: &[Declaration], p: &PatternDecl) -> Interp
 
     // The cheap screen (see ProbeSel::All): one run that bounds them all.
     let all_pattern = pattern_with_probe(p, ProbeSel::All);
-    let all_output = infer_pattern_labels(&all_pattern).output_label;
+    let all_output = infer_pattern_labels_seeded(&all_pattern, &seed).output_label;
     let all_keys = probe_violation_keys(context, &all_pattern);
     let any_reaches_return = all_output != return_internal;
     let any_reaches_sink = all_keys.iter().any(|k| !baseline_keys.contains(k));
@@ -2888,8 +2986,14 @@ fn compute_interproc_summary(context: &[Declaration], p: &PatternDecl) -> Interp
         // had already made safe.
         for axis in [ProbeAxis::Conf, ProbeAxis::Integrity] {
             let probe_pattern = pattern_with_probe(p, ProbeSel::One(i, axis));
+            // №956: SEEDED, like the baseline it is differenced against —
+            // an unseeded probe run would differ from the seeded
+            // `return_internal` for every pattern that merely MENTIONS an
+            // entity, marking the parameter as reaching the return when it
+            // does not.
             if any_reaches_return
-                && infer_pattern_labels(&probe_pattern).output_label != return_internal
+                && infer_pattern_labels_seeded(&probe_pattern, &seed).output_label
+                    != return_internal
             {
                 reaches_return = true;
             }
@@ -6366,57 +6470,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
     //
     // One-level type-alias resolution (`type Token = Secret`) comes with
     // it, since the alias is the documented way to name a secret type.
-    let secret_aliases: HashSet<&str> = declarations
-        .iter()
-        .filter_map(|d| match d {
-            Declaration::TypeAlias(a) if a.target == "Secret" => Some(a.alias.as_str()),
-            _ => None,
-        })
-        .collect();
-    let declared_label = |type_name: &str, ann: Option<&LabelAnn>| -> Label {
-        let mut l = Label::bottom();
-        if type_name == "Secret" || secret_aliases.contains(type_name) {
-            l = l.join(&Label {
-                conf: crate::labels::Conf::Private,
-                integrity: crate::labels::Integrity::Trusted,
-                consent: Default::default(),
-            });
-        }
-        if let Some(a) = ann {
-            if let Ok(parsed) = Label::parse(&a.raw) {
-                l = l.join(&parsed);
-            }
-        }
-        l
-    };
-    let empty_env: BTreeMap<String, Label> = BTreeMap::new();
-    let mut seed: BTreeMap<String, Label> = BTreeMap::new();
-    for decl in declarations {
-        match decl {
-            Declaration::EntitySimple(e) => {
-                let l = entity_seed_label(Some(&e.value))
-                    .join(&expr_label(&e.value, &empty_env))
-                    .join(&declared_label(&e.type_name, e.label.as_ref()));
-                seed.insert(e.name.clone(), l);
-            }
-            Declaration::EntityRecord(e) => {
-                // Record entities are maps; the entity name itself seeds
-                // with the strongest field fact.
-                let strongest = e
-                    .fields
-                    .iter()
-                    .map(|f| {
-                        entity_seed_label(Some(&f.value)).join(&expr_label(&f.value, &empty_env))
-                    })
-                    .fold(Label::bottom(), |a, b| a.join(&b));
-                seed.insert(
-                    e.name.clone(),
-                    strongest.join(&declared_label(&e.type_name, e.label.as_ref())),
-                );
-            }
-            _ => {}
-        }
-    }
+    let seed = entity_seed_env(declarations);
 
     fn is_sink(name: &str) -> bool {
         if matches!(

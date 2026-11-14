@@ -19,8 +19,8 @@ construction.
 | Grammar | 354 rules |
 | Architecture Decisions | 211 ADRs |
 | Example Programs | 258 .mlog programs |
-| Reference | REFERENCE.md (~345 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~310 KB) — every wave documented |
+| Reference | REFERENCE.md (~346 KB) — 100% registry coverage |
+| Changelog | CHANGELOG.md (~329 KB) — every wave documented |
 | LICENSED_FLOOR (the 8D-1 machine fact, №841) | 10000 bp (19/19) — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms; №900: the denominator rides the fact) |
 | PASSPORT_FRESH (the 8D-1 machine fact, №841) | 10000 bp (19/19) — the passports fresh within the 180-day verification window (the №842 rule) |
 | GRANT_COVERAGE (the 8B-1 machine fact, №846) | 10000 bp (44/44) — the irreversible carriers whose rights decision passes the capability layer (ADR-0203 §2.7; the gate_034 floor) |
@@ -29,9 +29,11 @@ construction.
 | OFFLINE_SUITE (the 8E-1/C5 machine fact, №881) | 10000 bp (12/12) — the registered LLM-surface checks that execute without the external network (ADR-0208 §2.5; the gate_039 floor 8000 bp, only-up) |
 | JURISDICTION_MATRIX (the 8D-2/C10 machine fact, №888) | 3 — the registered jurisdictions with ≥ 1 live rule in the seed matrix (ADR-0209 §4; the gate_040 floor 3, only-up) |
 | REPLAY_MATCH (the 8G/C8 machine fact, №894) | 10000 bp (2/2) — the registered decision carriers whose trace is written through the Ledger ACTION contour and verified by the replay_gate REPLAY_MATCH contract (ADR-0210 §3-4; the gate_041 floor 10000 bp, only-up) |
-| TAINT_SATURATION (the 8F-2/C9 machine fact, №906) | 324241748923742258252688 — the exact reachable taint-program space of the wave-81 generator, the integer product over the live anchors (ADR-0217 §2; the gate_042 floor 10^9, only-up) |
+| TAINT_GENERATOR_SPACE (the 8F-2/C9 machine fact, №906; named TAINT_GENERATOR_SPACE until №959) | 324241748923742258252688 — the exact reachable taint-program space of the wave-81 generator, the integer product over the live anchors (ADR-0217 §2; the gate_042 floor 10^9, only-up) |
+| TAINT_PROGRAMS_PER_RUN (the №956 honest counter) | 154 — the programs the delivery matrix really generates and analyzes per run (77 cells × (1 + 1) rotation passes), printed and asserted by the run itself — a count over a run, not the size of a space |
 | REPRO_BITFORBIT (the 8E-2/C7+C12 machine fact, №912) | 10000 bp (11/11) — the registered reproduction carriers whose bit-for-bit chain is live-wired: the registry package path + the release digest chain (ADR-0218 §2; the gate_043 floor 10000 bp, only-up; the toolchain build stays behind the C7 trigger — §5) |
 | INSTITUTIONAL_READY (the 8H-1/C13б machine fact, №918) | 12/12 — the CHECKED items of the 12-item institutional roster over the live carriers: TRADEMARK.md + docs/SUCCESSION.md + the GOVERNANCE Phase-2 frame (ADR-0219 §2; the gate_044 floor 12, only-up; the documents ≠ the owner's acts — §5) |
 | VERTICAL_PROFILES (the 8H-2/C13а machine fact, №921) | 12/12 — the CHECKED anchors of the 12-element vertical roster (2 profiles × 6 mandatory contours) over the live kernel src/vertical.rs (ADR-0220 §2; the gate_045 floor 12, only-up; the profile ≠ certification ≠ legal advice — §5) |
 | TERMINAL_STOP (the W-T aggregate machine fact, №924) | 13/13 — the GREEN capability slots C1–C13 over the live Phase-8 fact machines, every slot answered by the registered live checker (ADR-0221 §2; the gate_046 floor 13, only-up; the 1.0 gate ≠ a service-quality guarantee ≠ a certification ≠ a legal advice — §5) |
+| TERMINAL_STOP by CLASS (the №959 honesty split) | structural 13/13 · behavioural 1/13 · user-surface 6/13 — a STRUCTURAL fact counts an anchor in the tree; a BEHAVIOURAL one is a number an executed test asserts against the fact itself; USER-SURFACE means the slot's capability is reachable through a builtin, the CLI or a declaration. Analyzer-only (runs on the check path, nothing in the language addresses it): C6, C9. Kernel-only (library and tests only): C4, C7, C8, C12, C13. The aggregate above counts the STRUCTURAL verdicts — the ADR-0221 §2.4 amendment (Proposed) is what moves the 1.0 gate onto the behavioural count |
 <!-- END GENERATED METRICS -->

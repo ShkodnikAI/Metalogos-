@@ -1944,7 +1944,99 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
             }
             Some(out)
         }
-        _ => None,
+        // ── №951: THE REGISTRY'S OWN SOURCES, not only the named ones.
+        //
+        // The arms above are a HAND-WRITTEN vocabulary of 25 names. The
+        // registry classifies 153 builtins as `Role::Source`, so 128
+        // sources entered the lattice as BOTTOM — public and trusted.
+        // Verified on the published binary: `print(env_or("SP", "d"))`,
+        // `print(generate_key(32))`, `print(web_search("q"))` and
+        // `print(http_download(url, f))` all passed `mlog check`.
+        //
+        // Two of the registry's channel classes answer for themselves and
+        // are derived here instead of being named by hand:
+        //
+        //   `Label::Secret`  — the channel carries a secret → private,
+        //                      trusted (env_or, generate_key, world_state);
+        //   `Label::Network` — the channel comes from the network, so the
+        //                      ANSWER is remote data → public, untrusted
+        //                      (web_search, http_download, imap_read,
+        //                      cal_read, card_read, geo_ip, weather,
+        //                      whisper_transcribe, mcp_call, series_pull…).
+        //
+        // The class `Internal` is NOT derived here, and that is a decision
+        // with a reason: `default_label` is the CHANNEL class of №316, not
+        // a lattice label, and `Internal` conflates «own store» (`recall`,
+        // `kv_get`, `query`) with «untrusted request body» (`json_body`
+        // itself is classified `Internal` and is named by hand above as
+        // untrusted). 94 names and 295 corpus uses hang on that
+        // distinction, so it goes to the owner name by name (the owner
+        // decision 13.11, variant 1) rather than being guessed here.
+        // `Public` stays bottom, which is already correct.
+        // `world_state` is excluded from the derivation below, and the
+        // reason is a DESIGN CHOICE of the project, not an oversight: its
+        // refusal is owned by the RUNTIME layer (№355/№691, ADR-0159 — the
+        // conformance fixture `sst_001_world_state_materialization_refused`
+        // says so in its first line: «the materialization surfaces refuse
+        // the typed WORLD_STATE_PRIVATE refusal at RUNTIME on BOTH
+        // backends»). Deriving a STATIC refusal here would pre-empt that
+        // runtime refusal and break the two examples the project uses to
+        // demonstrate it (`w10_embodied_sim`, `w11_embodied_bounds`, pinned
+        // by `tests/naryad_436_embodied_examples.rs` as executing cleanly).
+        // Whether the static gate should ALSO refuse it — fail earlier — is
+        // put to the owner rather than decided here.
+        "world_state" => None,
+        other => {
+            let derived = match classify(other).map(|c| (c.role, c.default_label)) {
+                Some((
+                    crate::builtins_classification::Role::Source,
+                    crate::builtins_classification::Label::Secret,
+                )) => Some(Label {
+                    conf: crate::labels::Conf::Private,
+                    integrity: crate::labels::Integrity::Trusted,
+                    consent: Default::default(),
+                }),
+                Some((
+                    crate::builtins_classification::Role::Source,
+                    crate::builtins_classification::Label::Network,
+                )) => Some(Label {
+                    conf: crate::labels::Conf::Public,
+                    integrity: crate::labels::Integrity::Untrusted,
+                    consent: Default::default(),
+                }),
+                _ => None,
+            };
+            // The №689 PRIVATE-FIELD rule WINS where it applies, and the
+            // derivation must not shadow it.
+            //
+            // `expr_label` consults `label_source` FIRST and
+            // `registry_private_flow_label` only if it returned `None`, so
+            // returning the derived class alone SHADOWED №689: `imap_read`
+            // carries private FIELDS through its `field_meta`, and the
+            // derivation's `public, untrusted` silently replaced that
+            // rule's `private, trusted` — a WEAKENING on the
+            // confidentiality axis. The full suite caught it (the four
+            // `n689_imap_read_*` tests); the corpus sweep could not,
+            // because a sweep counts findings and a label getting weaker
+            // changes no count until something stops refusing.
+            //
+            // Where both would answer, the private-field rule stands alone
+            // rather than being joined with the network class, and that is
+            // a judgment with a reason: `private` already refuses at every
+            // sink the integrity axis would have caught (`exec`, an output
+            // sink, a network sink — the confidentiality clearance fires
+            // first), so joining `untrusted` onto it buys no refusal that
+            // is not already there, while it DOES change the diagnostic
+            // class the project pinned (`sink_check_id` names the integrity
+            // class ahead of the confidentiality one, so `PII_EGRESS_*`
+            // would become `UNTRUSTED_EGRESS_*` for every mail read).
+            // Trading a pinned, more informative class for a refusal that
+            // already exists is not a gain.
+            match registry_private_flow_label(other) {
+                Some(p) => Some(p),
+                None => derived,
+            }
+        }
     }
 }
 
@@ -2014,19 +2106,51 @@ fn expr_label(expr: &Expr, env: &BTreeMap<String, Label>) -> Label {
             if let Some(l) = registry_private_flow_label(name) {
                 return l;
             }
+            // ── №964: a SINK's value is a RECEIPT, not the payload.
+            // After the private-field bridge (a typed struct return
+            // declares its own field labels and those win) and before the
+            // argument join (which is what poisoned the receipt).
+            if crate::sink_receipt::is_sink_receipt(name) {
+                return Label::bottom();
+            }
             // Data flows through ordinary functions: join of the arguments.
             let mut acc = Label::bottom();
             for a in args {
                 acc = acc.join(&expr_label(a, env));
             }
+            // ── №950 hook (а) (ADR-0154 §12.2): the CALLED BODY's own
+            // sources. Before this the arm stopped at the argument join —
+            // a source evaluated INSIDE the callee was invisible at the
+            // call site (the audit's pin B1: `Fetch()` calling `env()`,
+            // then `http_post(Fetch())`, `mlog check` clean). Joining the
+            // callee's `return_internal` is MONOTONE — the result can only
+            // rise in the lattice — so no program that passed the gate for
+            // a legitimate reason starts failing, and every program that
+            // failed still fails. Unseeded snapshot (`None`) = the exact
+            // pre-№950 behaviour: the fix is opt-in per entry point, never
+            // a silent change under an entry point that did not seed.
+            if let Some(summary) = interproc_summary_of(name) {
+                acc = acc.join(&summary.return_internal);
+            }
             acc
         }
-        // Qualified calls (module functions): no source knowledge at this
-        // slice — argument propagation only (recorded boundary).
-        Expr::QualifiedCall { args, .. } => {
+        // Qualified calls: a TOOL METHOD summarizes exactly like a pattern
+        // (№950 — a ToolMethod is structurally a PatternDecl), so the
+        // callee's internal sources ride its return label the same way;
+        // a name with no summary (a module function at this slice) keeps
+        // the argument-propagation boundary.
+        Expr::QualifiedCall {
+            module,
+            function,
+            args,
+            ..
+        } => {
             let mut acc = Label::bottom();
             for a in args {
                 acc = acc.join(&expr_label(a, env));
+            }
+            if let Some(summary) = interproc_summary_of(&format!("{module}.{function}")) {
+                acc = acc.join(&summary.return_internal);
             }
             acc
         }
@@ -2395,8 +2519,101 @@ fn infer_stmt(st: &Statement, env: &mut BTreeMap<String, Label>, output: &mut La
 /// Parameters: annotated → parsed label; unannotated → `bottom`. The
 /// result is what №325's sink-gate will read; see ADR-0154 Appendix A
 /// for the per-statement contracts and REFERENCE §2.2 for the table.
+/// Наряд №951 (B8) + №956: the entity-seeded label environment of a
+/// program — the ONE builder, shared by the intraprocedural sink gate and
+/// by the №950 pattern summaries.
+///
+/// It was inline inside `sink_clearance_violations`, and the №956 delivery
+/// matrix found what that cost: `infer_pattern_labels` seeds PARAMETERS
+/// only, so a callee whose `return` names an entity returned `bottom` and
+/// the caller's sink saw nothing. The direct form refused (the gate reads
+/// the seed) while `pattern Src() -> String { return secret_note }` plus
+/// `print(Src())` passed — a `Secret`-aliased entity leaking through the
+/// one path the summary was built to close. ADR-0154 §12(а) says the
+/// return label is the join of the body's INTERNAL sources; an
+/// entity-seeded identifier is such a source, so this is the contract
+/// being implemented, not extended.
+///
+/// The three seeds (the B8 inventory): the literal-marker rule, the
+/// initializer's own label, and the DECLARED type or explicit annotation
+/// (`entity key: Secret = …`, `entity k: String<private> = …`), with
+/// one-level `type Token = Secret` alias resolution.
+fn entity_seed_env(declarations: &[Declaration]) -> BTreeMap<String, Label> {
+    // The module denies wildcard enum arms (№532: a new `Value` variant
+    // must not slip through a `_`). Here the wildcard is over
+    // `Declaration`, and the seed env is about ENTITIES and type aliases
+    // only: every other declaration kind contributes no entity label by
+    // construction, and a new declaration kind that did would be adding an
+    // entity form, which lands with its own naryad and its own arm.
+    #[allow(clippy::wildcard_enum_match_arm)]
+    let secret_aliases: HashSet<&str> = declarations
+        .iter()
+        .filter_map(|d| match d {
+            Declaration::TypeAlias(a) if a.target == "Secret" => Some(a.alias.as_str()),
+            _ => None,
+        })
+        .collect();
+    let declared_label = |type_name: &str, ann: Option<&LabelAnn>| -> Label {
+        let mut l = Label::bottom();
+        if type_name == "Secret" || secret_aliases.contains(type_name) {
+            l = l.join(&Label {
+                conf: crate::labels::Conf::Private,
+                integrity: crate::labels::Integrity::Trusted,
+                consent: Default::default(),
+            });
+        }
+        if let Some(a) = ann {
+            if let Ok(parsed) = Label::parse(&a.raw) {
+                l = l.join(&parsed);
+            }
+        }
+        l
+    };
+    let empty_env: BTreeMap<String, Label> = BTreeMap::new();
+    let mut seed: BTreeMap<String, Label> = BTreeMap::new();
+    #[allow(clippy::wildcard_enum_match_arm)]
+    for decl in declarations {
+        match decl {
+            Declaration::EntitySimple(e) => {
+                let l = entity_seed_label(Some(&e.value))
+                    .join(&expr_label(&e.value, &empty_env))
+                    .join(&declared_label(&e.type_name, e.label.as_ref()));
+                seed.insert(e.name.clone(), l);
+            }
+            Declaration::EntityRecord(e) => {
+                // Record entities are maps; the entity name itself seeds
+                // with the strongest field fact.
+                let strongest = e
+                    .fields
+                    .iter()
+                    .map(|f| {
+                        entity_seed_label(Some(&f.value)).join(&expr_label(&f.value, &empty_env))
+                    })
+                    .fold(Label::bottom(), |a, b| a.join(&b));
+                seed.insert(
+                    e.name.clone(),
+                    strongest.join(&declared_label(&e.type_name, e.label.as_ref())),
+                );
+            }
+            _ => {}
+        }
+    }
+    seed
+}
+
 pub fn infer_pattern_labels(pattern: &PatternDecl) -> LabelInference {
-    let mut env: BTreeMap<String, Label> = BTreeMap::new();
+    infer_pattern_labels_seeded(pattern, &BTreeMap::new())
+}
+
+/// `infer_pattern_labels` with a pre-seeded environment (the program's
+/// entity labels). A PARAMETER of the same name shadows the entity, as it
+/// does in the executor — the seeds go in first and the parameters
+/// overwrite them.
+pub fn infer_pattern_labels_seeded(
+    pattern: &PatternDecl,
+    seed: &BTreeMap<String, Label>,
+) -> LabelInference {
+    let mut env: BTreeMap<String, Label> = seed.clone();
     for prm in &pattern.params {
         let l = match &prm.label {
             Some(ann) => Label::parse(&ann.raw).unwrap_or_else(|_| Label::bottom()),
@@ -2410,6 +2627,701 @@ pub fn infer_pattern_labels(pattern: &PatternDecl) -> LabelInference {
         var_labels: env,
         output_label: output,
     }
+}
+
+// ── Наряд №950 (ADR-0154 §12): pattern summaries — the interprocedural
+// contract, the end of the open world ──────────────────────────────────
+//
+// The lattice as shipped through v0.39.0 was INTRAPROCEDURAL. A call to a
+// user pattern took the JOIN OF ITS ARGUMENTS (the `FnCall` fallback of
+// `expr_label`) and the called body was never consulted; an unannotated
+// parameter entered the body as `bottom` — the «open world» of ADR-0154
+// Appendix A. The audit of 12.11 proved both halves on the PUBLISHED
+// release: a source INSIDE a called pattern reached a sink at the call
+// site with `mlog check` clean (pin B1), and a parameter reaching a sink
+// inside the body leaked whatever the caller passed (pins B2–B4).
+//
+// ADR-0154 §12.2 closes both halves with ONE summary per pattern:
+//
+//   (а) the RETURN label joins the labels of the sources evaluated INSIDE
+//       the body (`return_internal`). The call site joins it onto the
+//       argument join it already computed, so the change is MONOTONE:
+//       every program the gate refused before it still refuses.
+//   (б) the REQUIRED CLEARANCE per parameter — the sink that parameter
+//       reaches (`param_sinks`). The call site re-runs the SAME clearance
+//       decision with the ACTUAL argument label, so the diagnostic class
+//       is the inner sink's own class: the vocabulary stays frozen at the
+//       №385 fourteen, no new `check_id` (§12.4).
+//   (в) the body's own leaks are unchanged: the intraprocedural gate
+//       already refuses a body that leaks its OWN sources. The baseline
+//       subtraction below keeps those out of (б), so such a leak is
+//       reported ONCE, at its own site, and never twice.
+//
+// **How the facts are computed — no second taint engine.** The reach
+// questions are answered by RUNNING THE EXISTING MACHINERY on a probe:
+// the pattern is re-analyzed with ONE parameter annotated
+// `<private, untrusted>` (a label that fails every clearance class) and
+// every other parameter forced to bottom. If the output label moves, that
+// parameter reaches a return; if a sink violation appears that the
+// all-bottom baseline did not have, that parameter reaches that sink. One
+// machinery, one lattice, no duplicated rules — exactly the §12.3
+// requirement that the summaries over-approximate on the SAME lattice.
+//
+// **Termination.** The facts are monotone (a richer snapshot can only make
+// a reach appear, never disappear) and the carrier is finite (one `Label`,
+// one boolean and one sink per parameter), so the iteration stabilizes;
+// `SUMMARY_MAX_PASSES` caps it and the cap falling short degrades to the
+// CONSERVATIVE TOP of §12.3 — never to silence.
+
+/// The probe labels of the reach analysis.
+///
+/// `private, untrusted` fails every clearance class of `clearance_failure`,
+/// so it is the SCREEN: if a parameter probed with it reaches nothing new,
+/// no label would.
+///
+/// For ATTRIBUTION the axes are probed SEPARATELY, and that is not a
+/// refinement but a correctness requirement. A sanitizer inside the callee
+/// usually repairs ONE axis: `redact(x, "hash_only")` restores the
+/// integrity and leaves the confidentiality, `escape_html` restores the
+/// integrity for the HTML lane. Probed with both axes raised at once, such
+/// a parameter still «reaches» the sink — the confidentiality half fails —
+/// and the call site would then refuse an UNTRUSTED (but public) argument
+/// that the callee's own sanitizer had already made safe. That is a false
+/// refusal, and it would make the migration this naryad documents
+/// («sanitize inside the callee») not work. Probing the axes apart credits
+/// the sanitizer for the axis it actually repairs.
+const SUMMARY_PROBE_SCREEN_RAW: &str = "private, untrusted";
+const SUMMARY_PROBE_CONF_RAW: &str = "private, trusted";
+const SUMMARY_PROBE_INTEGRITY_RAW: &str = "public, untrusted";
+
+/// Pass cap for the cyclic components (§12.3). The acyclic part needs NO
+/// iteration at all — it is computed in reverse topological order, so
+/// every callee's summary is final before its caller is computed. This cap
+/// bounds only the cycle fixpoint, where no such order exists.
+///
+/// A capped fixpoint over the WHOLE call graph was the first shape of this
+/// code and it was wrong twice over: on a chain deeper than the cap the
+/// last generation is an UNDER-approximation (a leak through a 9-deep
+/// chain would have been invisible — the very class of silent gap this
+/// naryad closes), and the repeated passes cost 3× the analysis time on a
+/// 200-pattern chain. The topological order removes both.
+///
+/// Inside a cycle the iteration is unavoidable, so it runs ASCENDING from
+/// bottom and joins each generation onto the previous one (monotone on a
+/// finite carrier). If it has not stabilized within the cap, the component
+/// falls back to the conservative TOP — sound, and rare rather than
+/// automatic. The shape of the bound follows the house precedent of the
+/// effects fixpoint in the effect-trail gate.
+fn summary_cycle_passes(component: usize) -> usize {
+    (component + 2).clamp(4, 16)
+}
+
+/// The summary of ONE user pattern (ADR-0154 §12.2).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InterprocSummary {
+    /// (а) The join of the labels of the sources evaluated INSIDE the body
+    /// — the part of the return label the arguments cannot explain.
+    pub return_internal: Label,
+    /// (а) Per parameter: does it reach a return? Kept for the diagnostics
+    /// and the later precision step; the call site stays on the argument
+    /// join, which is monotonically stronger and never regresses.
+    pub param_reaches_return: Vec<bool>,
+    /// (б) Per parameter: the sinks it reaches inside the body (or inside
+    /// the patterns the body calls, through their summaries), each as
+    /// (sink builtin name, argument index at that sink, the RULE that
+    /// refused there). An empty list = the parameter reaches no sink that
+    /// any label would fail.
+    ///
+    /// A LIST, not one fact, because the axes are probed separately: a
+    /// parameter can reach a sink on the confidentiality axis, on the
+    /// integrity axis, or on both, and a sanitizer inside the callee may
+    /// repair one and not the other. The rule rides along because the call
+    /// site re-decides with the SAME rule the inner site used — three rule
+    /// families reach across the boundary (see `propagatable_reason`).
+    pub param_sinks: Vec<Vec<(String, usize, &'static str, ProbeAxis)>>,
+    /// The pattern sits in a call cycle — its summary is the conservative
+    /// top (§12.3).
+    pub cyclic: bool,
+}
+
+thread_local! {
+    /// The seeded snapshot of the program's pattern summaries. `None` = not
+    /// seeded: every consumer falls back to the pre-№950 behaviour (the
+    /// argument join), so an unseeded entry point is exactly as strong as
+    /// v0.39.0 and never weaker.
+    static INTERPROC_SUMMARIES: std::cell::RefCell<Option<HashMap<String, InterprocSummary>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The seeded summary of one pattern, if the snapshot is live.
+pub(crate) fn interproc_summary_of(name: &str) -> Option<InterprocSummary> {
+    INTERPROC_SUMMARIES.with(|cell| cell.borrow().as_ref().and_then(|m| m.get(name).cloned()))
+}
+
+fn put_interproc_summaries(map: Option<HashMap<String, InterprocSummary>>) {
+    INTERPROC_SUMMARIES.with(|cell| *cell.borrow_mut() = map);
+}
+
+/// Every call name the body mentions, collected through the EXISTING
+/// effects walker: `walk_effects_stmts` resolves every call site through
+/// its `contract_of` hook, so recording the names there keeps the call
+/// graph correct as the AST grows — the walker is already gated by CI, a
+/// second hand-written walker would not be.
+fn body_call_names(stmts: &[Statement]) -> HashSet<String> {
+    let seen = std::cell::RefCell::new(HashSet::new());
+    let resolve = |name: &str| -> EffectSet {
+        seen.borrow_mut().insert(name.to_string());
+        EffectSet::new()
+    };
+    let mut acc = EffectSet::new();
+    walk_effects_stmts(stmts, &resolve, &mut acc);
+    seen.into_inner()
+}
+
+/// Which parameters a probe run annotates, and with which label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProbeSel {
+    /// Baseline: every parameter forced to bottom — the body's own
+    /// sources and its own leaks, nothing of the caller's.
+    None,
+    /// Every parameter probed with the screen label at once — the CHEAP
+    /// SCREEN. Clearance failures and the output label are monotone in the
+    /// argument label, so a run with every parameter probed is an upper
+    /// bound on every single-parameter run: when it adds nothing over the
+    /// baseline, no parameter reaches a return or a failing sink and the
+    /// per-parameter probes can be skipped. That is sound by monotonicity,
+    /// not by assumption, and it is what keeps the analysis-time cost of a
+    /// corpus of mostly-pure patterns at two runs each.
+    All,
+    /// One parameter probed on ONE axis — the attribution run.
+    One(usize, ProbeAxis),
+}
+
+/// The axis an attribution probe raises (see the probe-label constants).
+/// Public because it rides in `InterprocSummary::param_sinks`: a fact is
+/// meaningless without the axis it was found on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ProbeAxis {
+    Conf,
+    Integrity,
+}
+
+impl ProbeAxis {
+    /// The real argument label as seen THROUGH this axis: the other axis
+    /// is neutralized to its bottom value.
+    ///
+    /// This is what makes an axis-separated fact mean what it says. The
+    /// fact «parameter 0 reaches kv_set on the CONFIDENTIALITY axis» must
+    /// be re-decided against the argument's confidentiality alone — a
+    /// generic re-decision would see the argument's UNTRUSTED integrity
+    /// and refuse for a reason the callee had already sanitized away
+    /// (`redact(x, "hash_only")` repairs the integrity and keeps the
+    /// confidentiality, so the two axes genuinely carry different answers).
+    fn view(self, label: &Label) -> Label {
+        match self {
+            ProbeAxis::Conf => Label {
+                conf: label.conf,
+                integrity: crate::labels::Integrity::Trusted,
+                consent: label.consent.clone(),
+            },
+            ProbeAxis::Integrity => Label {
+                conf: crate::labels::Conf::Public,
+                integrity: label.integrity,
+                consent: label.consent.clone(),
+            },
+        }
+    }
+}
+
+impl ProbeAxis {
+    fn raw(self) -> &'static str {
+        match self {
+            ProbeAxis::Conf => SUMMARY_PROBE_CONF_RAW,
+            ProbeAxis::Integrity => SUMMARY_PROBE_INTEGRITY_RAW,
+        }
+    }
+}
+
+/// One pattern with its parameters re-annotated for a probe run.
+fn pattern_with_probe(p: &PatternDecl, probe: ProbeSel) -> PatternDecl {
+    let mut out = p.clone();
+    for (i, prm) in out.params.iter_mut().enumerate() {
+        let probed: Option<&'static str> = match probe {
+            ProbeSel::None => None,
+            ProbeSel::All => Some(SUMMARY_PROBE_SCREEN_RAW),
+            ProbeSel::One(j, axis) => (i == j).then(|| axis.raw()),
+        };
+        prm.label = if let Some(raw) = probed {
+            Some(LabelAnn {
+                span: prm.span.clone(),
+                raw: raw.to_string(),
+            })
+        } else {
+            // Forced bottom: an existing annotation would otherwise
+            // contribute its own label to the baseline, and the reach of
+            // the OTHER parameters would be attributed to this one.
+            None
+        };
+    }
+    out
+}
+
+/// The violation fingerprints of one probe run, as
+/// (sink name, argument index, line) — the key the baseline subtraction
+/// compares on.
+fn probe_violation_keys(
+    context: &[Declaration],
+    pattern: &PatternDecl,
+) -> Vec<(String, usize, u32, &'static str)> {
+    let mut decls: Vec<Declaration> = context.to_vec();
+    decls.push(Declaration::Pattern(pattern.clone()));
+    let tag = format!("pattern {}", pattern.name);
+    // The container is this pattern's own tag for a sink IN its body, and
+    // the tag followed by the call chain for a sink reached THROUGH a
+    // callee's summary (the hook-(б) container format). Both belong to
+    // this pattern's summary — accepting only the bare tag is what made
+    // the first version of this code stop at one hop: a leak through a
+    // chain of two or more patterns was dropped by this very filter.
+    let chained = format!("{tag} →");
+    sink_clearance_violations(&decls)
+        .into_iter()
+        .filter(|v| v.container == tag || v.container.starts_with(&chained))
+        .filter(|v| propagatable_reason(&v.fn_name, v.reason))
+        .map(|v| (v.fn_name, v.arg_index, v.span.start_line, v.reason))
+        .collect()
+}
+
+/// May a violation be carried into a parameter's required clearance (б)
+/// and RE-DECIDED at the call site? Only when the call site can reproduce
+/// the SAME rule with the actual argument label — otherwise the refusal
+/// would name a rule that did not fire, or invent one.
+///
+/// Three families cross the boundary, each re-decided by its own rule at
+/// the call site (`interproc_rule_fails`):
+/// - the generic sink clearance (`clearance_failure`'s reasons);
+/// - `duty-materialization` — `profile duty { materialization: denied }`
+///   refuses lifting a private value into text through `str`/`json_encode`
+///   (`Role::Pure` names: not sinks, so they need their own rule);
+/// - `untrusted-file-path` — an untrusted path choosing which bytes enter
+///   the program (Н455; the name is `Role::Source`, so the clearance rule
+///   would mislabel it as a network egress).
+///
+/// What does NOT cross:
+/// - `duty-network-sink`, `irreversible-content` and
+///   `video-likeness-no-consent` are label-INDEPENDENT (a class, a literal,
+///   a missing token) — they fire identically in the probe's baseline, so
+///   the baseline subtraction already drops them and the inner site reports
+///   them where they belong;
+/// - `media_save` carries CALLER-CONTEXT credentials (a non-empty consent
+///   scope, or a bound likeness token for a camera/likeness origin — №387).
+///   The probe's label has no consent scope, so the probe always sees a
+///   violation; re-deciding it at the call site would refuse a caller that
+///   legitimately holds the credential. Its own site keeps that gate: the
+///   callee's body is checked there, so nothing is lost — only not doubled.
+fn propagatable_reason(name: &str, reason: &str) -> bool {
+    if name == "media_save" {
+        return false;
+    }
+    matches!(
+        reason,
+        "untrusted-exec"
+            | "secret-exec"
+            | "private-db"
+            | "voice-unconsented"
+            | "private-egress"
+            | "untrusted-egress"
+            | "poisoned"
+            | "duty-materialization"
+            | "untrusted-file-path"
+    )
+}
+
+/// Compute the summary of one pattern (§12.2) against the summaries
+/// already in the snapshot. In reverse topological order those are final,
+/// so this is computed ONCE per pattern — no iteration, no cap, no
+/// under-approximation on deep chains.
+fn compute_interproc_summary(context: &[Declaration], p: &PatternDecl) -> InterprocSummary {
+    let nparams = p.params.len();
+    // (а) the body's OWN sources: every parameter forced to bottom, so
+    // whatever the output label carries came from INSIDE the body.
+    let baseline_pattern = pattern_with_probe(p, ProbeSel::None);
+    // №956: the entity seeds ride the summary too. Without them a callee
+    // whose `return` names a `Secret`-aliased entity summarized as
+    // `bottom` and the caller's sink saw nothing — the one path the
+    // summary exists to close (the delivery matrix found it).
+    let seed = entity_seed_env(context);
+    let return_internal = infer_pattern_labels_seeded(&baseline_pattern, &seed).output_label;
+    if nparams == 0 {
+        return InterprocSummary {
+            return_internal,
+            param_reaches_return: Vec::new(),
+            param_sinks: Vec::new(),
+            cyclic: false,
+        };
+    }
+    // (в) the baseline violations — the body's own leaks. They are
+    // reported at their own site by the intraprocedural gate; subtracting
+    // them keeps the call-site refusals of (б) free of duplicates.
+    let baseline_keys = probe_violation_keys(context, &baseline_pattern);
+
+    // The cheap screen (see ProbeSel::All): one run that bounds them all.
+    let all_pattern = pattern_with_probe(p, ProbeSel::All);
+    let all_output = infer_pattern_labels_seeded(&all_pattern, &seed).output_label;
+    let all_keys = probe_violation_keys(context, &all_pattern);
+    let any_reaches_return = all_output != return_internal;
+    let any_reaches_sink = all_keys.iter().any(|k| !baseline_keys.contains(k));
+    if !any_reaches_return && !any_reaches_sink {
+        // No parameter influences the return and none reaches a sink that
+        // any label would fail: the per-parameter attribution runs would
+        // all come back empty.
+        return InterprocSummary {
+            return_internal,
+            param_reaches_return: vec![false; nparams],
+            param_sinks: vec![Vec::new(); nparams],
+            cyclic: false,
+        };
+    }
+
+    let mut param_reaches_return = Vec::with_capacity(nparams);
+    let mut param_sinks = Vec::with_capacity(nparams);
+    for i in 0..nparams {
+        let mut reaches_return = false;
+        let mut facts: Vec<(String, usize, &'static str, ProbeAxis)> = Vec::new();
+        // The axes are probed SEPARATELY (see the probe-label constants):
+        // a sanitizer inside the callee usually repairs ONE axis, and a
+        // both-axes probe would hide that and refuse a caller the callee
+        // had already made safe.
+        for axis in [ProbeAxis::Conf, ProbeAxis::Integrity] {
+            let probe_pattern = pattern_with_probe(p, ProbeSel::One(i, axis));
+            // №956: SEEDED, like the baseline it is differenced against —
+            // an unseeded probe run would differ from the seeded
+            // `return_internal` for every pattern that merely MENTIONS an
+            // entity, marking the parameter as reaching the return when it
+            // does not.
+            if any_reaches_return
+                && infer_pattern_labels_seeded(&probe_pattern, &seed).output_label
+                    != return_internal
+            {
+                reaches_return = true;
+            }
+            if !any_reaches_sink {
+                continue;
+            }
+            for (name, idx, _line, reason) in probe_violation_keys(context, &probe_pattern) {
+                let fact = (name, idx, reason, axis);
+                let in_baseline = baseline_keys
+                    .iter()
+                    .any(|(n, a, _l, r)| *n == fact.0 && *a == fact.1 && *r == fact.2);
+                if !in_baseline && !facts.contains(&fact) {
+                    facts.push(fact);
+                }
+            }
+        }
+        param_reaches_return.push(reaches_return);
+        param_sinks.push(facts);
+    }
+    InterprocSummary {
+        return_internal,
+        param_reaches_return,
+        param_sinks,
+        cyclic: false,
+    }
+}
+/// The conservative TOP summary — the fallback for a cycle whose fixpoint
+/// did not stabilize within the cap (§12.3): the return label is top
+/// (private, untrusted — the strictest the lattice offers below
+/// quarantine), every parameter is assumed to reach a return, and every
+/// parameter is assumed to reach the sink given.
+///
+/// This is deliberately NOT the default answer for a cycle. Applying it to
+/// every recursive pattern — the first shape of this code — made the
+/// self-hosted parser (`self-host/parser.mlog`, ~20 mutually recursive
+/// patterns) refuse with 23 findings: its parse functions all returned
+/// TOP, so every `if`/`while` on a parse result became an
+/// UNTRUSTED_DECISION. Recursion is ordinary Metalogos, and a rule that
+/// makes it unusable is a false positive, not caution. The cycle fixpoint
+/// in `seed_interproc_summaries` computes the real answer and keeps this
+/// for the case where it genuinely cannot.
+fn conservative_summary(
+    p: &PatternDecl,
+    strictest_sink: Option<(String, usize, &'static str)>,
+) -> InterprocSummary {
+    InterprocSummary {
+        return_internal: Label {
+            conf: crate::labels::Conf::Private,
+            integrity: crate::labels::Integrity::Untrusted,
+            consent: Default::default(),
+        },
+        param_reaches_return: vec![true; p.params.len()],
+        // The fallback fact is asserted on BOTH axes — the conservative
+        // answer when the fixpoint could not say which.
+        param_sinks: vec![
+            strictest_sink
+                .into_iter()
+                .flat_map(|(n, a, r)| {
+                    [
+                        (n.clone(), a, r, ProbeAxis::Conf),
+                        (n, a, r, ProbeAxis::Integrity),
+                    ]
+                })
+                .collect();
+            p.params.len()
+        ],
+        cyclic: true,
+    }
+}
+
+/// The sink-clearance violations the gate would report WITHOUT the
+/// interprocedural summaries — the pre-№950 answer, computed by running
+/// the same walk against a cleared snapshot and restoring it afterwards.
+///
+/// The only consumer is the §12.5 transition window: differencing the two
+/// runs identifies exactly the findings the summaries ADDED, so
+/// `profile legacy { interproc: warn }` can downgrade those and nothing
+/// else. It costs a second walk and therefore runs ONLY when the window is
+/// declared — the default path never calls it.
+pub fn sink_clearance_violations_pre_interproc(declarations: &[Declaration]) -> Vec<SinkViolation> {
+    let saved = INTERPROC_SUMMARIES.with(|cell| cell.borrow_mut().take());
+    let out = sink_clearance_violations(declarations);
+    put_interproc_summaries(saved);
+    out
+}
+
+/// Seed the program's pattern summaries (§12.3). The analysis entry points
+/// call this BEFORE the checks run — the same contract as
+/// `html_label::seed_render_raw`. Re-seeding overwrites: every entry point
+/// is self-contained.
+///
+/// **Order, not iteration.** The acyclic part of the call graph is
+/// computed in REVERSE TOPOLOGICAL order: a pattern is summarized only
+/// after every user pattern it calls already has its final summary in the
+/// snapshot, so one computation per pattern is complete — a chain of any
+/// depth is covered, and no pass cap can silently truncate it. The members
+/// of a call cycle cannot be ordered that way and take the conservative
+/// TOP of §12.3 instead.
+pub(crate) fn seed_interproc_summaries(declarations: &[Declaration]) {
+    // The probe runs below re-enter `sink_clearance_violations`, which
+    // READS this snapshot — start from a clean generation so a probe can
+    // never observe a half-built one.
+    put_interproc_summaries(None);
+
+    // The summarizable units are the program's CALLABLE BODIES WITH
+    // PARAMETERS: patterns, keyed by name, and TOOL METHODS, keyed by
+    // `Tool.method` — the key a `QualifiedCall` resolves to.
+    //
+    // Tool methods were not in the audit's row list and they are the same
+    // open world: `tool T { send(v) { print(v) } }` called as
+    // `T.send(env("SP"))` leaked with `mlog check` clean, both halves, for
+    // the same reason patterns did. Leaving them out would have made this
+    // naryad cosmetic — a sink wrapped in a tool method bypasses the whole
+    // fix. A ToolMethod is structurally a PatternDecl (ast.rs: "Structurally
+    // identical to a PatternDecl but scoped under a tool namespace"), so it
+    // is summarized through exactly the same machinery, with the namespaced
+    // key as its name.
+    #[allow(clippy::wildcard_enum_match_arm)]
+    // №950: the summarizable units are the two callable-with-parameters shapes (pattern, tool method); every other declaration kind has no parameters to summarize and no security decision reads this arm
+    let units: Vec<(String, PatternDecl)> = declarations
+        .iter()
+        .flat_map(|d| match d {
+            Declaration::Pattern(p) => vec![(p.name.clone(), p.clone())],
+            Declaration::Tool(t) => t
+                .methods
+                .iter()
+                .map(|m| {
+                    let key = format!("{}.{}", t.name, m.name);
+                    (
+                        key.clone(),
+                        PatternDecl {
+                            span: m.span.clone(),
+                            name: key,
+                            params: m.params.clone(),
+                            return_type: m.return_type.clone(),
+                            effects: m.effects.clone(),
+                            body: m.body.clone(),
+                        },
+                    )
+                })
+                .collect(),
+            _ => Vec::new(),
+        })
+        .collect();
+    if units.is_empty() {
+        put_interproc_summaries(Some(HashMap::new()));
+        return;
+    }
+    // The probe context is the LABEL ENVIRONMENT of the program, not the
+    // whole program: entities seed the variable environment, origins carry
+    // the declared source labels, profiles resolve the gate posture.
+    // Routes, tools and test blocks have their own containers and their
+    // violations are filtered out anyway — carrying them through every
+    // probe run would buy nothing and cost the analysis-time budget.
+    let context: Vec<Declaration> = declarations
+        .iter()
+        .filter(|d| {
+            matches!(
+                d,
+                Declaration::EntitySimple(_)
+                    | Declaration::EntityRecord(_)
+                    | Declaration::Origin(_)
+                    | Declaration::Profile(_)
+            )
+        })
+        .cloned()
+        .collect();
+
+    // ── The call graph over the user units only (builtins have no
+    // summary; their rules are the lattice's own). `body_call_names` goes
+    // through the effects walker, which resolves a `QualifiedCall` to
+    // `module.function` — the same key shape the units use.
+    let names: HashSet<&str> = units.iter().map(|(k, _)| k.as_str()).collect();
+    let callees: HashMap<&str, HashSet<String>> = units
+        .iter()
+        .map(|(k, u)| {
+            let calls: HashSet<String> = body_call_names(&u.body)
+                .into_iter()
+                .filter(|n| names.contains(n.as_str()))
+                .collect();
+            (k.as_str(), calls)
+        })
+        .collect();
+
+    // ── Reverse topological order by repeated peeling: a unit is ready
+    // when every user unit it calls is already ordered. What never becomes
+    // ready is exactly the set of units inside — or calling into — a call
+    // cycle (§12.3): the conservative TOP.
+    let mut ordered: Vec<&(String, PatternDecl)> = Vec::with_capacity(units.len());
+    let mut done: HashSet<&str> = HashSet::new();
+    loop {
+        let mut progressed = false;
+        for unit in &units {
+            if done.contains(unit.0.as_str()) {
+                continue;
+            }
+            let ready = callees
+                .get(unit.0.as_str())
+                .map(|cs| cs.iter().all(|c| done.contains(c.as_str())))
+                .unwrap_or(true);
+            if ready {
+                done.insert(unit.0.as_str());
+                ordered.push(unit);
+                progressed = true;
+            }
+        }
+        if !progressed {
+            break;
+        }
+    }
+    let unordered: Vec<&(String, PatternDecl)> = units
+        .iter()
+        .filter(|unit| !done.contains(unit.0.as_str()))
+        .collect();
+
+    let mut summaries: HashMap<String, InterprocSummary> = HashMap::new();
+
+    // ── The acyclic part: one computation each, callees first.
+    for (key, unit) in &ordered {
+        put_interproc_summaries(Some(summaries.clone()));
+        let s = compute_interproc_summary(&context, unit);
+        put_interproc_summaries(None);
+        summaries.insert(key.clone(), s);
+    }
+
+    // ── The cyclic part (§12.3): an ASCENDING monotone fixpoint over the
+    // component only. Every member starts at bottom — which is exactly the
+    // pre-№950 behaviour, so the iteration can only strengthen the
+    // analysis — and each pass recomputes every member against the
+    // previous generation and JOINS onto it, so a fact once found is never
+    // dropped. A finite lattice and a finite per-parameter carrier make it
+    // stabilize; the least fixpoint it reaches is the sound answer for a
+    // may-analysis.
+    //
+    // Only if the cap is reached without stabilizing does the component
+    // take the conservative TOP. Giving TOP to every cycle member
+    // unconditionally — the first shape of this code — was a false
+    // positive, not caution: it made the self-hosted parser
+    // (`self-host/parser.mlog`, ~20 mutually recursive patterns) refuse
+    // with 23 findings, because every parse function returned
+    // «private, untrusted» and every `if`/`while` on a parse result became
+    // an UNTRUSTED_DECISION. Recursion is ordinary Metalogos.
+    if !unordered.is_empty() {
+        let mut cycle: HashMap<String, InterprocSummary> = unordered
+            .iter()
+            .map(|(key, unit)| {
+                (
+                    key.clone(),
+                    InterprocSummary {
+                        return_internal: Label::bottom(),
+                        param_reaches_return: vec![false; unit.params.len()],
+                        param_sinks: vec![Vec::new(); unit.params.len()],
+                        cyclic: true,
+                    },
+                )
+            })
+            .collect();
+        let mut stabilized = false;
+        for _ in 0..summary_cycle_passes(unordered.len()) {
+            let mut snapshot = summaries.clone();
+            snapshot.extend(cycle.clone());
+            let mut next: HashMap<String, InterprocSummary> = HashMap::new();
+            for (key, unit) in &unordered {
+                put_interproc_summaries(Some(snapshot.clone()));
+                let fresh = compute_interproc_summary(&context, unit);
+                put_interproc_summaries(None);
+                let prev = cycle.get(key.as_str());
+                // The join that keeps the iteration ascending.
+                let merged = InterprocSummary {
+                    return_internal: match prev {
+                        Some(pv) => fresh.return_internal.join(&pv.return_internal),
+                        None => fresh.return_internal,
+                    },
+                    param_reaches_return: fresh
+                        .param_reaches_return
+                        .iter()
+                        .enumerate()
+                        .map(|(i, r)| {
+                            *r || prev
+                                .and_then(|pv| pv.param_reaches_return.get(i).copied())
+                                .unwrap_or(false)
+                        })
+                        .collect(),
+                    param_sinks: fresh
+                        .param_sinks
+                        .iter()
+                        .enumerate()
+                        .map(|(i, sinks)| {
+                            let mut acc = sinks.clone();
+                            if let Some(old) = prev.and_then(|pv| pv.param_sinks.get(i)) {
+                                for f in old {
+                                    if !acc.contains(f) {
+                                        acc.push(f.clone());
+                                    }
+                                }
+                            }
+                            acc.sort();
+                            acc
+                        })
+                        .collect(),
+                    cyclic: true,
+                };
+                next.insert(key.clone(), merged);
+            }
+            stabilized = next == cycle;
+            cycle = next;
+            if stabilized {
+                break;
+            }
+        }
+        if !stabilized {
+            // The cap was reached: the component takes the conservative
+            // TOP (§12.3) — sound by construction, and loud, never silent.
+            for (key, unit) in &unordered {
+                cycle.insert(key.clone(), conservative_summary(unit, None));
+            }
+        }
+        summaries.extend(cycle);
+    }
+
+    put_interproc_summaries(Some(summaries));
 }
 
 // ── Label annotation validation (Наряд №322, ADR-0154) ───────────
@@ -5442,6 +6354,45 @@ pub struct ReadbackPair {
     pub domain: &'static str,
 }
 
+/// №951 (the threat-model row B6): the ADDRESS/QUERY family — builtins
+/// classified `Role::Source` + `Label::Network` (they send a request to
+/// produce their answer) whose arguments are an ENDPOINT or a query
+/// string transmitted verbatim, not natural-language content.
+///
+/// Their arguments are an egress position and take the confidentiality
+/// clearance (`sink_kind` "request" — the integrity axis is deliberately
+/// not gated here; see `clearance_failure`). A secret interpolated into
+/// one of these is the audit's pin B6:
+/// `http_get("https://x/?k=" + env("KEY"))` passed `mlog check` on
+/// v0.39.0 while the key rode out in the query string.
+///
+/// NOT in this table, with the reason: the CONTENT family of the same
+/// registry class (`call_llm`, `call_claude`, `call_llm_schema`,
+/// `llm_stream_open`/`_next`, `whisper_transcribe`, `tts_generate`,
+/// `mcp_call`, `imap_*`, `cal_*`, `card_*`). Their arguments are prose or
+/// structured payloads, and the confidentiality clearance there collides
+/// with the literal-marker rule of ADR-0161 §3 — a prompt that merely
+/// MENTIONS «private» or «confidential» would refuse. Their lane is the
+/// `TAINT_INTERP` contour (the №449 prompt-egress chain), which reports
+/// the flow without blocking the ordinary call.
+///
+/// The table exists because the registry has no direction PER ARGUMENT;
+/// closing that is a change to the SSOT's shape and an owner decision
+/// (recorded in ADR-0154 and the threat-model note). A new row needs the
+/// same justification as a row here: the argument leaves verbatim and is
+/// an address or a query, not content.
+pub const REQUEST_EGRESS_NAMES: &[&str] = &[
+    "http_get",             // arg 0 the URL, arg 1 the headers
+    "http_download",        // arg 0 the URL
+    "web_search",           // arg 0 the query — transmitted verbatim
+    "geo_ip",               // arg 0 the address looked up
+    "weather",              // arg 0 the location
+    "weather_forecast",     // arg 0 the location
+    "series_pull",          // arg 0 the source endpoint
+    "vision_fetch_weights", // arg 0 the URL
+    "video_fetch_weights",  // arg 0 the URL
+];
+
 pub const READBACK_PAIRS: &[ReadbackPair] = &[
     ReadbackPair {
         source: "cron_list",
@@ -5508,33 +6459,72 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
         })
         .collect();
 
-    // Seed environment: global entities (initializers with confidentiality
-    // markers are private — ADR-0161 §3), all other names bottom.
-    let mut seed: BTreeMap<String, Label> = BTreeMap::new();
-    for decl in declarations {
-        match decl {
-            Declaration::EntitySimple(e) => {
-                seed.insert(e.name.clone(), entity_seed_label(Some(&e.value)));
-            }
-            Declaration::EntityRecord(e) => {
-                // Record entities are maps; the entity name itself seeds
-                // with the strongest field marker.
-                let strongest = e
-                    .fields
-                    .iter()
-                    .map(|f| entity_seed_label(Some(&f.value)))
-                    .fold(Label::bottom(), |a, b| a.join(&b));
-                seed.insert(e.name.clone(), strongest);
-            }
-            _ => {}
-        }
-    }
+    // ── Seed environment: the global entities (№951, the threat-model
+    // row B8). THREE facts seed an entity, joined, and until this naryad
+    // the gate read only the FIRST:
+    //
+    //   1. the initializer's confidentiality MARKERS (ADR-0161 §3) — a
+    //      literal carrying passport/SNILS/«confidential» wording;
+    //   2. the initializer's LABEL — `entity k: String = env("SP")` reads
+    //      a secret, and the old seed, matching only `StringLit`, gave it
+    //      bottom. That is half of pin B8;
+    //   3. the DECLARED TYPE and the EXPLICIT ANNOTATION — `entity key:
+    //      Secret = …` and `entity k: String<private> = …`. The annotation
+    //      grammar landed with №322 and the gate never read it: a program
+    //      that SAYS «this is private» was gated as public. That is the
+    //      other half of B8, and the sharper half — the author did
+    //      everything the language asked and got no protection.
+    //
+    // One-level type-alias resolution (`type Token = Secret`) comes with
+    // it, since the alias is the documented way to name a secret type.
+    let seed = entity_seed_env(declarations);
 
     fn is_sink(name: &str) -> bool {
-        matches!(
+        if matches!(
             classify(name).map(|c| c.role),
             Some(crate::builtins_classification::Role::Sink)
-        )
+        ) {
+            return true;
+        }
+        // ── №951 (the threat-model row B6): A REQUEST/RESPONSE BUILTIN IS
+        // BOTH DIRECTIONS. The №316 role model names one direction per
+        // builtin, so `http_get` was classified by what it RETURNS (a
+        // source of remote data) and its REQUEST side — the URL, the
+        // headers, the body, all of which leave the process — was never
+        // gated. That is the audit's pin B6:
+        //   http_get("https://x/?k=" + env("SP"))   // check passed
+        //
+        // The registry carries HALF of what is needed: a `Role::Source`
+        // classified `Label::Network` is a builtin that SENDS a request to
+        // get its answer, so its arguments are an egress position. What
+        // the registry does NOT carry is a direction PER ARGUMENT — there
+        // are 31 such names and their arguments are not alike. For
+        // `http_get` the argument is an ADDRESS, transmitted verbatim, and
+        // a secret in it is pin B6. For `call_llm` the argument is
+        // natural-language CONTENT, and gating it collided head-on with
+        // the literal-marker rule of ADR-0161 §3: the repository's own
+        // leak fixture `n449_prompt_egress_chain` refuses on the prompt
+        // literal "summarize the private document", because the word
+        // «private» is a confidentiality marker. Every prompt that
+        // mentions «confidential», «internal» or «passport» would refuse
+        // — a wide false-positive class in a language whose primary use is
+        // asking a model about text.
+        //
+        // So the table below names the ADDRESS/QUERY family only: the
+        // shape the audit proved, where the argument is transmitted
+        // verbatim to an endpoint and carries no natural-language content.
+        // The content family (call_llm*, whisper_transcribe, tts_generate,
+        // mcp_call, the mail/calendar/card readers) stays with the
+        // `TAINT_INTERP` contour, which already reports prompt egress
+        // (the №449 chain) without blocking the ordinary call.
+        //
+        // The real fix is the ROLE MODEL: a direction per argument, or a
+        // duplex role, in the registry SSOT. That changes the shape of the
+        // SSOT and is an owner-level decision — recorded as the open
+        // question in ADR-0154 and in the threat-model note, not decided
+        // here. The table is the honest interim: narrow, evidence-backed,
+        // and each row says why it is in.
+        REQUEST_EGRESS_NAMES.contains(&name)
     }
 
     fn sink_kind(name: &str) -> &'static str {
@@ -5567,6 +6557,12 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
             // runtime backstop (MEDIA_SEALED_EGRESS) refuses non-public
             // entries even if the static layer was bypassed.
             "media_save" => "file",
+            // №951 (the B6 family): the REQUEST side of a bidirectional
+            // builtin — a `Role::Source` classified `Label::Network`
+            // sends data out to produce its answer. Its own kind, because
+            // the clearance differs from a network SINK's by one axis
+            // (see `clearance_failure`).
+            n if REQUEST_EGRESS_NAMES.contains(&n) => "request",
             _ => "network",
         }
     }
@@ -5600,6 +6596,28 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
             // Media generation: №331 Phase-2 boundary — the marking
             // machinery (MEDIA_SYNTHETIC_UNMARKED, №320) owns it here.
             "media" => None,
+            // №951 (the B6 family): the request side of a bidirectional
+            // builtin is gated on CONFIDENTIALITY ONLY.
+            //
+            // Sending a secret out in a URL, a query or a prompt is a
+            // leak — that is pin B6 and the whole `http_get("?k=" +
+            // env(...))` family. Sending UNTRUSTED text out is not: the
+            // integrity axis is about data coming IN and about data that
+            // DECIDES something, and asking a model about the user's own
+            // message is the language's primary use. Gating both axes
+            // here — the first shape of this rule — refused
+            // `call_llm(system, json_body().text)` in the repository's own
+            // benchmark workload, which is not a leak but the intended
+            // program. The integrity half of the LLM lane is owned by the
+            // separate `TAINT_INTERP` contour (the №449 prompt-egress
+            // chain), which reports it without blocking the ordinary call.
+            "request" => {
+                if label.conf != crate::labels::Conf::Public {
+                    Some("private-egress")
+                } else {
+                    None
+                }
+            }
             // Voice egress requires a consent scope (Phase-2 sources, №335;
             // until then the scope is empty by default — loud by design).
             "voice" => {
@@ -5650,6 +6668,83 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                        env: &BTreeMap<String, Label>,
                        ctx: &FlowCtx,
                        violations: &mut Vec<SinkViolation>| {
+        // ── №950 hook (б) (ADR-0154 §12.2): THE END OF THE OPEN WORLD.
+        // A parameter of the callee reaches a sink inside its body; the
+        // summary says WHICH sink and at WHICH position. Before this, the
+        // callee's body was analyzed with that parameter at `bottom`
+        // (Appendix A's open world), so the caller could hand it a secret
+        // or an untrusted string and the gate stayed quiet (the audit's
+        // pins B2–B4). Here the clearance is re-decided with the ACTUAL
+        // argument label by the SAME `clearance_failure` the inner sink
+        // would have used, so the refusal carries the inner sink's own
+        // class — the №385 vocabulary stays frozen, no new `check_id`
+        // (§12.4). The violation is reported at the CALL SITE, which is
+        // where the offending value is chosen and where the fix belongs.
+        //
+        // Both call shapes carry a summary: a plain call to a pattern and
+        // a QUALIFIED call to a tool method (`T.send(...)`). Leaving the
+        // qualified shape out would leave the open world intact behind one
+        // `tool { }` wrapper.
+        #[allow(clippy::wildcard_enum_match_arm)]
+        // №950: only the two CALL shapes carry a summary; every other expression kind is not a call and no security decision reads this arm
+        let summarized_call: Option<(String, &Vec<Expr>)> = match expr {
+            Expr::FnCall { name, args, .. } => Some((name.clone(), args)),
+            Expr::QualifiedCall {
+                module,
+                function,
+                args,
+                ..
+            } => Some((format!("{module}.{function}"), args)),
+            _ => None,
+        };
+        if let Some((callee, args)) = summarized_call {
+            if let Some(summary) = interproc_summary_of(&callee) {
+                for (i, a) in args.iter().enumerate() {
+                    let Some(facts) = summary.param_sinks.get(i) else {
+                        continue;
+                    };
+                    if facts.is_empty() {
+                        continue;
+                    }
+                    let label = sink_arg_label(a, env, &origin_labels);
+                    for (sink, sink_arg, inner_reason, axis) in facts {
+                        // The fact's own axis, and nothing else.
+                        let seen = axis.view(&label);
+                        // The inner site's OWN rule, re-run with the actual
+                        // argument label. The clearance family re-decides
+                        // through `clearance_failure` (which also yields the
+                        // reason that actually fails for THIS label — it may
+                        // differ from the probe's); the two non-clearance
+                        // families carry their own rule and their own reason.
+                        let decided: Option<&'static str> = match *inner_reason {
+                            "duty-materialization" => (ctx.duty_materialization_denied
+                                && seen.conf == crate::labels::Conf::Private)
+                                .then_some("duty-materialization"),
+                            "untrusted-file-path" => (seen.integrity
+                                == crate::labels::Integrity::Untrusted)
+                                .then_some("untrusted-file-path"),
+                            _ => clearance_failure(sink, &seen),
+                        };
+                        if let Some(reason) = decided {
+                            violations.push(SinkViolation {
+                                // The chain names the callee and its inner
+                                // sink: the message has to say WHY a call
+                                // with no sink in sight refuses (the
+                                // explainable refusal contract, §12.4).
+                                container: format!(
+                                    "{container} → {callee}(…) → {sink} (parameter {i} reaches the sink)"
+                                ),
+                                fn_name: sink.clone(),
+                                arg_index: *sink_arg,
+                                span: expr.span().clone(),
+                                label: label.clone(),
+                                reason,
+                            });
+                        }
+                    }
+                }
+            }
+        }
         if let Expr::FnCall { name, args, .. } = expr {
             // ── Naryad #387 (ADR-0149 D1): VIDEO_LIKENESS_NO_CONSENT ──
             // video_render with I2V reference frames (positions 2/3 —
@@ -5771,7 +6866,32 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                         });
                         continue;
                     }
-                    let label = sink_arg_label(a, env, &origin_labels);
+                    // ── №951: at a REQUEST position a BARE STRING LITERAL
+                    // carries no program data.
+                    //
+                    // The literal-marker rule of ADR-0161 §3 reads a bare
+                    // literal's WORDING: «internal», «private», «secret»
+                    // in it mean «the destination is internal
+                    // infrastructure, and the destination IS the leak
+                    // vector». That rule is about a SINK's address, and it
+                    // stays exactly where it was. At a request position it
+                    // misfires: the project's own hardening test calls
+                    // `http_get(".../private/data", {robots: true})` and
+                    // expects the runtime's typed `[HTTP_ROBOTS_DENIED]`,
+                    // and a path segment named `/private/` turned it into a
+                    // static PII refusal. A URL an author typed is author
+                    // text, not data that flowed from a source — pin B6 is
+                    // about `"…?k=" + env("KEY")`, a CONCATENATION, where
+                    // the secret and not the wording supplies the label.
+                    //
+                    // So: at a request position a bare literal is bottom,
+                    // and every other shape keeps the full rule.
+                    let label =
+                        if sink_kind(name) == "request" && matches!(a, Expr::StringLit { .. }) {
+                            Label::bottom()
+                        } else {
+                            sink_arg_label(a, env, &origin_labels)
+                        };
                     // ── Naryad #387: the generalized media-sink egress ──
                     // media_save accepts a private/camera-origin handle
                     // when the author holds a legal credential: a
@@ -6149,6 +7269,28 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                         check,
                         violations,
                     );
+                    // ── №951 (the threat-model row B5): FOLD THE BODY'S
+                    // RAISES BACK, exactly as the `While` arm below does.
+                    //
+                    // Until this, the `each` fork was DISCARDED after the
+                    // body walk, so any variable the body raised lost its
+                    // label at loop exit. That is the audit's pin B5:
+                    //   let mut acc = ""
+                    //   each c in split(env("SP"), "") { acc = acc + c }
+                    //   print(acc)                       // check passed
+                    // The iterant itself stays scope-local (the №323 Each
+                    // contract) — it is excluded from the fold, so the
+                    // loop variable does not leak into the outer scope;
+                    // everything else joins, which is the same
+                    // conservative single-pass rule ADR-0154 §8 D1 states
+                    // for `while`. One rule for both loop forms.
+                    for (k, v) in env_body {
+                        if &k == variable {
+                            continue;
+                        }
+                        let merged = env.get(&k).cloned().unwrap_or_else(Label::bottom).join(&v);
+                        env.insert(k, merged);
+                    }
                 }
                 Statement::While {
                     condition, body, ..
@@ -7327,6 +8469,11 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     // path; re-seeding overwrites — each invocation is self-contained,
     // the seed_render_raw contract).
     crate::html_label::seed_render_raw(declarations);
+    // №950 (ADR-0154 §12.3): the interprocedural summaries are seeded
+    // AFTER the raw-position map, because the probe runs below re-enter
+    // the sink walk and the render arm reads that map. Re-seeding
+    // overwrites — the same self-contained-entry-point contract.
+    seed_interproc_summaries(declarations);
     let mut result = AnalysisResult::default();
     let mut entity_types: HashSet<String> = HashSet::new();
     let mut entity_names: HashSet<String> = HashSet::new();

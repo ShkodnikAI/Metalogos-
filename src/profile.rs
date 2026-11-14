@@ -61,6 +61,14 @@ pub struct ResolvedProfiles {
     pub legacy_permissive_with_audit: bool,
     /// №954: the transition-window flag — `profile legacy { capability_imports: warn }`.
     pub legacy_capability_imports_warn: bool,
+    /// №950 (ADR-0154 §12.5): the transition-window flag —
+    /// `profile legacy { interproc: warn }`. The interprocedural
+    /// summaries still run and the findings they ADD are still printed;
+    /// they report as audit events instead of compile errors, for ONE
+    /// release window. The window downgrades only the findings the
+    /// summaries added — every intraprocedural refusal keeps blocking,
+    /// and the duty/likeness gates are never downgraded by any profile.
+    pub legacy_interproc_warn: bool,
     /// `profile licensing { backends: permissive_with_audit }` declared —
     /// the №333 backend-license gate reports audit events instead of
     /// compile errors for non-osi/restrictive weights references.
@@ -137,7 +145,7 @@ pub fn validate(p: &crate::ast::ProfileDecl) -> Result<(), String> {
             // №954 transition-window key; validate_options is single-key).
             if p.options.is_empty() {
                 return Err(
-                    "profile 'legacy' requires options (egress: permissive_with_audit; capability_imports: warn — the №954 transition window)"
+                    "profile 'legacy' requires options (egress: permissive_with_audit; capability_imports: warn — the №954 transition window; interproc: warn — the №950 transition window)"
                         .to_string(),
                 );
             }
@@ -155,9 +163,18 @@ pub fn validate(p: &crate::ast::ProfileDecl) -> Result<(), String> {
                             "unknown capability_imports mode '{other}' for 'legacy' (available: warn — the №954 transition window)"
                         ));
                     }
+                    // №950 (ADR-0154 §12.5): the interprocedural
+                    // transition window — one release window, then the
+                    // key is removed and the gate blocks.
+                    ("interproc", "warn") => {}
+                    ("interproc", other) => {
+                        return Err(format!(
+                            "unknown interproc mode '{other}' for 'legacy' (available: warn — the №950 transition window, ADR-0154 §12.5)"
+                        ));
+                    }
                     (other, _) => {
                         return Err(format!(
-                            "unknown profile option '{other}' for 'legacy' (available: egress, capability_imports)"
+                            "unknown profile option '{other}' for 'legacy' (available: egress, capability_imports, interproc)"
                         ));
                     }
                 }
@@ -326,6 +343,14 @@ pub fn resolve(declarations: &[Declaration]) -> ResolvedProfiles {
                         .options
                         .iter()
                         .any(|(k, v)| k == "capability_imports" && v == "warn");
+                    // №950 (ADR-0154 §12.5): the interprocedural
+                    // transition window — the summaries run, their
+                    // findings print, nothing blocks for one release
+                    // window.
+                    resolved.legacy_interproc_warn = p
+                        .options
+                        .iter()
+                        .any(|(k, v)| k == "interproc" && v == "warn");
                 }
                 "licensing" => {
                     // №333: the audited blanket bridge (unchanged).

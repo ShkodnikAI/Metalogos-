@@ -1,4 +1,10 @@
 row: B5
-flip: №951
-status: CURRENT-PIN — mlog check passes on v0.39.0 (the gap №948 documents; the PoC lives in FOSVED-office-v2 → docs/projects/metalogos/audit_2026-11-12/).
-On the fix (№951): the each-accumulator carries the joined labels — this program refuses with SECRET_LEAK and this pin becomes the leak-suite negative.
+flip: №951 — DONE
+status: LEAK-SUITE NEGATIVE — `mlog check` REFUSES this program with [PII_EGRESS_OUTPUT].
+why: the `each` body's raises fold back into the loop-exit environment, exactly as the `while` arm already did — the asymmetry between the two loop arms WAS the gap.
+note: the class is the SINK-CLEARANCE class of the lattice gate, not the
+  SECRET_LEAK the №948 pin text forecast; SECRET_LEAK is the separate
+  syntactic lane and stays intraprocedural. Recorded rather than renamed —
+  the forecast was the dispatcher's, not the gate's.
+history: passed `mlog check` on the PUBLISHED v0.39.0 while leaking at
+  runtime (the audit of 12.11).

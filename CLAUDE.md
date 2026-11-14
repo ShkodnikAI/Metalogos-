@@ -145,6 +145,94 @@ files** — a multi-file project gives false `undefined` errors. Use
 exactly on this (`Value` does not implement `PartialEq`, the test
 compared directly).
 
+**Every CHANGELOG edit invalidates the generated metrics block.**
+`docs/metrics.md` carries the CHANGELOG's SIZE in KB, so adding a row moves
+it and `docs-metrics (blocking)`, `gate-044`, `gate-045` and `gate-046` all
+go red — three times in one day, twice on an already-pushed PR. The
+sequence is: finish every documentation edit FIRST, then
+`python3 -I scripts/gen_metrics.py`, then
+`METALOGOS_GEN_COMPLIANCE=1 cargo test --test naryad_868_package` to
+re-attest, and only then commit. Running them earlier guarantees a second
+round.
+
+**A conclusion of one's OWN is prose too — verify it before it lands in
+a document.** The gh#1892 analysis was delivered with the conclusion «the
+branch protection did not hold»; the repository's own detective refuted
+it minutes later (`branch-protection-audit` GREEN, `contexts=23
+enforce_admins=True`, 2 h 36 m after the merge in question). Two further
+hypotheses fell the same way: «inattention at the merge button» (23
+required contexts in force make that merge unofferable) and «an Actions
+outage that day» (30 and 57 runs on the two days). §1 says to verify a
+textual description with a fact; the same applies to a sentence the
+agent itself just wrote. The reads that settle a CI question are cheap
+and specific: the detective's own run LOG (`actions/jobs/<id>/logs`,
+where the verdict line lives — the artifact download is proxy-blocked),
+`actions/runs?branch=<ref>` for «did CI ever run here», `actions/runs?created=<date>`
+for the dispatcher timeline, and `/rulesets` before blaming classic
+protection. When the facts cannot separate two mechanisms, name both and
+say which read would settle it — the audit log needs owner access, and
+an inference dressed as a fact is the one output the project cannot use.
+
+**A polling detective cannot witness an event between its polls.** The
+protection audit ran weekly, so both gh#1892 merges sat inside one
+snapshot window and the audit could neither confirm nor refute a toggle
+around them (№960 raised it to daily). Narrowing the window helps; it
+never closes it. When the question is «did someone flip this», the only
+real answer is the event record (the audit log), not a cadence.
+**A corpus sweep counts findings; it cannot see a label getting weaker.**
+The №951 derivation of the registry's network source class SHADOWED the
+№689 private-field rule — `imap_read` lost `private, trusted` for
+`public, untrusted` — and the 475-file sweep showed no change at all,
+because the program still refused, only for a different reason. The full
+test suite caught it. **A change to a label, a clearance or a source
+vocabulary is not verified by a sweep; it is verified by
+`cargo test --workspace`.** A sweep answers «did anything stop refusing or
+start refusing», which is necessary and not sufficient.
+
+**Sweep every `.mlog` in the repository, not `examples/`.** The first №950
+sweep covered `examples/` and reported «exactly four files changed», while
+`self-host/parser.mlog` had gone from 0 to 23 findings — it lives in
+`self-host/`, `benches/fixtures/` holds another 2300-line program, and
+`tests/conformance/` holds more. The honest command is
+`find . -name '*.mlog' -not -path './target/*'` — 475 files, not 386.
+
+**Run clippy before the push, and never trust the local verdict.** CI runs
+`cargo clippy --workspace --all-targets -- -D warnings` on the pinned
+toolchain of `rust-toolchain.toml`; a local newer toolchain rejects
+`#[allow]`s that CI accepts and accepts code CI rejects (№950 pushed a
+private type in a public field and CI's `private_interfaces` caught it).
+The usable local form is
+`cargo clippy --all-targets -- -D warnings -A unknown_lints`, and the
+verdict is still CI's.
+
+**A probe harness that classifies by «no diagnostic class in the output»
+reads an invalid program and a clean program alike.** Two of the audit
+12.11 probes were never evidence: one did not parse (arrow `match` arms —
+Metalogos spells a match with `then {}` blocks) and one did not run
+(`each i, c in …` binds the INDEX first, so it concatenated a Float into a
+String). Check for a parse error FIRST, and for any probe claimed as a
+leak require the leak to be OBSERVED in the sink the probe targets — a
+file, an HTTP body or stdout, whichever it is.
+
+**Never put backticks inside an inline `python3 -c "…"` in bash.** The
+shell performs command substitution on them and silently deletes the
+backticked text from whatever the script writes. Use a heredoc or a script
+file for anything containing backticks.
+
+**The generated metrics block carries the SIZE IN KB of `CHANGELOG.md`
+AND `REFERENCE.md`.** So a new CHANGELOG row — or a paragraph added to
+REFERENCE.md, which is how it bit in №959 (345 → 346 KB) — moves the
+block, and `docs-metrics (blocking)`, `gate-044`, `gate-045` and
+`gate-046` all go red. The sequence is: finish every documentation edit
+FIRST, then `python3 -I scripts/gen_metrics.py`, then
+`METALOGOS_GEN_COMPLIANCE=1 cargo test --test naryad_868_package` to
+re-attest, and only then commit. Running them earlier guarantees a second
+round. The same coupling has a second face: a mutation script that
+mutates anything feeding a generated number will trip the generic
+«blocks are stale» check before its own specific assertion — put the
+specific check EARLY in the gate so the reader sees the reason, not the
+symptom (№959 did this for the fact-class roster).
+
 **A local toolchain in a sandbox may not build the whole project**
 (`Cargo.lock`/edition version mismatch) — this does not mean nothing
 can be verified: `rustfmt --edition 2021 <file>` and `git diff` work

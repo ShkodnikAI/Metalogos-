@@ -1,0 +1,74 @@
+# Naryad №959 (issue #1926, the audit 12.11 — P1): the CLASS of every
+# Phase-8 machine fact, and the USER SURFACE of every capability slot.
+#
+# The fact this roster answers (the issue's §Факт): the Phase-8 machine
+# facts count the PRESENCE OF AN ANCHOR — a decision name in a test file,
+# `pub fn replay_gate` in a module, eight test-function names, twelve
+# headings, a seed region. An anchor is a real thing to check and the
+# gates that read them are honest gates, but an anchor is not a BEHAVIOUR:
+# a tree can carry every anchor of a capability no user can invoke. Read
+# as readiness, `TERMINAL_STOP 13/13` says more than the tree can support.
+#
+# So each fact now declares its class, and each slot its surface, and both
+# are CHECKED against the live tree rather than declared:
+#
+#   class=structural   the fact counts an anchor in the tree. The anchor
+#                      must exist (`evidence`), or the row fails.
+#   class=behavioural  the fact's number is produced by an EXECUTED test
+#                      that counts real outcomes and asserts them against
+#                      the fact itself. Such a row MUST also carry
+#                      `exec=<file>#<needle>`, and both the file and the
+#                      needle must be live — otherwise the row fails. That
+#                      is the mutation the issue names: declaring a
+#                      structural fact behavioural without an executable
+#                      test turns `gen_metrics --check` RED.
+#
+#   surface=builtin | cli | declaration
+#                      the slot's capability can be invoked by a user
+#                      through a builtin, a CLI subcommand or a language
+#                      declaration. `evidence` names the file that proves
+#                      it.
+#   surface=analyzer   the module runs on the `mlog check`/run path, so a
+#                      user action exercises it, but nothing in the
+#                      language or the CLI addresses it directly.
+#   surface=kernel-only
+#                      reachable only from library code and tests. The
+#                      capability exists; a user cannot reach it.
+#
+# The surface verdicts were MEASURED, not assumed: for each slot's module
+# the scan looked for `<leaf>::` references and sorted the referring files
+# into builtins / CLI / analyzer / library / tests. A first attempt
+# searched `crate::<leaf>::` only and reported "no references" for every
+# nested module (`nn/attest`) — that was the scanner's defect, not a
+# finding, and it is why the evidence path rides every row: a verdict with
+# no file behind it is not a verdict.
+#
+# Format (one row per fact, `#` starts a comment):
+#   slot <Cn> fact=<NAME> class=<class> surface=<surface> module=<path>
+#        evidence=<path>#<needle> [exec=<path>#<needle>]
+#
+# The needle is matched as a literal substring of the named file, and
+# `module` is the slot's implementation module. The gate checks BOTH
+# directions: the evidence needle must be live, AND the declared surface
+# must agree with a live reachability scan of `module` — a `kernel-only`
+# row fails the moment a builtin or the CLI starts referencing it (which
+# is the right failure: the row must then be updated, in the same PR as
+# the wiring), and a `builtin`/`cli`/`declaration` row fails if that
+# reference disappears.
+
+slot C1 fact=ATTEST_MAP class=structural surface=builtin module=src/nn/attest.rs evidence=src/builtins/attest.rs#attest::
+slot C2 fact=GRANT_COVERAGE class=structural surface=builtin module=src/grants.rs evidence=src/builtins/grants.rs#grants::
+slot C3 fact=PROVENANCE_SHARE class=structural surface=builtin module=src/provenance.rs evidence=src/builtins/io.rs#provenance::
+slot C4 fact=LICENSED_FLOOR class=structural surface=kernel-only module=src/model_passport.rs evidence=src/model_passport.rs#pub fn
+slot C4 fact=PASSPORT_FRESH class=structural surface=kernel-only module=src/model_passport.rs evidence=src/model_passport.rs#pub fn
+slot C5 fact=OFFLINE_SUITE class=structural surface=builtin module=src/llm.rs evidence=src/builtins/llm.rs#llm::
+slot C6 fact=SEMA_EXTERNAL class=structural surface=analyzer module=src/semantic_types.rs evidence=src/semantic.rs#semantic_types::
+slot C7 fact=REPRO_BITFORBIT class=structural surface=kernel-only module=src/compliance_pack.rs evidence=src/compliance_pack.rs#pub fn
+slot C8 fact=REPLAY_MATCH class=structural surface=kernel-only module=src/decision_trace.rs evidence=src/decision_trace.rs#pub fn
+slot C9 fact=TAINT_GENERATOR_SPACE class=structural surface=analyzer module=src/audit.rs evidence=tests/naryad_465_diff_fuzzer.rs#№904 taint roster BEGIN
+slot C9 fact=TAINT_PROGRAMS_PER_RUN class=behavioural surface=analyzer module=src/audit.rs evidence=tests/naryad_956_delivery_forms.rs#№956 delivery roster BEGIN exec=tests/naryad_956_delivery_forms.rs#the counter and the run must not diverge
+slot C10 fact=JURISDICTION_MATRIX class=structural surface=declaration module=src/jurisdiction.rs evidence=metalogos-server/src/mcp_policy.rs#jurisdiction::
+slot C11 fact=APPROVAL_COVERAGE class=structural surface=builtin module=src/approval.rs evidence=src/builtins/approval.rs#approval::
+slot C12 fact=REPRO_BITFORBIT class=structural surface=kernel-only module=src/compliance.rs evidence=src/compliance.rs#pub fn
+slot C13 fact=INSTITUTIONAL_READY class=structural surface=kernel-only module=src/provider_contract.rs evidence=src/provider_contract.rs#pub fn
+slot C13 fact=VERTICAL_PROFILES class=structural surface=kernel-only module=src/vertical.rs evidence=src/vertical.rs#pub fn

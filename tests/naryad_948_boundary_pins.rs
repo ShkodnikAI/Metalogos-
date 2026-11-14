@@ -32,7 +32,9 @@ fn boundary_dir() -> PathBuf {
     repo_root().join("examples").join("boundaries")
 }
 
-/// The single-file pins: (fixture, table row, fixing naryad).
+/// The single-file pins: (fixture, table row, fixing naryad). The
+/// bijection list — every row keeps its fixture and its `.expected` pin
+/// for the whole life of the table, flipped or not.
 const SINGLE_FILE_PINS: &[(&str, &str, u32)] = &[
     ("b01_source_in_pattern_return.mlog", "B1", 950),
     ("b02_param_to_sink.mlog", "B2", 950),
@@ -43,6 +45,51 @@ const SINGLE_FILE_PINS: &[(&str, &str, u32)] = &[
     ("b07_flow_output.mlog", "B7", 951),
     ("b08_secret_entity_to_string.mlog", "B8", 951),
     ("b09_error_text_value.mlog", "B9", 955),
+];
+
+/// The rows whose gap is STILL OPEN — the pins that must keep passing
+/// `mlog check` until their own naryad lands. B1–B4 left this list when
+/// №950 flipped them (see `n948_b01_b04_interprocedural_boundary_...`
+/// below); B5–B8 leave it with №951, B9 with №955. A row removed from
+/// here without a flipped negative taking its place is a silently
+/// abandoned pin — the table would then claim a gap nothing measures.
+const STILL_OPEN_PINS: &[(&str, &str, u32)] = &[
+    // B7 stays open BY DECISION, not by omission: closing the flow output
+    // exposed three pre-existing lattice questions (the axis the output is
+    // gated on — 8 corpus files on confidentiality alone against 29 on
+    // both; a sink's RETURN value inheriting its arguments' labels, so
+    // `quarantine_write`'s receipt comes out poisoned; and three of the
+    // project's own examples that print private data from a flow, each
+    // pinned as clean by an existing test). Each is an owner decision, and
+    // the fix is held as a patch until it is made.
+    ("b07_flow_output.mlog", "B7", 951),
+    ("b09_error_text_value.mlog", "B9", 955),
+];
+
+/// The rows FLIPPED by №951 — the in-pattern losses, each now a blocking
+/// refusal pinned by the class that actually fires.
+const FLIPPED_951_PINS: &[(&str, &str, &str)] = &[
+    ("b05_each_accumulator.mlog", "B5", "PII_EGRESS_OUTPUT"),
+    ("b06_secret_in_get_url.mlog", "B6", "PII_EGRESS_NETWORK"),
+    (
+        "b08_secret_entity_to_string.mlog",
+        "B8",
+        "PII_EGRESS_OUTPUT",
+    ),
+];
+
+/// The rows FLIPPED by №950 — each now a blocking refusal, pinned by the
+/// diagnostic class that actually fires (the ADR-0154 §12.4 contract: the
+/// existing frozen vocabulary, no new `check_id`).
+const FLIPPED_950_PINS: &[(&str, &str, &str)] = &[
+    (
+        "b01_source_in_pattern_return.mlog",
+        "B1",
+        "PII_EGRESS_OUTPUT",
+    ),
+    ("b02_param_to_sink.mlog", "B2", "PII_EGRESS_OUTPUT"),
+    ("b03_html_via_pattern.mlog", "B3", "HTML_INJECTION"),
+    ("b04_exec_via_pattern.mlog", "B4", "UNTRUSTED_EXEC_DECISION"),
 ];
 
 /// THE DOCS GATE (the №948 mutation target): the boundary table stands,
@@ -148,12 +195,12 @@ fn n948_every_boundary_row_has_its_pin_fixture() {
     }
 }
 
-/// The gap is REAL today: every single-file pin passes `mlog check`
-/// with zero errors (the CURRENT behavior the table documents).
-/// The fixing naryad (№950/№951) FLIPS its row here into the negative.
+/// The gap is REAL today: every STILL-OPEN pin passes `mlog check` with
+/// zero errors (the CURRENT behavior the table documents). The fixing
+/// naryad flips its row out of this list and into a negative below.
 #[test]
 fn n948_boundary_pins_pass_check_today_the_gap_is_real() {
-    for (fixture, row, _) in SINGLE_FILE_PINS {
+    for (fixture, row, _) in STILL_OPEN_PINS {
         let src = fs::read_to_string(boundary_dir().join(fixture))
             .unwrap_or_else(|e| panic!("cannot read {}: {}", fixture, e));
         let result = metalogos::check_program(&src).unwrap_or_else(|e| {
@@ -168,6 +215,81 @@ fn n948_boundary_pins_pass_check_today_the_gap_is_real() {
             row,
             fixture,
             result.errors.iter().map(|e| format!("{:?}", e)).collect::<Vec<_>>()
+        );
+    }
+}
+
+/// B1–B4 pins — FLIPPED TO LEAK-SUITE NEGATIVES by №950 (the №948
+/// contract): the interprocedural summaries (ADR-0154 §12) carry the
+/// callee's internal sources into the call site's label (а) and check the
+/// argument against the clearance the callee's parameter requires (б).
+/// Each of these four fixtures passed `mlog check` on the PUBLISHED
+/// v0.39.0 while leaking at runtime — the audit of 12.11 proved all four
+/// on the release binary. The regression gate: if the open world ever
+/// returns, the refusals disappear and this pin goes RED.
+#[test]
+fn n948_b01_b04_interprocedural_boundary_is_the_refusal() {
+    for (fixture, row, check_id) in FLIPPED_950_PINS {
+        let src = fs::read_to_string(boundary_dir().join(fixture))
+            .unwrap_or_else(|e| panic!("cannot read {}: {}", fixture, e));
+        let result = metalogos::check_program(&src)
+            .unwrap_or_else(|e| panic!("row {}: parse failed — the pin is broken: {}", row, e));
+        let rendered = result
+            .errors
+            .iter()
+            .map(|e| format!("{:?}", e))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains(check_id),
+            "row {} ({}): the interprocedural boundary must refuse with {} — the open world is back (№950, ADR-0154 §12); got: {}",
+            row,
+            fixture,
+            check_id,
+            if rendered.is_empty() {
+                "<no errors — check passes again>"
+            } else {
+                &rendered
+            }
+        );
+    }
+}
+
+/// B5, B6, B8 pins — FLIPPED TO LEAK-SUITE NEGATIVES by №951 (the №948
+/// contract): the in-pattern label losses.
+///
+/// B5 — the `each` body's raises now fold back into the loop-exit
+/// environment, exactly as the `while` arm already did (the asymmetry WAS
+/// the gap). B6 — the address/query family of request builtins gates its
+/// arguments on the confidentiality axis, so a secret in a URL refuses.
+/// B8 — an entity seeds from its explicit annotation, its declared type
+/// AND its initializer's label, not from string literals alone; the
+/// sharpest half of B8 was that `entity k: String<private>` was ignored
+/// outright.
+#[test]
+fn n948_b05_b06_b08_in_pattern_losses_are_the_refusal() {
+    for (fixture, row, check_id) in FLIPPED_951_PINS {
+        let src = fs::read_to_string(boundary_dir().join(fixture))
+            .unwrap_or_else(|e| panic!("cannot read {}: {}", fixture, e));
+        let result = metalogos::check_program(&src)
+            .unwrap_or_else(|e| panic!("row {}: parse failed — the pin is broken: {}", row, e));
+        let rendered = result
+            .errors
+            .iter()
+            .map(|e| format!("{:?}", e))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains(check_id),
+            "row {} ({}): the in-pattern loss must refuse with {} (№951); got: {}",
+            row,
+            fixture,
+            check_id,
+            if rendered.is_empty() {
+                "<no errors — the loss is back>"
+            } else {
+                &rendered
+            }
         );
     }
 }

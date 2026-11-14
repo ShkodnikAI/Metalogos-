@@ -1,4 +1,12 @@
 row: B4
-flip: №950
-status: CURRENT-PIN — mlog check passes on v0.39.0 (the gap №948 documents; the PoC lives in FOSVED-office-v2 → docs/projects/metalogos/audit_2026-11-12/).
-On the fix (№950): the exec lane through the summary rules — this program refuses with UNTRUSTED_EXEC_DECISION and this pin becomes the leak-suite negative.
+flip: №950 — DONE
+status: LEAK-SUITE NEGATIVE — `mlog check` REFUSES this program with [UNTRUSTED_EXEC_DECISION].
+why: the parameter of `Sh` reaches `exec`, so the call site re-decides the exec clearance with the actual argument label (ADR-0154 §12.2 (б)).
+note: the №948 pin text forecast the class as SECRET_LEAK; the class that
+  actually fires is the SINK-CLEARANCE class of the lattice gate, which is
+  what §12 closes. SECRET_LEAK is the separate SYNTACTIC lane (a direct
+  env()→sink match) and stays intraprocedural — recorded here rather than
+  renamed, because the forecast was the dispatcher's, not the gate's.
+history: passed `mlog check` on the PUBLISHED v0.39.0 while leaking at
+  runtime (the audit of 12.11; the PoC lives in FOSVED-office-v2 →
+  docs/projects/metalogos/audit_2026-11-12/).

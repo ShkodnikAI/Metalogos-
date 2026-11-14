@@ -2226,6 +2226,23 @@ collections.push(items, item) -> List      // append to list
 See the full CHANGELOG in [`CHANGELOG.md`](CHANGELOG.md).
 See the architecture decisions in [`docs/adr/`](docs/adr/).
 
+### What is NOT in this reference: the kernel-only capabilities (№959)
+
+Five of the thirteen Phase-8 capability slots have **no user surface at
+all** — no builtin, no CLI subcommand, no declaration — so nothing about
+them appears in the sections above, and their absence is deliberate
+rather than an omission of this document: C4 (`model_passport`), C7
+(`compliance_pack`), C8 (`decision_trace`), C12 (`compliance`) and C13
+(`provider_contract` / `vertical`) are reachable from library code and
+tests only. Two more, C6 (`semantic_types`) and C9 (the audit lane), run
+on the `mlog check` path — a user exercises them by running the checker,
+but nothing in the language addresses them directly.
+
+These capabilities exist and their machine facts are real facts about
+anchors in the tree; they are simply not part of the language a program
+can speak. The per-slot table, with the measurement behind each verdict,
+is in [docs/limitations.md](docs/limitations.md#the-phase-8-capability-slots--kernel--surface-959-the-audit-1211).
+
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
 ## 6. Builtin Index — 531 registered builtins — the three maturity tiers: stable 486 / experimental 24 / parked 21 (№809: the C3(a) levels)

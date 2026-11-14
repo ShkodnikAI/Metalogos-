@@ -185,6 +185,20 @@ shell performs command substitution on them and silently deletes the
 backticked text from whatever the script writes. Use a heredoc or a script
 file for anything containing backticks.
 
+**The generated metrics block carries the SIZE IN KB of `CHANGELOG.md`
+AND `REFERENCE.md`.** So a new CHANGELOG row — or a paragraph added to
+REFERENCE.md, which is how it bit in №959 (345 → 346 KB) — moves the
+block, and `docs-metrics (blocking)`, `gate-044`, `gate-045` and
+`gate-046` all go red. The sequence is: finish every documentation edit
+FIRST, then `python3 -I scripts/gen_metrics.py`, then
+`METALOGOS_GEN_COMPLIANCE=1 cargo test --test naryad_868_package` to
+re-attest, and only then commit. Running them earlier guarantees a second
+round. The same coupling has a second face: a mutation script that
+mutates anything feeding a generated number will trip the generic
+«blocks are stale» check before its own specific assertion — put the
+specific check EARLY in the gate so the reader sees the reason, not the
+symptom (№959 did this for the fact-class roster).
+
 **A local toolchain in a sandbox may not build the whole project**
 (`Cargo.lock`/edition version mismatch) — this does not mean nothing
 can be verified: `rustfmt --edition 2021 <file>` and `git diff` work

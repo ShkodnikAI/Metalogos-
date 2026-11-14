@@ -131,6 +131,70 @@ departs; the repo verifies PRESENCE and INTEGRITY of the digest pins,
 never the substantive force of the audit or the business validity of
 the pilot (§5).
 
+### 2.3a AMENDMENT (naryad №959, the owner directive 12.11) — status **Proposed**
+
+> **This subsection is PROPOSED.** The owner's directive of 2026-11-12
+> states it; it becomes part of the Accepted record on the owner's
+> explicit «принято» (the канон §13.14 п.6 rule — an agent never marks
+> an ADR Accepted). Until then §2.1 and §2.2 above remain the operative
+> definition, and the machine prints BOTH counts so neither reading can
+> be mistaken for the other.
+
+**The finding that moved it.** The thirteen slots' machine facts count
+the PRESENCE OF AN ANCHOR: a decision name in a test file, `pub fn
+replay_gate` in a module, eight test-function names, twelve headings, a
+seed region. Those are real things to check, and the gates that read
+them are honest gates. But an anchor is not a behaviour, and a tree can
+carry every anchor of a capability no user can invoke. Measured in
+naryad №959 against the live tree:
+
+| | count | what it means |
+|---|---:|---|
+| structural | 13/13 | every slot's fact counts a live anchor |
+| behavioural | 1/13 | the fact's number is produced by an EXECUTED test that asserts it against the fact itself (C9: `TAINT_PROGRAMS_PER_RUN`, naryad №956) |
+| user-surface | 6/13 | the capability is reachable through a builtin, the CLI or a declaration (C1, C2, C3, C5, C10, C11) |
+
+The remaining seven: **C6 and C9 are analyzer-only** — their modules run
+on the `mlog check` path, so a user action exercises them, but nothing in
+the language addresses them; **C4, C7, C8, C12 and C13 are kernel-only** —
+reachable from library code and tests alone (`model_passport`,
+`compliance_pack`, `decision_trace`, `compliance`, `provider_contract` /
+`vertical`). The capabilities exist. A user cannot reach them.
+
+`TERMINAL_STOP 13/13` is therefore a true statement about anchors and a
+false statement about readiness, and the only honest repair is to say
+which of the two the gate means.
+
+**The amended 1.0 gate.** The 1.0 gate :=
+
+1. all 13 capability slots **behavioural-GREEN** — a slot counts only
+   when its fact is behavioural (an executed test asserting the number)
+   AND the capability has a user surface (builtin / CLI / declaration);
+2. the external-audit evidence (§2.3 item 1, unchanged);
+3. the paying-pilot evidence (§2.3 item 2, unchanged);
+4. **an external break attempt that found no bypass** — the evidence
+   shape is the audit's (§2.3 item 1): a manifest of the attempt's scope
+   and outcome with the manifest digest pinned explicitly. The attempt,
+   the team and the report contents live outside the repo (the ADR-0201
+   §3.2 boundary); the repo verifies the presence and integrity of the
+   digest pin, never the substantive force of the attempt.
+
+**The amended aggregate.** `TERMINAL_STOP` then counts only the slots
+that satisfy item 1. The machine already computes it: naryad №959's
+`slot_class_counts` reads `scripts/ci/slot_class_roster.txt` and checks
+both directions against the live tree — a behavioural claim without a
+live executed test is a RED gate, and a `kernel-only` row fails the
+moment a builtin or the CLI starts naming its module, so a capability
+that gains a user surface cannot keep an understated row either.
+
+**What this amendment does NOT do.** It does not lower the gate_046
+floor and it does not touch the structural count: the anchors are real
+and their only-up floor stands. It changes which number the 1.0 gate
+reads. The migration is therefore a reporting change today
+(`gen_metrics --check` prints `TERMINAL_STOP: structural 13/13 ·
+behavioural N/13 · user-surface M/13`) and a gate change when the owner
+accepts it.
+
 ### 2.4 The release path for 1.0.0
 
 The 1.0.0 minor departs the calendar train (ADR-0189 §5): the Saturday

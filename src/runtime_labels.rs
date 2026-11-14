@@ -150,7 +150,7 @@ pub fn kv_get_return_label(args: &[crate::interpreter::values::Value]) -> Label 
     kv_label_lookup_from_args(args)
 }
 
-// ── The lift policy (the runtime mirror of the static sanitizer rule) ──
+// ── The lift policy (the runtime twin of the static sanitizer rule) ──
 //
 // A2 (naryad 781): escape_html restores the INTEGRITY only — the
 // CONFIDENTIALITY is the join of the arguments (an escaped secret is

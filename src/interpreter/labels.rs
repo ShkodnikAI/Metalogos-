@@ -346,7 +346,7 @@ impl Interpreter {
         // The kv round-trip contract: record the label the value carried
         // INTO the store (the ADR-0156 §5 «kv в пределах процесса
         // сохраняют» clause).
-        if name == "kv_set" {
+        if name == crate::recipe_ops::NAME_KV_SET {
             if let (Some(crate::interpreter::values::Value::String(key_str)), Some(label)) =
                 (arg_values.first(), arg_labels.get(1))
             {

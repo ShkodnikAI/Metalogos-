@@ -124,6 +124,18 @@ pub fn label_of_expr(expr: &Expr, vars: &HashMap<String, Type>) -> Option<Type> 
             if name == "env" || name == "secret" {
                 return Some(secret_source_type());
             }
+            // №964: a SINK's value is a RECEIPT — an id, a path, a
+            // count — and carries none of the payload's labels. The
+            // table and its reasons live with the classification
+            // (`builtins_classification::is_sink_receipt`), so this lane
+            // and the lattice cannot disagree about what a receipt is.
+            // Measured false positive this closes: a LEGAL quarantine
+            // write passes, and `print(receipt)` was then refused as
+            // SECRET_LEAK — the program did the right thing and got a
+            // refusal for logging the quarantine id (`w1_consent_revoke`).
+            if crate::builtins_classification::is_sink_receipt(name) {
+                return declared_base_type(name);
+            }
             // Any other call: the label joins from the arguments (the
             // taint-propagation parity — upper(env("K")) stays private).
             let mut acc: Option<Type> = None;
@@ -172,6 +184,23 @@ pub fn binding_label(value: &Expr, vars: &HashMap<String, Type>) -> Option<Type>
         }
     }
     label_of_expr(value, vars)
+}
+
+/// The UNLABELLED declared return type of a builtin — the shape a sink
+/// receipt has once the payload's label is dropped (№964). `None` when
+/// the registry declares nothing, which keeps the caller's `None`
+/// («this initializer proves nothing») rather than inventing a type.
+fn declared_base_type(fn_name: &str) -> Option<Type> {
+    let declared = crate::builtins::registry::BUILTIN_REGISTRY
+        .iter()
+        .find(|s| s.name == fn_name)
+        .map(|s| s.return_type_raw)?;
+    match declared {
+        "String" => Some(Type::String),
+        "Float" | "Int" => Some(Type::Float),
+        "Bool" => Some(Type::Bool),
+        _ => None,
+    }
 }
 
 /// The label of a `redact(input, mode)` result: a one-way policy (the

@@ -73,10 +73,15 @@ fn n323_example_label_arrives_through_if_and_each() {
     // the if/else merge and the each exit join.
     assert_eq!(conf_of(&inf, "chosen"), Conf::Private);
     assert_eq!(conf_of(&inf, "gathered"), Conf::Private);
+    // №965 (the B7 fix): the example LEAKED through the flow output edge —
+    // the return is redacted now (ADR-0154 §10, the sanctioned downgrade),
+    // so the OUTPUT label is public while the inference demo above keeps
+    // chosen/gathered private. The old assertion (output private) pinned
+    // the leak-as-clean shape and is flipped together with the example.
     assert_eq!(
         inf.output_label.conf,
-        Conf::Private,
-        "output label must be private"
+        Conf::Public,
+        "the return is redacted — the flow output edge is public (№965)"
     );
     // Secret source: integrity stays trusted.
     assert_eq!(inf.var_labels["chosen"].integrity, Integrity::Trusted);

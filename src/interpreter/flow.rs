@@ -302,6 +302,10 @@ impl Interpreter {
             Some(v) => v,
             None => self.eval_expr(&flow.source)?,
         };
+        // №952: the flow EDGE carries the source's runtime label into the
+        // first step's parameter (the b02 shape: `flow Main { input =
+        // env("SP") -> P }` marks P's argument even on the value path).
+        self.flow_current_label = self.label_of_expr(&flow.source, 0);
 
         // ADR-0056: Build reverse map: step_index -> checkpoint names at that position
         let mut checkpoint_at: HashMap<usize, Vec<String>> = HashMap::new();

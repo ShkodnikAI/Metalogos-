@@ -4739,7 +4739,11 @@ mlogserver {
     route "/parity" method=GET {
         let x = query_param("x")
         if x == "crash" then { let _ = 1 / 0 }
-        respond("200", "x=" + x)
+        // №952: the runtime value-label line refuses an UNREDACTED echo of
+        // a request parameter (the untrusted-egress class) — the parity
+        // fixture echoes the SANITIZED form (the sanctioned downgrade,
+        // ADR-0154 §10); the status-parity semantics of the test unchanged.
+        respond("200", "x=" + redact(x, "all"))
     }
 }
 "#;

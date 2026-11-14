@@ -113,6 +113,14 @@ pub mod parser;
 // `profile legacy { egress: permissive_with_audit }` switches the
 // №325 SINK_CLEARANCE gate into advisory mode (audit events, not errors).
 pub mod profile;
+// Наряд №952 (issue #1919, the audit 12.11 — P0, ADR-0156 §5): the
+// runtime VALUE labels — the second line of defense. The label rides the
+// value at runtime on BOTH backends (TW interpreter + bytecode VM): the
+// SSOT classification seeds sources, operations propagate the join, the
+// sanitizers strip per the static policy table, kv/mem/sessions preserve
+// within the process, and the sink dispatcher refuses with THE SAME
+// clearance rule the static gate applies (one rule, two lanes).
+pub mod runtime_labels;
 // №466 (gh#687) group 4 (reflex): the shared live module — the seven reflex
 // builtins' name literals leave both backends; the bodies were already
 // shared in src/builtins/reflex.rs since №179b/№180/№187/№193.

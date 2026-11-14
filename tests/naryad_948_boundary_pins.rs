@@ -42,7 +42,7 @@ const SINGLE_FILE_PINS: &[(&str, &str, u32)] = &[
     ("b04_exec_via_pattern.mlog", "B4", 950),
     ("b05_each_accumulator.mlog", "B5", 951),
     ("b06_secret_in_get_url.mlog", "B6", 951),
-    ("b07_flow_output.mlog", "B7", 951),
+    ("b07_flow_output.mlog", "B7", 965),
     ("b08_secret_entity_to_string.mlog", "B8", 951),
     ("b09_error_text_value.mlog", "B9", 955),
 ];
@@ -54,17 +54,17 @@ const SINGLE_FILE_PINS: &[(&str, &str, u32)] = &[
 /// here without a flipped negative taking its place is a silently
 /// abandoned pin — the table would then claim a gap nothing measures.
 const STILL_OPEN_PINS: &[(&str, &str, u32)] = &[
-    // B7 stays open BY DECISION, not by omission: closing the flow output
-    // exposed three pre-existing lattice questions (the axis the output is
-    // gated on — 8 corpus files on confidentiality alone against 29 on
-    // both; a sink's RETURN value inheriting its arguments' labels, so
-    // `quarantine_write`'s receipt comes out poisoned; and three of the
-    // project's own examples that print private data from a flow, each
-    // pinned as clean by an existing test). Each is an owner decision, and
-    // the fix is held as a patch until it is made.
-    ("b07_flow_output.mlog", "B7", 951),
+    // B7 left this list with №965 (the owner decisions 13–14.11 made: the
+    // axis is CONFIDENTIALITY, the three examples are fixed as leaks, the
+    // receipt blocker closed by №964). The integrity half of the flow
+    // output is the №966 row — measured, not guessed.
     ("b09_error_text_value.mlog", "B9", 955),
 ];
+
+/// The row FLIPPED by №965 — the flow edge carries the step-return label
+/// (the confidentiality axis): the pin is a blocking leak-suite negative.
+const FLIPPED_965_PINS: &[(&str, &str, &str)] =
+    &[("b07_flow_output.mlog", "B7", "PII_EGRESS_OUTPUT")];
 
 /// The rows FLIPPED by №951 — the in-pattern losses, each now a blocking
 /// refusal pinned by the class that actually fires.
@@ -287,6 +287,78 @@ fn n948_b05_b06_b08_in_pattern_losses_are_the_refusal() {
             check_id,
             if rendered.is_empty() {
                 "<no errors — the loss is back>"
+            } else {
+                &rendered
+            }
+        );
+    }
+}
+
+/// The row FLIPPED by №952 — the value-label second line: the fixture is
+/// a blocking leak-suite negative (the static line refuses with the B1
+/// class), and its .expected documents the RUNTIME twin — the same
+/// program refuses with [SINK_CLEARANCE_RUNTIME] on both backends under
+/// the test-only static-off flag (tests/naryad_952_value_labels.rs).
+const FLIPPED_952_PINS: &[(&str, &str, &str)] =
+    &[("b12_runtime_value_label.mlog", "B12", "PII_EGRESS_OUTPUT")];
+
+/// B12 pin — FLIPPED TO THE LEAK-SUITE NEGATIVE by №952 (the №948
+/// contract): the runtime value-label second line's fixture refuses at
+/// check with the B1 class; the RUNTIME proof (static off, both
+/// backends) lives in tests/naryad_952_value_labels.rs.
+#[test]
+fn n948_b12_value_labels_second_line_is_the_refusal() {
+    for (fixture, row, check_id) in FLIPPED_952_PINS {
+        let src = fs::read_to_string(boundary_dir().join(fixture))
+            .unwrap_or_else(|e| panic!("cannot read {}: {}", fixture, e));
+        let result = metalogos::check_program(&src)
+            .unwrap_or_else(|e| panic!("row {}: parse failed — the pin is broken: {}", row, e));
+        let rendered = result
+            .errors
+            .iter()
+            .map(|e| format!("{:?}", e))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains(check_id),
+            "row {} ({}): the value-label fixture must refuse with {} (№952 static line); got: {}",
+            row,
+            fixture,
+            check_id,
+            if rendered.is_empty() {
+                "<no errors — the second line is back to silence>"
+            } else {
+                &rendered
+            }
+        );
+    }
+}
+
+/// B7 pin — FLIPPED TO THE LEAK-SUITE NEGATIVE by №965 (the №948
+/// contract): the flow edge carries the step's return label; the flow
+/// output is gated as the print channel it is, with the SAME frozen
+/// class, and the step's param→sink facts re-decide at the edge.
+#[test]
+fn n948_b07_flow_edge_carries_the_return_label() {
+    for (fixture, row, check_id) in FLIPPED_965_PINS {
+        let src = fs::read_to_string(boundary_dir().join(fixture))
+            .unwrap_or_else(|e| panic!("cannot read {}: {}", fixture, e));
+        let result = metalogos::check_program(&src)
+            .unwrap_or_else(|e| panic!("row {}: parse failed — the pin is broken: {}", row, e));
+        let rendered = result
+            .errors
+            .iter()
+            .map(|e| format!("{:?}", e))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains(check_id),
+            "row {} ({}): the flow output must refuse with {} (№965); got: {}",
+            row,
+            fixture,
+            check_id,
+            if rendered.is_empty() {
+                "<no errors — the flow edge is back to silence>"
             } else {
                 &rendered
             }

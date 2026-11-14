@@ -152,9 +152,9 @@ pub const DELIVERY_CELLS: &[(&str, &str, &str, &str, &str)] = &[
     (
         "sec_print_env",
         "flow_output",
-        "PASS",
+        "PII_EGRESS_OUTPUT",
         "yes",
-        "B7 OPEN: the flow edge drops the step's return label (threat-model B7, HELD pending the owner's axis decision)",
+        "№965 DONE: the flow edge carries the step's return label (the confidentiality axis; the integrity half is the №966 row)",
     ),
     (
         "sec_print_env",
@@ -229,9 +229,9 @@ pub const DELIVERY_CELLS: &[(&str, &str, &str, &str, &str)] = &[
     (
         "sec_writefile_env",
         "flow_output",
-        "PASS",
-        "no",
-        "B7 OPEN, and the runtime half writes a file: analyzed, not run",
+        "SECRET_LEAK",
+        "yes",
+        "№965 DONE: the flow edge carries the step return label — the SYNTACTIC secret lane (a direct env-to-sink match) fires first for the write_file delivery (SECRET_LEAK), the same refusal family",
     ),
     (
         "sec_writefile_env",
@@ -460,9 +460,9 @@ pub const DELIVERY_CELLS: &[(&str, &str, &str, &str, &str)] = &[
     (
         "html_respond_llm_raw",
         "flow_output",
-        "PASS",
+        "HTML_INJECTION",
         "yes",
-        "B7 OPEN: the flow edge drops the step's return label",
+        "№965 DONE: the flow edge carries the step's return label — the HTML lane's own class fires (the untrusted model output through respond); the integrity half of the EDGE is the №966 row",
     ),
     (
         "html_respond_llm_raw",
@@ -537,9 +537,9 @@ pub const DELIVERY_CELLS: &[(&str, &str, &str, &str, &str)] = &[
     (
         "sec_httpget_env",
         "flow_output",
-        "PASS",
+        "PII_EGRESS_NETWORK",
         "yes",
-        "B7 OPEN: the flow edge drops the step's return label",
+        "№965 DONE: the flow edge carries the step's return label — the request-side family's own class fires at the edge (the №951 B6 vocabulary); the integrity half is the №966 row",
     ),
     (
         "sec_httpget_env",
@@ -614,9 +614,9 @@ pub const DELIVERY_CELLS: &[(&str, &str, &str, &str, &str)] = &[
     (
         "sec_entity_secret",
         "flow_output",
-        "PASS",
+        "PII_EGRESS_OUTPUT",
         "yes",
-        "B7 OPEN: the flow edge drops the step's return label",
+        "№965 DONE: the flow edge carries the step's return label (the confidentiality axis; the integrity half is the №966 row)",
     ),
     (
         "sec_entity_secret",
@@ -962,11 +962,12 @@ fn n956_every_delivery_cell_matches_its_recorded_verdict_on_both_backends() {
         ran
     );
     assert_eq!(
-        ran, 6,
-        "the executable subset moved: 6 of the 7 PASS cells are runnable \
-         (the seventh writes a file through the process CWD and carries \
-         `run: no`). A changed number means a cell flipped — in the roster \
-         or in the lane"
+        ran, 2,
+        "the executable subset moved: 2 of the 2 remaining PASS cells are \
+         runnable (the by-design request-position cells). The five B7 flow \
+         edge cells flipped to refusals with №965 — refused programs are \
+         not executable, that is what the gate is for. A changed number \
+         means a cell flipped — in the roster or in the lane"
     );
     assert_eq!(
         executed,
@@ -1026,11 +1027,12 @@ fn n956_every_pass_cell_names_an_open_row_or_a_design_reason() {
         );
     }
     assert_eq!(
-        pass, 7,
-        "the open set moved: 7 cells passed when this roster was measured \
-         (5 × the B7 flow edge, 2 × the by-design request position). A new \
-         PASS is a finding; a removed one is a fix — either way the number \
-         moves in the SAME PR as the change"
+        pass, 2,
+        "the open set moved: 2 cells pass when this roster was measured \
+         (2 × the by-design request position). The five B7 flow edge cells \
+         flipped to refusals with №965 in the SAME PR. A new PASS is a \
+         finding; a removed one is a fix — either way the number moves in \
+         the SAME PR as the change"
     );
 }
 
@@ -1041,19 +1043,30 @@ fn n956_every_pass_cell_names_an_open_row_or_a_design_reason() {
 fn n956_the_b7_row_and_the_flow_output_cells_agree() {
     let tm = std::fs::read_to_string(repo_root().join("docs").join("threat-model.md"))
         .expect("threat-model.md readable");
-    let b7_open = tm.contains("| B7 |") && !tm.contains("| B7 | FIXED");
+    // №965: B7 is FIXED (the confidentiality axis) — the flow_output
+    // cells are refusals, and the two documents must still agree.
+    let b7_fixed = tm.contains("| B7 | FIXED");
     let flow_cells_pass = DELIVERY_CELLS
         .iter()
         .filter(|(_, form, expected, _, _)| *form == "flow_output" && *expected == "PASS")
         .count();
+    let flow_cells_refuse = DELIVERY_CELLS
+        .iter()
+        .filter(|(_, form, expected, _, _)| *form == "flow_output" && *expected != "PASS")
+        .count();
     assert!(
-        b7_open,
-        "the threat model marks B7 FIXED while {flow_cells_pass} flow_output \
-         cells are recorded as PASS — flip the cells in the same PR"
+        b7_fixed,
+        "the threat model keeps B7 open while {flow_cells_refuse} flow_output \
+         cells are recorded as refusals — flip the row in the same PR"
     );
     assert_eq!(
-        flow_cells_pass, 5,
-        "the flow edge dropped the label on 5 of the 7 triples when this \
-         roster was measured — the number is the reach of B7, not a detail"
+        flow_cells_pass, 0,
+        "a flow_output cell still passes — the №965 edge gate refused \
+         the audited shapes when measured; a PASS here is a finding"
+    );
+    assert_eq!(
+        flow_cells_refuse, 7,
+        "the flow edge refused 5 of the 7 triples when this roster was \
+         measured — the number is the reach of B7, not a detail"
     );
 }

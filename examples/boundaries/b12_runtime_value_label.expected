@@ -1,0 +1,18 @@
+row: B12
+flip: №952 — DONE
+status: LEAK-SUITE NEGATIVE — `mlog check` REFUSES with [PII_EGRESS_OUTPUT]
+  (the static line, the B1 machinery); the №952 RUNTIME twin refuses the
+  SAME program with [SINK_CLEARANCE_RUNTIME] on BOTH backends when the
+  static gate is silenced (METALOGOS_STATIC_LABEL_GATE_OFF=1).
+why: the runtime value-label line (ADR-0156 §5) — the label rides the
+  VALUE: the source marks it, the walk/join propagates it through pattern
+  returns (the live summary walk), bindings, collections, entities and
+  the kv sidecar, and the sink dispatcher checks it with the clearance
+  rule the static gate applies.
+note: the double line is the contract — static catches what it can SEE,
+  the runtime catches what executes; neither can be silenced without the
+  other still refusing the audited shapes.
+history: on the PUBLISHED v0.39.0 the runtime had no value-label line at
+  all — where the static lattice was blind, the leak executed (the audit
+  of 12.11; the PoCs live in FOSVED-office-v2 →
+  docs/projects/metalogos/audit_2026-11-12/).

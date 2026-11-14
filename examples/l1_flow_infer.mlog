@@ -16,6 +16,11 @@ pattern Route(keys: List) -> String {
   each k in keys {
     gathered = gathered + chosen + k
   }
-  return gathered
+  // №965 (the B7 fix, the owner decision 13–14.11): the flow OUTPUT edge
+  // carries the step's return label — this demo leaked the env-derived
+  // value through the output. The sanctioned downgrade is the redact
+  // policy (ADR-0154 §10); the statement-level INFERENCE demo above is
+  // intact — chosen/gathered stay private (tests/naryad_323_flow_infer.rs).
+  return redact(gathered, "all")
 }
 flow Main { input: List = ["alpha", "beta"] -> Route -> output }

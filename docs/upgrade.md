@@ -390,6 +390,43 @@ dispatch beyond the static lattice (row B12) is №952. Until those land,
 an annotated parameter and a redact before the sink remain the honest
 defence on those shapes.
 
+### The in-pattern losses (№951 — the same 0.40.0 window)
+
+Three more shapes that compiled on ≤ 0.39.1 now refuse. All three were
+losses, not permissions: the label existed and the gate did not see it.
+
+| The refusal says | What happened | You do |
+|---|---|---|
+| a label survives an `each` loop it used to lose | the loop body's raises now fold back into the loop-exit environment, as `while` already did | sanitize inside the loop (`redact`, `escape_html`), or build the accumulator from values that clear the sink |
+| a secret in a request URL or query | the ADDRESS/QUERY family (`http_get`, `http_download`, `web_search`, `geo_ip`, `weather*`, `series_pull`, `*_fetch_weights`) gates its arguments on confidentiality | put the secret in a HEADER through the headers argument of a sink builtin rather than the URL, or `redact(x, "secrets")` if a fingerprint is what the endpoint needs |
+| an entity you declared `Secret` or annotated `<private>` | the entity now seeds from its annotation, its declared type and its initializer — the annotation used to be ignored outright | this is the annotation finally working: either stop materializing the value, or `redact` it at the point of use |
+
+**What did NOT change here:** sending natural-language text to a model.
+The CONTENT family (`call_llm`, `call_claude`, `whisper_transcribe`,
+`tts_generate`, `mcp_call`, the mail/calendar/card readers) is not gated
+at its argument position, because the confidentiality clearance there
+collides with the literal-marker rule of ADR-0161 §3 — a prompt that
+merely mentions «private» or «confidential» would refuse. That lane stays
+with the `TAINT_INTERP` contour, which reports prompt egress without
+blocking the ordinary call.
+
+**The source vocabulary.** The registry's `Label::Secret` and
+`Label::Network` source classes now carry their class into the lattice:
+`env_or` and `generate_key` arrive private, and `web_search`,
+`http_download`, `weather`, `imap_read`, `cal_read`, `card_read`,
+`geo_ip`, `whisper_transcribe`, `mcp_call`, `series_pull` and the rest of
+the network class arrive UNTRUSTED — their answer is remote data. A
+program that printed or persisted such an answer directly now refuses, and
+the fix is the ordinary one: `escape_html`/`render` for an HTML sink,
+validation before a decision, or not persisting remote content.
+
+**Still open in this window:** the flow output (threat-model row B7) is
+held by three owner decisions, and the `Label::Internal` source class (94
+names) goes to a name-by-name pass of its own. Until both land, a flow
+that returns a source value and a read-back from the program's own store
+remain unlabelled — stated here so the gap is not mistaken for a
+guarantee.
+
 ### Pinned by
 
 - `tests/naryad_950_interproc_summaries.rs` — both halves at depths
@@ -398,5 +435,12 @@ defence on those shapes.
   methods, the three rule families, the transition window (including
   that it does NOT downgrade an intraprocedural refusal), and the
   frozen `check_id` vocabulary.
-- `tests/naryad_948_boundary_pins.rs` — the B1–B4 pins, flipped from
-  «check passes today» into blocking leak-suite negatives.
+- `tests/naryad_948_boundary_pins.rs` — the B1–B4 pins (№950) and the
+  B5/B6/B8 pins (№951), flipped from «check passes today» into blocking
+  leak-suite negatives.
+- `tests/naryad_951_in_pattern_losses.rs` — the loop fold in both `each`
+  forms and the iterant staying scope-local, the request-URL refusals,
+  the deliberate NON-refusal of a prompt literal that mentions a
+  confidentiality word, the three entity seeds, the derived registry
+  source classes, and the two exclusions with their reasons
+  (`world_state`, the `Internal` class).

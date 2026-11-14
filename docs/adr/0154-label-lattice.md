@@ -279,7 +279,7 @@ Every row's check status was re-verified on this tree (the built binary, `mlog c
 | p04_helper_return, q03_post_helper_return, q05_get_url_helper, q06_post_url_helper, q07_writefile_helper, q08_secret_fn_helper, i04 (2_html_exec_sql_lanes) | PASS | (а) — the return label joins the internal sources → SECRET_LEAK / SECRET_EGRESS_NETWORK |
 | p18_param, q02_post_helper_param, h03_helper_param | PASS | (б) — the parameter reaches a print/respond/http sink → the call-site clearance check → SECRET_LEAK / HTML_INJECTION |
 | q09_two_level, h06_user_input_helper | PASS | (а)+(б) through the CALL-GRAPH FIXPOINT (two levels: the source crosses two pattern boundaries) |
-| p07_loop, l03, l04, l08, l09, h04_loop | PASS | the EACH-accumulator contract (№951): the iterator's label joins every variable the body assigns → SECRET_LEAK / HTML_INJECTION |
+| p07_loop, l03, l04, l08, h04_loop | PASS | the EACH-accumulator contract (№951): the loop body's raises fold back into the loop-exit environment, exactly as the `while` arm already did → PII_EGRESS_OUTPUT / HTML_INJECTION |
 | p13_http_get_url, q04_get_url | PASS | the URL line (№951): a source interpolated into the URL/first argument of http_get/http_post → SECRET_EGRESS_NETWORK |
 | p11_flow_output | PASS | the FLOW contract (№951): a flow step's return carries the label to the flow output → SECRET_LEAK |
 | q10_entity_secret | PASS | the ENTITY contract (№951): a `Secret`-declared entity read back via `to_string` → SECRET_LEAK (the opacity is value-level, not print-site-only) |
@@ -290,7 +290,29 @@ Every row's check status was re-verified on this tree (the built binary, `mlog c
 | e01_direct, e04_llm_exec_direct, h01_direct, h05_user_input, i01, i02 | REFUSE | already caught today — the intraprocedural UNTRUSTED_EXEC_DECISION / HTML_INJECTION lanes |
 | s01_direct, s02_helper_sql, s03_helper_exec | REFUSE | already caught today — the SQL literal gate (shape-based, holds through patterns) |
 | l01, l02, l05, l06, l07, l10 | REFUSE | already caught today — the intraprocedural lanes (direct-source join, branch join, while fixpoint) |
-| p27_env_or | PASS | **A NEW machine-verified finding beyond the audit's leak list**: `env_or` passes check as a print argument — the source-set completion (env_or IS a source) rides №950's classification pass → SECRET_LEAK |
+| p27_env_or | PASS (static only) | **A machine-verified finding beyond the audit's leak list, with a correction (№951 re-validation):** `env_or` passes `mlog check` as a print argument because the lattice's source vocabulary is hand-written and does not name it. But the RUNTIME backstop DOES refuse it (`[SINK_CLEARANCE_RUNTIME]`, verified by running the probe), so the gap is STATIC-ONLY and not an end-to-end leak — the original note overstated it. The static half closes with the registry-derived source classes of №951 → PII_EGRESS_OUTPUT |
+
+### 12.6a Re-validation of the probe table (№951, 2026-11-13) — two probes were never evidence
+
+The table above was supplied by the dispatcher from the audit of 12.11. Re-running every probe while implementing №951 found **two entries that are not valid programs**, and the honest place for that is here, next to the claim they supported:
+
+- **`p08_match`** does not PARSE. It was written as `match x { "x" => s, _ => "n" }` — arrow arms — while Metalogos spells a match with `then { }` blocks. The harness read «no diagnostic class in the output» as «check passes», so a parse error was counted as a clean pass. It is removed from the evidence base; the match-expression label question it was meant to raise is untested and stays open.
+- **`l09`** does not RUN: `each c, i in …` binds the INDEX first and the VALUE second (`src/parser/stmt.rs`), so the probe concatenated a Float index into a String and dies with `[TYPE_MISMATCH]`. Rewritten with the correct order (`each i, c in …`) it IS a leak, and the №951 `each` fix catches it — so the row's RULE stands while the probe that argued for it did not.
+
+The method defect behind both is the dispatcher's, not the language's: a probe harness that classifies by the presence of a diagnostic class treats «invalid program» and «clean program» alike. The corrected harness checks for a parse error first and, for every probe claimed as a leak, requires the leak to be OBSERVED (the secret in the sink's output), not merely the check to be silent. A second, smaller defect showed up in the correction itself: the first re-validation pass looked only at STDOUT and so under-counted the probes whose sink is a file — the honest form checks the sink the probe actually targets.
+
+What the re-validation did NOT shake: of the 29 probes that passed `mlog check` on the published v0.39.0, **14 are confirmed leaking by observation in a sandbox with no network** — 13 with the secret in stdout, plus `q07_writefile_helper`, whose target is a FILE: the re-validation's first pass looked only at stdout and marked it unconfirmed, and the file it had written (`q07.txt`, containing the secret) was then found in the working tree. The remaining seven leak into an HTTP response body or a command — targets the original run captured with its own listener, which this sandbox blocks, so they are unconfirmed HERE rather than refuted. The four pins B1–B4 are refused by name, and the boundary finding itself is unaffected.
+
+### 12.6b The literal-marker rule meets every new gate position (№951)
+
+Twice in one naryad an extension of the sink gate to a new argument position collided with the literal-marker rule of ADR-0161 §3, and the pattern is worth naming once rather than being rediscovered a third time.
+
+The rule reads a BARE STRING LITERAL's wording: «паспорт», «confidential», «internal», «private», «secret» in a literal mean the literal carries personal data or names private infrastructure. It was written for literals that are DATA (a hard-coded passport number) or a SINK'S ADDRESS (the destination is the leak vector). Both collisions came from applying it where a literal is neither:
+
+1. **A prompt.** Gating the arguments of the whole `Role::Source` + `Label::Network` class on confidentiality made the repository's own leak fixture `n449_prompt_egress_chain` refuse on the literal `"summarize the private document"`. Every prompt mentioning a confidentiality word would have followed, in a language whose primary use is asking a model about text. The content family was therefore left out of the request table.
+2. **A URL path.** Even with the table narrowed to the address/query family, the project's hardening probe `http_get(".../private/data", {robots: true})` refused statically on the path segment `/private/`, hiding the runtime's typed `[HTTP_ROBOTS_DENIED]`. At a request position a bare literal is now bottom: a URL the author typed is author text, not data that flowed from a source — pin B6 is about a CONCATENATION, where the secret and not the wording supplies the label.
+
+The general statement: **the literal-marker rule is sound for the positions it was written for and misfires wherever a literal is authored text rather than data.** Any future gate on a new argument position has to decide, explicitly, whether a bare literal in that position is data; the default answer for an authored address or prompt is no. The rule itself is unchanged by №951 — only the positions it is consulted at.
 
 ### 12.7 What this appendix does NOT promise
 

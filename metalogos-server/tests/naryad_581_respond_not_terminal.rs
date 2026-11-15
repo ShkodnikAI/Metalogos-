@@ -203,7 +203,7 @@ mlogserver {
   port: 8094
   route "/tail" method=GET {
     let who = query_param("who")
-    respond("200", "tail " + who)
+    respond("200", escape_html("tail " + who))
   }
   route "/if_tail" method=GET {
     let who = query_param("who")

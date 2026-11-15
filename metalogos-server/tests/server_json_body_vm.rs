@@ -49,7 +49,7 @@ mlogserver {
     let data = json_body()
     let text = data.message.text
     let chat_id = data.message.chat.id
-    respond("Got: " + text + " from " + to_string(chat_id))
+    respond(escape_html("Got: " + text + " from " + to_string(chat_id)))
   }
 }
 "#;
@@ -71,7 +71,7 @@ async fn vm_webhook_telegram_contract() {
     assert_eq!(body, "Got: hello from 12345");
 }
 
-/// §2 scenario 2 (was :179): respond(data.name) on a flat JSON body.
+/// §2 scenario 2 (was :179): respond(escape_html(data.name)) on a flat JSON body.
 #[tokio::test]
 async fn vm_webhook_flat_json() {
     let source = r#"
@@ -79,7 +79,7 @@ mlogserver {
   port: 8091
   route "/echo" method=POST {
     let data = json_body()
-    respond(data.name)
+    respond(escape_html(data.name))
   }
 }
 "#;
@@ -98,7 +98,7 @@ mlogserver {
   route "/items" method=POST {
     let data = json_body()
     let first = get(data.items, 0)
-    respond(first)
+    respond(escape_html(first))
   }
 }
 "#;
@@ -142,7 +142,7 @@ mlogserver {
   route "/null" method=POST {
     let data = json_body()
     let value = data.maybe
-    respond(to_string(value))
+    respond(escape_html(to_string(value)))
   }
 }
 "#;

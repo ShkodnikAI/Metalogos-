@@ -2536,7 +2536,7 @@ dependencies = [
 
 [[package]]
 name = "metalogos-reflex"
-version = "0.39.1"
+version = "0.40.0-rc.1"
 dependencies = [
  "candle-core",
  "candle-nn",
@@ -2548,7 +2548,7 @@ dependencies = [
 
 [[package]]
 name = "metalogos-server"
-version = "0.39.1"
+version = "0.40.0-rc.1"
 dependencies = [
  "axum",
  "bytes",
@@ -2621,7 +2621,7 @@ dependencies = [
 
 [[package]]
 name = "mlog-lsp"
-version = "0.39.1"
+version = "0.40.0-rc.1"
 dependencies = [
  "dashmap 6.2.1",
  "metalogos",
@@ -2633,7 +2633,7 @@ dependencies = [
 
 [[package]]
 name = "mlogpkg"
-version = "0.39.1"
+version = "0.40.0-rc.1"
 dependencies = [
  "clap",
  "hex",

@@ -41,8 +41,13 @@ README = f'{ROOT}/README.md'
 CI_YML = f'{ROOT}/.github/workflows/ci.yml'
 
 # The Version badge line rendered by the shields.io pattern used in README.
+# The version group is NON-GREEDY and hyphen-tolerant: the first prerelease
+# version (0.40.0-rc.1, the release-slice line #1935) renders
+# `badge/v0.40.0-rc.1-blue.svg`, and the old `v[\w.]+` class (no `-`) matched
+# ZERO badges on the very string the renderer itself emitted — the check
+# refused the render's own output. `v.+?` stops at the literal `-blue.svg)]`.
 BADGE_RE = re.compile(
-    r'(\[!\[Version\]\(https://img\.shields\.io/badge/)(v[\w.]+)(-blue\.svg\)\])'
+    r'(\[!\[Version\]\(https://img\.shields\.io/badge/)(v.+?)(-blue\.svg\)\])'
 )
 
 # The CI badge line (№676 D5; №690 moved the badge to the REAL GitHub

@@ -338,7 +338,7 @@ async fn vm_serve_realistic_dept_fragments_compose_and_answer() {
     for (dept, file) in fragments {
         let fragment = read(file);
         let composed = format!(
-            "mlogserver {{\n  port: 0\n  route \"/ask\" method=POST {{\n    let q = json_body()\n    let r = HandleDept{}(q.text)\n    respond(\"200\", r)\n  }}\n}}\n{}",
+            "mlogserver {{\n  port: 0\n  route \"/ask\" method=POST {{\n    let q = json_body()\n    let r = HandleDept{}(q.text)\n    respond(\"200\", escape_html(r))\n  }}\n}}\n{}",
             dept.to_uppercase(),
             fragment
         );

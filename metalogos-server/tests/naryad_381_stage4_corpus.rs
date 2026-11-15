@@ -216,11 +216,16 @@ async fn n381_route_parity_interpreter_vs_vm() {
     // not the loud real-path refusal. The server lock serializes the env
     // window against nothing else in this binary (the only env toucher).
     std::env::set_var("METALOGOS_MOCK_LLM", "1");
+    // №806 (B1): the workload's kv fingerprints are keyed — the parity
+    // window carries the process-scoped REDACT key (same lock, same env
+    // anchor discipline as the mock above).
+    std::env::set_var("METALOGOS_REDACT_KEY", "stage4-parity-key");
 
     let interp = run_all_routes(ServeBackend::Interpreter).await;
     let vm = run_all_routes(ServeBackend::Vm).await;
 
     std::env::remove_var("METALOGOS_MOCK_LLM");
+    std::env::remove_var("METALOGOS_REDACT_KEY");
 
     assert_eq!(
         interp.len(),

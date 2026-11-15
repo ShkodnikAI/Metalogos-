@@ -2195,7 +2195,7 @@ pattern db_order_entry(customer: String, amount: Float) -> String {
   // restores the integrity axis (keys stay distinct, no runtime key
   // needed). The flow was always a TAINT_PERSISTENCE violation; it was
   // invisible only because it crossed a pattern boundary.
-  let customer_fp = redact(customer, "hash_only")
+  let customer_fp = redact(customer, "hash_keyed")
   let a = db_order1(customer, amount)
   let b = db_order2(customer, amount + 1.0)
   let c = session1(customer_fp, "ops")
@@ -2217,7 +2217,7 @@ pattern db_list_entry(limit: String) -> String {
 
 pattern kv_entry(sid: String) -> String {
   // №950: same fingerprint before the session id reaches a persisted key.
-  let sid_fp = redact(sid, "hash_only")
+  let sid_fp = redact(sid, "hash_keyed")
   let a = session2(sid_fp, "billing")
   let b = report5("kv-" + sid_fp, 3.0)
   return a + " | " + b

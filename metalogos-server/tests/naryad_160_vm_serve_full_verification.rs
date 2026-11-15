@@ -47,13 +47,13 @@ mlogserver {
   route "/set" method=GET {
     let key = query_param("key")
     let val = query_param("val")
-    let kf = redact(key, "hash_only")
+    let kf = redact(key, "hash_keyed")
     kv_set(kf, escape_html(val))
     respond("200", escape_html("set " + key + "=" + val))
   }
   route "/get" method=GET {
     let key = query_param("key")
-    let val = kv_get(redact(key, "hash_only"))
+    let val = kv_get(redact(key, "hash_keyed"))
     respond("200", escape_html(val))
   }
 }
@@ -400,6 +400,10 @@ async fn block3_vm_parallel_mixed_routes() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn block3_vm_parallel_kv_isolation() {
+    // №806 (B1): the keyed fingerprint declassifies only under the
+    // process-scoped REDACT key — the kv-isolation block fingerprints its
+    // request keys, so the window anchor is set BEFORE the server boots.
+    std::env::set_var("METALOGOS_REDACT_KEY", "n160-kv-isolation-key");
     let (port, _handle) = start_server(SOURCE_KV_ROUTES, ServeBackend::Vm).await;
     let mut handles = Vec::new();
     for i in 0..8u32 {

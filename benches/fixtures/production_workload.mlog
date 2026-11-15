@@ -2241,7 +2241,7 @@ pattern mix_pipeline(text: String, dept: String, amount: Float) -> String {
   // `match` over MODEL OUTPUT and the lattice carries the scrutinee's
   // label into the result (ADR-0154 §8 — the implicit-flow rule), so
   // storing it would persist untrusted data.
-  let kv_part = session3(redact(dept, "hash_only"), "mix")
+  let kv_part = session3(redact(dept, "hash_keyed"), "mix")
   let guarded = safe_math1(amount)
   let scored = dispatch11(dept2, text)
   let ledger = report7(dept, 5.0)

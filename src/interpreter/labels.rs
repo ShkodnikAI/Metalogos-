@@ -343,6 +343,14 @@ impl Interpreter {
         if !crate::runtime_labels::is_gated_dispatch(name) {
             return Ok(());
         }
+        // №953 × №952: `--allow-unchecked` (the loud banner already fired)
+        // silences the runtime second line exactly as it silences the
+        // static Category-A gates — the opt-out contract is "NO gates for
+        // this test run"; leak-class pins execute and fail on their own
+        // asserts, not on the sink refusal.
+        if self.runtime_label_gate_off {
+            return Ok(());
+        }
         // The kv round-trip contract: record the label the value carried
         // INTO the store (the ADR-0156 §5 «kv в пределах процесса
         // сохраняют» clause).

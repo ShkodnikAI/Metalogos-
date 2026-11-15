@@ -116,6 +116,12 @@ pub struct Interpreter {
     /// for the wire form; resolved in the TW boot from the same
     /// declarations).
     pub(super) egress_advisory: bool,
+    /// №953 × №952: the `mlog test --allow-unchecked` opt-out silences the
+    /// RUNTIME value-label second line too — the contract of
+    /// `test_program_with_dir_unchecked` is "NO gates for this test run"
+    /// and the runtime lane is a gate; the loud banner is the witness.
+    /// Default false: every other path keeps the second line.
+    pub(super) runtime_label_gate_off: bool,
     /// №952 (the audit 12.11, ADR-0156 §5): the runtime value-label env —
     /// name-keyed, VM parity (`Vm::label_env`, №328). Fed at the binding
     /// sites (LetBinding/Assign/entity writes/parameter seeding), read by
@@ -358,6 +364,13 @@ impl Default for Interpreter {
 }
 
 impl Interpreter {
+    /// №953 × №952: the mechanical implementation of the
+    /// `--allow-unchecked` contract — silences the runtime sink gate for
+    /// this interpreter instance (the caller prints the loud banner).
+    pub fn set_runtime_label_gate_off(&mut self, off: bool) {
+        self.runtime_label_gate_off = off;
+    }
+
     pub fn new() -> Self {
         // №489: the background distill-training mailbox (sender stays with
         // the interpreter, cloned per spawn; the receiver is drained lazily
@@ -369,6 +382,7 @@ impl Interpreter {
             flow_current_label: crate::labels::Label::bottom(),
             capability_permits: crate::capability::CapabilityPermits::default(),
             egress_advisory: false,
+            runtime_label_gate_off: false,
             call_depth: std::sync::atomic::AtomicUsize::new(0),
             struct_types: HashMap::new(),
             patterns: HashMap::new(),

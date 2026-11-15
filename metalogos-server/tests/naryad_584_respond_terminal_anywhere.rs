@@ -268,7 +268,7 @@ mlogserver {
         let acc = item
       }
     }
-    respond("200", "clean " + who)
+    respond("200", escape_html("clean " + who))
   }
 }
 "#;

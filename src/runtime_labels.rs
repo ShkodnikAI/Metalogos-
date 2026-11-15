@@ -117,7 +117,7 @@ pub fn source_return_label(fn_name: &str, args: &[crate::interpreter::values::Va
 // clause of ADR-0156 §5.
 
 fn kv_label_table() -> &'static Mutex<HashMap<String, Label>> {
-    static TABLE: OnceLock<Mutex<HashMap<String, Label>>> = OnceLock::new();
+    static KV_LABELS: OnceLock<Mutex<HashMap<String, Label>>> = OnceLock::new();
     TABLE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 

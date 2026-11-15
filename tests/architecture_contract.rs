@@ -522,10 +522,28 @@ const FROZEN_SCCS: &[FrozenScc] = &[
     // SCC-1 (its ast/builtins reads are outgoing, not intra) and no
     // forbidden edge (C2/C3/C5/C6 stay clean). The inventory moves with
     // the module in the same PR — no silent drift.
+    // №952 (gh#1919, the audit 12.11 — P0): src/runtime_labels.rs joins
+    // the analysis tangle deliberately — the runtime VALUE-label line
+    // applies the SAME clearance rule the static gate applies
+    // (semantic::clearance_failure, hoisted pub(crate) by №952), and the
+    // analysis pair calls the runtime mirror (the audit event surface in
+    // audit.rs, the seed/lookup hooks in semantic.rs). No back edge from
+    // SCC-1 (the interpreter/execution call sites import the leaf, the
+    // interpreter/mod.rs node does not mention runtime_labels), no
+    // forbidden layer (C2/C3/C5/C6 stay clean). The inventory moves with
+    // the module in the same PR — no silent drift.
     FrozenScc {
-        files: &["src/audit.rs", "src/semantic.rs", "src/semantic_types.rs"],
+        files: &[
+            "src/audit.rs",
+            "src/runtime_labels.rs",
+            "src/semantic.rs",
+            "src/semantic_types.rs",
+        ],
         edges: &[
+            &["src/audit.rs", "src/runtime_labels.rs"],
             &["src/audit.rs", "src/semantic.rs"],
+            &["src/runtime_labels.rs", "src/audit.rs"],
+            &["src/runtime_labels.rs", "src/semantic.rs"],
             &["src/semantic.rs", "src/audit.rs"],
             &["src/semantic.rs", "src/semantic_types.rs"],
             &["src/semantic_types.rs", "src/semantic.rs"],

@@ -118,7 +118,7 @@ pub fn source_return_label(fn_name: &str, args: &[crate::interpreter::values::Va
 
 fn kv_label_table() -> &'static Mutex<HashMap<String, Label>> {
     static KV_LABELS: OnceLock<Mutex<HashMap<String, Label>>> = OnceLock::new();
-    TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+    KV_LABELS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// Record the label a value carried INTO the kv store (kv_set, the

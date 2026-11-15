@@ -139,7 +139,7 @@ Each line is a refusal class with its pinned negative — a program in the BLOCK
 <!-- BEGIN GENERATED METRICS (scripts/gen_metrics.py — do not edit inside) -->
 | Metric | Value (generated — do not hand-edit) |
 | ------ | ------------------------------------- |
-| Version | 0.39.1 |
+| Version | 0.40.0-rc.1 |
 | Leak Suite | 56 negatives / 27 positives (the BLOCKING gate) |
 | Full metrics | [docs/metrics.md](docs/metrics.md) — the generated table |
 <!-- END GENERATED METRICS -->

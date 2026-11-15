@@ -27,6 +27,10 @@ impl Interpreter {
         // compiler (Program::capability_permits → Vm::load_program) —
         // the TW/VM parity by construction (the №829 lesson).
         self.capability_permits = crate::capability::permits_from_declarations(&declarations);
+        // №952 + ADR-0161: the egress posture — resolved from the SAME
+        // entry declarations the static audit reads (audit.rs:6002); the
+        // advisory verdicts are audit events, not refusals, on BOTH lanes.
+        self.egress_advisory = crate::profile::resolve(&declarations).permissive();
 
         // Наряд №119: build type alias map for runtime resolution
         let (type_alias_map, alias_errors) = crate::ast::build_type_alias_map(&declarations);
@@ -1986,7 +1990,7 @@ impl Interpreter {
                 if crate::runtime_labels::is_gated_dispatch(function) {
                     let arg_labels: Vec<crate::labels::Label> =
                         args.iter().map(|a| self.label_of_expr(a, 0)).collect();
-                    crate::runtime_labels::gate_labels_only(function, &arg_labels)?;
+                    crate::runtime_labels::gate_labels_only(function, &arg_labels, self.egress_advisory)?;
                 }
                 let mut eval_args = Vec::new();
                 for arg in args {
@@ -2154,7 +2158,7 @@ impl Interpreter {
                 if crate::runtime_labels::is_gated_dispatch(name) {
                     let arg_labels: Vec<crate::labels::Label> =
                         args.iter().map(|a| self.label_of_expr(a, 0)).collect();
-                    crate::runtime_labels::gate_labels_only(name, &arg_labels)?;
+                    crate::runtime_labels::gate_labels_only(name, &arg_labels, self.egress_advisory)?;
                 }
                 let mut eval_args = Vec::new();
                 for (i, arg) in args.iter().enumerate() {

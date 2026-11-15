@@ -356,7 +356,7 @@ impl Interpreter {
         for (i, value) in arg_values.iter().enumerate() {
             let walk_label = arg_labels.get(i).cloned().unwrap_or_else(Label::bottom);
             let label = walk_label.join(&Self::value_variant_label(value));
-            crate::runtime_labels::runtime_sink_check(name, i, &label, line)?;
+            crate::runtime_labels::runtime_sink_check(name, i, &label, line, self.egress_advisory)?;
         }
         Ok(())
     }

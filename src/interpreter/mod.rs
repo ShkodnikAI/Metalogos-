@@ -111,6 +111,11 @@ pub struct Interpreter {
     /// `Program::capability_permits` (the wire field). consulted by
     /// `capability::authorize_call` at every builtin dispatch site.
     pub capability_permits: crate::capability::CapabilityPermits,
+    /// №952 + ADR-0161: the entry program's egress posture (the runtime
+    /// twin of the static audit's `advisory` — see Program::egress_advisory
+    /// for the wire form; resolved in the TW boot from the same
+    /// declarations).
+    pub(super) egress_advisory: bool,
     /// №952 (the audit 12.11, ADR-0156 §5): the runtime value-label env —
     /// name-keyed, VM parity (`Vm::label_env`, №328). Fed at the binding
     /// sites (LetBinding/Assign/entity writes/parameter seeding), read by
@@ -363,6 +368,7 @@ impl Interpreter {
             label_env: std::sync::Mutex::new(BTreeMap::new()),
             flow_current_label: crate::labels::Label::bottom(),
             capability_permits: crate::capability::CapabilityPermits::default(),
+            egress_advisory: false,
             call_depth: std::sync::atomic::AtomicUsize::new(0),
             struct_types: HashMap::new(),
             patterns: HashMap::new(),
@@ -851,6 +857,11 @@ impl Interpreter {
         target
             .capability_permits
             .merge_union(&self.capability_permits);
+        // №952 + ADR-0161: the egress posture rides the boot merge too —
+        // the route bodies (the native cron ticks, the TW route bodies)
+        // must see the SAME posture the boot resolved (the №426 lesson:
+        // the tick executes on the TW interpreter whatever the backend).
+        target.egress_advisory = self.egress_advisory;
         // ADR-0053: copy conversation config (conversations themselves are per-session).
         // №521: CONDITIONAL on the source actually having SEEN a
         // `conversation {}` declaration — the boot merge runs ONE

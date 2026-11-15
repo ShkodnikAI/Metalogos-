@@ -250,12 +250,16 @@ pub fn is_gated_dispatch(fn_name: &str) -> bool {
 /// The pre-evaluation form of the sink gate: the walk's labels only (no
 /// values yet). The intercepted dispatch paths (print/http_get/kv_*) call
 /// this at the eval arm head — BEFORE the builtin executes.
-pub fn gate_labels_only(fn_name: &str, arg_labels: &[Label]) -> Result<(), String> {
+pub fn gate_labels_only(
+    fn_name: &str,
+    arg_labels: &[Label],
+    advisory: bool,
+) -> Result<(), String> {
     if !is_gated_dispatch(fn_name) {
         return Ok(());
     }
     for (i, label) in arg_labels.iter().enumerate() {
-        runtime_sink_check(fn_name, i, label, 0)?;
+        runtime_sink_check(fn_name, i, label, 0, advisory)?;
     }
     Ok(())
 }
@@ -265,6 +269,7 @@ pub fn runtime_sink_check(
     arg_index: usize,
     label: &Label,
     line: u32,
+    advisory: bool,
 ) -> Result<(), String> {
     if let Some(_reason) = crate::semantic::clearance_failure(fn_name, label) {
         let reason = crate::audit::sink_check_id(fn_name, arg_index, label);
@@ -279,6 +284,20 @@ pub fn runtime_sink_check(
                 reason
             ),
         );
+        // ADR-0161 §compatibility: `profile legacy { egress:
+        // permissive_with_audit }` switches the gate to ADVISORY — the
+        // audit event fires and the dispatch proceeds, exactly like the
+        // static lane (audit.rs: the Severity::Info downgrade). The
+        // posture is the same `profile::resolve(...).permissive()` the
+        // static gate reads — the two lanes agree on the posture as well
+        // as the verdict (the naryad's own «one rule, two lanes»).
+        if advisory {
+            eprintln!(
+                "[SINK_CLEARANCE][audit-event] {} (audit event: profile legacy / egress permissive_with_audit)",
+                message
+            );
+            return Ok(());
+        }
         eprintln!("[SINK_CLEARANCE][audit-event] {}", message);
         return Err(message);
     }

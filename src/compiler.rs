@@ -540,6 +540,8 @@ impl Compiler {
         // same declarations, the same roster; the TW/VM parity by
         // construction, the №829 lesson).
         self.capability_permits = crate::capability::permits_from_declarations(&all_decls).to_vec();
+        // №952 + ADR-0161: the posture from the SAME all_decls scope.
+        self.egress_advisory = crate::profile::resolve(&all_decls).permissive();
 
         // Phase 2: two-pass compilation
         // Pass 1: collect struct types, pattern names, learnable names, global slots
@@ -687,6 +689,7 @@ impl Compiler {
         }
 
         let program = Program {
+            egress_advisory: self.egress_advisory,
             // Build globals list with actual names (indexed by slot)
             globals: (0..self.next_global)
                 .map(|i| {

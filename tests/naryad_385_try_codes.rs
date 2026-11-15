@@ -414,6 +414,7 @@ fn n385_vm_runtime_sink_refusal_carries_classifier_stamp() {
     use metalogos::bytecode::{Instruction, Program};
     use metalogos::vm::Vm;
     let program = Program {
+            egress_advisory: false,
         globals: vec![],
         patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],

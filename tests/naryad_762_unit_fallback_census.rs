@@ -56,7 +56,9 @@ fn repo_root() -> PathBuf {
 }
 
 fn bare_program(main_code: Vec<Instruction>) -> Program {
+        egress_advisory: false,
     Program {
+            egress_advisory: false,
         globals: vec![],
         patterns: Arc::new(vec![]),
         learnables: vec![],
@@ -82,12 +84,14 @@ fn bare_program(main_code: Vec<Instruction>) -> Program {
 }
 
 fn underflow_program(instrs: Vec<Instruction>) -> Program {
+        egress_advisory: false,
     let mut p = bare_program(instrs);
     p.main_code.push(Instruction::Halt);
     p
 }
 
 fn pattern_program(body: Vec<Instruction>) -> Program {
+        egress_advisory: false,
     let mut p = bare_program(vec![
         Instruction::RegisterPatternRef(0),
         Instruction::CallPattern(0, 0),

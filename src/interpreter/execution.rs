@@ -1990,7 +1990,11 @@ impl Interpreter {
                 if crate::runtime_labels::is_gated_dispatch(function) {
                     let arg_labels: Vec<crate::labels::Label> =
                         args.iter().map(|a| self.label_of_expr(a, 0)).collect();
-                    crate::runtime_labels::gate_labels_only(function, &arg_labels, self.egress_advisory)?;
+                    crate::runtime_labels::gate_labels_only(
+                        function,
+                        &arg_labels,
+                        self.egress_advisory,
+                    )?;
                 }
                 let mut eval_args = Vec::new();
                 for arg in args {
@@ -2158,7 +2162,11 @@ impl Interpreter {
                 if crate::runtime_labels::is_gated_dispatch(name) {
                     let arg_labels: Vec<crate::labels::Label> =
                         args.iter().map(|a| self.label_of_expr(a, 0)).collect();
-                    crate::runtime_labels::gate_labels_only(name, &arg_labels, self.egress_advisory)?;
+                    crate::runtime_labels::gate_labels_only(
+                        name,
+                        &arg_labels,
+                        self.egress_advisory,
+                    )?;
                 }
                 let mut eval_args = Vec::new();
                 for (i, arg) in args.iter().enumerate() {

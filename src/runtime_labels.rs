@@ -250,11 +250,7 @@ pub fn is_gated_dispatch(fn_name: &str) -> bool {
 /// The pre-evaluation form of the sink gate: the walk's labels only (no
 /// values yet). The intercepted dispatch paths (print/http_get/kv_*) call
 /// this at the eval arm head — BEFORE the builtin executes.
-pub fn gate_labels_only(
-    fn_name: &str,
-    arg_labels: &[Label],
-    advisory: bool,
-) -> Result<(), String> {
+pub fn gate_labels_only(fn_name: &str, arg_labels: &[Label], advisory: bool) -> Result<(), String> {
     if !is_gated_dispatch(fn_name) {
         return Ok(());
     }

@@ -1987,7 +1987,12 @@ impl Interpreter {
             } => {
                 // №952: the same pre-eval gate on the qualified path (the
                 // tool-namespace sinks and the request-egress family).
-                if crate::runtime_labels::is_gated_dispatch(function) {
+                // №953 × №952: `--allow-unchecked` (the loud banner already
+                // fired) silences the second line on the qualified path too —
+                // the opt-out contract is "NO gates for this test run".
+                if !self.runtime_label_gate_off
+                    && crate::runtime_labels::is_gated_dispatch(function)
+                {
                     let arg_labels: Vec<crate::labels::Label> =
                         args.iter().map(|a| self.label_of_expr(a, 0)).collect();
                     crate::runtime_labels::gate_labels_only(
@@ -2159,7 +2164,13 @@ impl Interpreter {
                 // the intercepted builtins (print/http_get/kv_*) bypass the
                 // generic registry site below, so the gate lives at the arm
                 // head (the walk is pure: no re-evaluation, no side effects).
-                if crate::runtime_labels::is_gated_dispatch(name) {
+                // №953 × №952: the arm head is THE main gate entry — the
+                // `--allow-unchecked` opt-out must silence it here too (the
+                // contract: NO gates for this test run; the banner is the
+                // witness, the leak pins fail on their own asserts).
+                if !self.runtime_label_gate_off
+                    && crate::runtime_labels::is_gated_dispatch(name)
+                {
                     let arg_labels: Vec<crate::labels::Label> =
                         args.iter().map(|a| self.label_of_expr(a, 0)).collect();
                     crate::runtime_labels::gate_labels_only(

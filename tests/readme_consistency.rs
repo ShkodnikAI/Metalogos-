@@ -170,8 +170,12 @@ fn readme_version_matches_cargo_toml() {
     let real_version = cargo_version();
 
     // Find all version mentions on non-historical lines.
-    // We look for both `v0.17.0` and `0.17.0` patterns.
-    let re = Regex::new(r"v?(\d+\.\d+\.\d+)").unwrap();
+    // We look for both `v0.17.0` and `0.17.0` patterns — and the PRERELEASE
+    // suffix (`0.40.0-rc.1`, the release-slice line #1935): the bare
+    // `\d+\.\d+\.\d+` captured `0.40.0` from the badge URL and could never
+    // equal the Cargo version `0.40.0-rc.1`, so the assert fired on the
+    // first prerelease version the repo ever shipped.
+    let re = Regex::new(r"v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)").unwrap();
 
     let mut checked = false;
     for (i, line) in readme.lines().enumerate() {

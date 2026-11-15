@@ -9,9 +9,8 @@
 use metalogos::bytecode::{Instruction, Program};
 
 fn minimal_program() -> Program {
-        egress_advisory: false,
     Program {
-            egress_advisory: false,
+        egress_advisory: false,
         globals: vec!["x".to_string()],
         patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],

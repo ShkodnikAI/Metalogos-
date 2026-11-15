@@ -16,9 +16,8 @@ use metalogos::interpreter::Value;
 use metalogos::vm::Vm;
 
 fn empty_program() -> Program {
-        egress_advisory: false,
     Program {
-            egress_advisory: false,
+        egress_advisory: false,
         globals: vec![],
         patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],

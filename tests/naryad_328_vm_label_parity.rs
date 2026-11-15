@@ -17,9 +17,8 @@ use metalogos::labels::{Conf, Label};
 use metalogos::vm::Vm;
 
 fn program_with(main_code: Vec<Instruction>) -> Program {
-        egress_advisory: false,
     Program {
-            egress_advisory: false,
+        egress_advisory: false,
         globals: vec![],
         patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],

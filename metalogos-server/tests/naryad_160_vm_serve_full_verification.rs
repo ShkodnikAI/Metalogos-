@@ -47,12 +47,13 @@ mlogserver {
   route "/set" method=GET {
     let key = query_param("key")
     let val = query_param("val")
-    kv_set(key, val)
+    let kf = redact(key, "hash_only")
+    kv_set(kf, escape_html(val))
     respond("200", escape_html("set " + key + "=" + val))
   }
   route "/get" method=GET {
     let key = query_param("key")
-    let val = kv_get(key)
+    let val = kv_get(redact(key, "hash_only"))
     respond("200", escape_html(val))
   }
 }

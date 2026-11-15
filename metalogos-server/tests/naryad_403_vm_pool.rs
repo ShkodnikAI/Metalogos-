@@ -42,12 +42,12 @@ mlogserver {
   route "/probe" method=GET {
     let name = query_param("name")
     db_execute("CREATE TABLE IF NOT EXISTS frames (id INTEGER PRIMARY KEY, path TEXT)")
-    db_execute("INSERT INTO frames (path) VALUES ($1)", [name])
+    db_execute("INSERT INTO frames (path) VALUES ($1)", [escape_html(name)])
     let g = grant_issue("db:delete:frames", 60, "n", 1)
     let wiped = db_execute_with_grant(g, "DELETE FROM frames", [])
     let refused = db_execute_with_grant(g, "DELETE FROM frames", [])
     let snap = ledger_snapshot()
-    respond("200", "name:" + name + "|wiped:" + wiped + "|refused:" + type_of(refused) + "|snap:" + type_of(snap))
+    respond("200", "name:" + escape_html(name) + "|wiped:" + wiped + "|refused:" + type_of(refused) + "|snap:" + type_of(snap))
   }
   route "/poison" method=GET {
     db_execute("CREATE TABLE IF NOT EXISTS frames (id INTEGER PRIMARY KEY, path TEXT)")

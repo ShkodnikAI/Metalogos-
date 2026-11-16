@@ -175,6 +175,7 @@ fn generate_runtime_model_recheck_loud_error() {
     // Build a Program whose vision declaration names an unknown model —
     // bypassing semantic validation (deserialized bytecode / hand-built).
     let mut program = Program {
+        legacy_approval_warn: false,
         egress_advisory: false,
         globals: vec![],
         patterns: std::sync::Arc::new(vec![]),

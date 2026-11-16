@@ -9,7 +9,9 @@
 use metalogos::bytecode::{Instruction, Program};
 
 fn minimal_program() -> Program {
+    legacy_approval_warn: false,
     Program {
+        legacy_approval_warn: false,
         egress_advisory: false,
         globals: vec!["x".to_string()],
         patterns: std::sync::Arc::new(vec![]),

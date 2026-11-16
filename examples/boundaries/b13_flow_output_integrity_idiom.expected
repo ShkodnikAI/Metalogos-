@@ -1,0 +1,3 @@
+row: B13
+flip: №966 — the implementation lands after the owner's explicit «принято» (the chosen ADR-0154 §13.3 form, as a separate commit of №966 or the next naryad)
+status: OPEN BY DECISION — mlog check PASSES (the behavior this pin fixes). The mutation this pin exists to catch: gate the flow output edge on BOTH axes (`clearance_failure("print", &edge)` in the Flow arm) — the check then refuses this program with [HTML_INJECTION] (the frozen print-channel integrity class; no new check_id, §12.4) and `tests/naryad_966_flow_integrity.rs` + `tests/naryad_948_boundary_pins.rs` go red (`scripts/mutation_verify_966.sh`).

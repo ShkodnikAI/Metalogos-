@@ -95,13 +95,13 @@ mlogserver {{
   port: 0
   route "/remember" method=POST {{
     let body = json_body()
-    let t = body.text
+    let t = escape_html(body.text)
     memorize(t, 1.0)
     return "ok"
   }}
   route "/roundtrip" method=POST {{
     let body = json_body()
-    let t = body.text
+    let t = escape_html(body.text)
     memorize(t, 1.0)
     let r = recall(t)
     return r

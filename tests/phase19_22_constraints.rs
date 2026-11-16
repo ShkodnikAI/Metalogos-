@@ -194,6 +194,7 @@ pattern bad_assign() -> String {
 fn test_z21_startswith_instruction_vm() {
     let mut vm = Vm::new();
     let program = Program {
+        egress_advisory: false,
         globals: vec![],
         patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],
@@ -240,6 +241,7 @@ fn test_z21_startswith_in_pattern_body() {
             &mut Vec::new(),
             &mut Vec::new(),
             &Program {
+                egress_advisory: false,
                 globals: vec![],
                 patterns: std::sync::Arc::new(vec![]),
                 learnables: vec![],
@@ -276,6 +278,7 @@ fn test_z21_startswith_in_pattern_body() {
 fn test_z21_startswith_negative() {
     let mut vm = Vm::new();
     let program = Program {
+        egress_advisory: false,
         globals: vec![],
         patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],
@@ -363,6 +366,7 @@ fn test_z22_make_list_in_pattern_body() {
             &mut Vec::new(),
             &mut Vec::new(),
             &Program {
+                egress_advisory: false,
                 globals: vec![],
                 patterns: std::sync::Arc::new(vec![]),
                 learnables: vec![],
@@ -408,6 +412,7 @@ fn test_z22_pop_in_pattern_body() {
             &mut Vec::new(),
             &mut Vec::new(),
             &Program {
+                egress_advisory: false,
                 globals: vec![],
                 patterns: std::sync::Arc::new(vec![]),
                 learnables: vec![],
@@ -453,6 +458,7 @@ fn test_z22_contains_in_pattern_body() {
             &mut Vec::new(),
             &mut Vec::new(),
             &Program {
+                egress_advisory: false,
                 globals: vec![],
                 patterns: std::sync::Arc::new(vec![]),
                 learnables: vec![],
@@ -503,6 +509,7 @@ fn test_z22_index_access_in_pattern_body() {
             &mut Vec::new(),
             &mut Vec::new(),
             &Program {
+                egress_advisory: false,
                 globals: vec![],
                 patterns: std::sync::Arc::new(vec![]),
                 learnables: vec![],
@@ -552,6 +559,7 @@ fn test_z22_struct_in_pattern_body() {
             &mut Vec::new(),
             &mut Vec::new(),
             &Program {
+                egress_advisory: false,
                 globals: vec![],
                 patterns: std::sync::Arc::new(vec![]),
                 learnables: vec![],

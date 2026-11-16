@@ -1,0 +1,15 @@
+// №948 boundary pin B12 (the value-label second line) — FLIPPED by №952.
+// The static lattice refuses this shape the same way B1 does; №952 pins
+// the SECOND line: when the static gate is silenced entirely
+// (METALOGOS_STATIC_LABEL_GATE_OFF=1, the test-only flag), the EXECUTING
+// backend still refuses — the label rides the value through the pattern
+// return (the live runtime summary), the binding sites and the kv
+// sidecar, and the sink dispatcher checks it with the SAME clearance rule
+// the static gate applies (semantic::clearance_failure — one rule, two
+// lanes). The executable proof: tests/naryad_952_value_labels.rs (14
+// tests, BOTH backends: the static-off probes b1/b2/b5/b6/b8, the dynamic
+// kv round-trip, the A2 sanitizer rule, and the literal-stays-green
+// control).
+pattern G(x: String) -> String { return env("SP") }
+pattern P(x: String) -> String { print(G("a")) return "ok" }
+flow Main { input: String = "x" -> P -> output }

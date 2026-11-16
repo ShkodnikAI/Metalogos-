@@ -5990,6 +5990,15 @@ fn check_sink_clearance(
     source: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
+    // №952: the TEST-ONLY static-gate silencer —
+    // `METALOGOS_STATIC_LABEL_GATE_OFF=1` skips the sink-clearance
+    // findings so a test can prove the RUNTIME value-label line (the
+    // second line, ADR-0156 §5) catches the flow alone, on both
+    // backends. Not a production knob: the docs call it test-only, and
+    // the value-label tests set it per-process.
+    if crate::runtime_labels::static_labels_disabled() {
+        return;
+    }
     let profiles = crate::profile::resolve(declarations);
     let advisory = profiles.permissive();
     let violations = crate::semantic::sink_clearance_violations(declarations);

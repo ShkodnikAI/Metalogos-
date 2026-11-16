@@ -718,6 +718,15 @@ pub struct Program {
     /// standard posture, the fail-closed default).
     #[serde(default)]
     pub capability_permits: Vec<String>,
+    /// №952 (ADR-0156 §5 + ADR-0161): the egress posture of the entry
+    /// program — `profile legacy { egress: permissive_with_audit }` makes
+    /// the sink-clearance verdicts ADVISORY on BOTH lanes (the static
+    /// gate reads `profile::resolve(...).permissive()` in the audit; the
+    /// runtime value-label gate reads this wire field in the dispatch).
+    /// `#[serde(default)]` — old .mbc files deserialize cleanly (false =
+    /// the fail-closed default posture).
+    #[serde(default)]
+    pub egress_advisory: bool,
     /// №758: the NAME part of `db { url: env("NAME") }` — the URL is
     /// resolved by the VM at the first db access (the interpreter's
     /// runtime semantics), never embedded into the bytecode: a

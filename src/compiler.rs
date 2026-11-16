@@ -114,6 +114,9 @@ pub struct Compiler {
     /// `profile capability { allow_carrier: … }` declarations, collected
     /// in `compile()` and emitted into `Program::capability_permits`.
     capability_permits: Vec<String>,
+    /// №952 + ADR-0161: resolved in `compile()` (the same `all_decls`
+    /// scope as the permit roster) and emitted into `Program::egress_advisory`.
+    egress_advisory: bool,
     /// №758: the NAME part of `db { url: env("NAME") }` — resolved by
     /// the VM at the first db access (runtime semantics, no credential
     /// in the bytecode).
@@ -378,6 +381,7 @@ impl Compiler {
             conversation_config: Default::default(),
             db_url: None,
             capability_permits: Vec::new(),
+            egress_advisory: false,
             db_url_env: None,
             schema_ddl: Vec::new(),
             std_root,
@@ -540,6 +544,8 @@ impl Compiler {
         // same declarations, the same roster; the TW/VM parity by
         // construction, the №829 lesson).
         self.capability_permits = crate::capability::permits_from_declarations(&all_decls).to_vec();
+        // №952 + ADR-0161: the posture from the SAME all_decls scope.
+        self.egress_advisory = crate::profile::resolve(&all_decls).permissive();
 
         // Phase 2: two-pass compilation
         // Pass 1: collect struct types, pattern names, learnable names, global slots
@@ -687,6 +693,7 @@ impl Compiler {
         }
 
         let program = Program {
+            egress_advisory: self.egress_advisory,
             // Build globals list with actual names (indexed by slot)
             globals: (0..self.next_global)
                 .map(|i| {

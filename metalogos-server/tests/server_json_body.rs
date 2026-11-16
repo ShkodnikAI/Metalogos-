@@ -15,7 +15,7 @@ mlogserver {
     let data = json_body()
     let text = data.message.text
     let chat_id = data.message.chat.id
-    respond("Got: " + text + " from " + to_string(chat_id))
+    respond(escape_html("Got: " + text + " from " + to_string(chat_id)))
   }
 }
 "#;
@@ -26,7 +26,7 @@ mlogserver {
   port: 8091
   route "/echo" method=POST {
     let data = json_body()
-    respond(data.name)
+    respond(escape_html(data.name))
   }
 }
 "#;
@@ -202,7 +202,7 @@ mlogserver {
   route "/items" method=POST {
     let data = json_body()
     let first = get(data.items, 0)
-    respond(first)
+    respond(escape_html(first))
   }
 }
 "#;
@@ -278,7 +278,7 @@ mlogserver {
   route "/null" method=POST {
     let data = json_body()
     let value = data.maybe
-    respond(to_string(value))
+    respond(escape_html(to_string(value)))
   }
 }
 "#;

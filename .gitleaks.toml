@@ -41,3 +41,15 @@ description = "The compliance evidence package v1 — public digests of public a
 paths = [
   '''docs/compliance/attestation-map-v1\.txt''',
 ]
+
+# №952 × №806: the keyed-fingerprint TEST values — the process-scoped
+# METALOGOS_REDACT_KEY anchors the HMAC in the n160 kv-isolation and the
+# n381 stage-4 parity test windows. Obvious fakes (the №172 my-api-key-…
+# convention): the key never leaves the test process and opens nothing.
+# Real credential shapes stay outside this rule (the file header holds).
+[[allowlists]]
+description = "The №952/№806 keyed-fingerprint test values (dummy REDACT keys, test-process scoped)"
+regexes = [
+  '''n160-kv-isolation-key''',
+  '''stage4-parity-key''',
+]

@@ -15,6 +15,7 @@ pub(crate) mod learnable;
 pub(crate) mod memory;
 pub(crate) mod modules;
 // Наряд №179b: &self wrappers for reflex_train / reflex_predict (Mutex<ReflexRegistry>)
+pub mod labels; // №952 (the audit 12.11 — P0): the TW value-label line (the walk + the sink gate)
 pub(crate) mod reflex_builtin;
 pub mod types;
 pub mod values;
@@ -25,7 +26,7 @@ pub use types::{
 };
 pub use values::{FluidValueVariant, SecretString, Value};
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -110,6 +111,29 @@ pub struct Interpreter {
     /// `Program::capability_permits` (the wire field). consulted by
     /// `capability::authorize_call` at every builtin dispatch site.
     pub capability_permits: crate::capability::CapabilityPermits,
+    /// №952 + ADR-0161: the entry program's egress posture (the runtime
+    /// twin of the static audit's `advisory` — see Program::egress_advisory
+    /// for the wire form; resolved in the TW boot from the same
+    /// declarations).
+    pub(super) egress_advisory: bool,
+    /// №953 × №952: the `mlog test --allow-unchecked` opt-out silences the
+    /// RUNTIME value-label second line too — the contract of
+    /// `test_program_with_dir_unchecked` is "NO gates for this test run"
+    /// and the runtime lane is a gate; the loud banner is the witness.
+    /// Default false: every other path keeps the second line.
+    pub(super) runtime_label_gate_off: bool,
+    /// №952 (the audit 12.11, ADR-0156 §5): the runtime value-label env —
+    /// name-keyed, VM parity (`Vm::label_env`, №328). Fed at the binding
+    /// sites (LetBinding/Assign/entity writes/parameter seeding), read by
+    /// the pure walk (`labels::label_of_expr`) and the sink gate.
+    /// `Mutex` not `RefCell`: the Interpreter crosses thread boundaries
+    /// on the serve paths (the route_handler constraint — the transport
+    /// shares the interpreter), so every interior field must stay Sync.
+    pub(super) label_env: std::sync::Mutex<BTreeMap<String, crate::labels::Label>>,
+    /// №952: the CURRENT flow value's runtime label (the edge contract —
+    /// consumed by the first step's parameter seeding; the value path has
+    /// no expression to walk, so the label rides this field).
+    pub(super) flow_current_label: crate::labels::Label,
     /// Global variable store.
     // №567: pub for the metalogos-server transport (the route-state merge).
     pub variables: HashMap<String, Value>,
@@ -340,6 +364,13 @@ impl Default for Interpreter {
 }
 
 impl Interpreter {
+    /// №953 × №952: the mechanical implementation of the
+    /// `--allow-unchecked` contract — silences the runtime sink gate for
+    /// this interpreter instance (the caller prints the loud banner).
+    pub fn set_runtime_label_gate_off(&mut self, off: bool) {
+        self.runtime_label_gate_off = off;
+    }
+
     pub fn new() -> Self {
         // №489: the background distill-training mailbox (sender stays with
         // the interpreter, cloned per spawn; the receiver is drained lazily
@@ -347,7 +378,11 @@ impl Interpreter {
         let (distill_tx, distill_rx) = std::sync::mpsc::channel();
         Interpreter {
             variables: HashMap::new(),
+            label_env: std::sync::Mutex::new(BTreeMap::new()),
+            flow_current_label: crate::labels::Label::bottom(),
             capability_permits: crate::capability::CapabilityPermits::default(),
+            egress_advisory: false,
+            runtime_label_gate_off: false,
             call_depth: std::sync::atomic::AtomicUsize::new(0),
             struct_types: HashMap::new(),
             patterns: HashMap::new(),
@@ -836,6 +871,11 @@ impl Interpreter {
         target
             .capability_permits
             .merge_union(&self.capability_permits);
+        // №952 + ADR-0161: the egress posture rides the boot merge too —
+        // the route bodies (the native cron ticks, the TW route bodies)
+        // must see the SAME posture the boot resolved (the №426 lesson:
+        // the tick executes on the TW interpreter whatever the backend).
+        target.egress_advisory = self.egress_advisory;
         // ADR-0053: copy conversation config (conversations themselves are per-session).
         // №521: CONDITIONAL on the source actually having SEEN a
         // `conversation {}` declaration — the boot merge runs ONE

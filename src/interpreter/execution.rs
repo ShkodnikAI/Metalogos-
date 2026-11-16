@@ -2168,9 +2168,7 @@ impl Interpreter {
                 // `--allow-unchecked` opt-out must silence it here too (the
                 // contract: NO gates for this test run; the banner is the
                 // witness, the leak pins fail on their own asserts).
-                if !self.runtime_label_gate_off
-                    && crate::runtime_labels::is_gated_dispatch(name)
-                {
+                if !self.runtime_label_gate_off && crate::runtime_labels::is_gated_dispatch(name) {
                     let arg_labels: Vec<crate::labels::Label> =
                         args.iter().map(|a| self.label_of_expr(a, 0)).collect();
                     crate::runtime_labels::gate_labels_only(

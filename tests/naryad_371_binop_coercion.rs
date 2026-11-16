@@ -232,6 +232,11 @@ fn naryad_371_string_length_limit_parity() {
 /// backends (№371 adds the check to the VM; TW already had it).
 #[test]
 fn naryad_371_opaque_secret_concat_errors_identically() {
+    // №965 × №952: the runtime-behavior pin runs with the static lane
+    // silenced (the documented test-only knob, runtime_labels.rs) —
+    // the flow-edge summaries must not mask the behavior under test;
+    // the runtime second line stays live.
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
     // secret(name) reads the env var `name`; provide it for this test process.
     // SAFETY: single-threaded test binary; the var name is unique to this test.
     std::env::set_var("naryad_371_secret_value", "hunter2");
@@ -265,6 +270,7 @@ fn naryad_371_opaque_secret_concat_errors_identically() {
             tw_err
         );
     }
+    std::env::remove_var("METALOGOS_STATIC_LABEL_GATE_OFF");
 }
 
 /// `print()` inside a concatenation keeps its (quirky but stable) semantics:

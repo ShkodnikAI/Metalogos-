@@ -70,6 +70,11 @@ fn program(body: &str) -> String {
 
 #[test]
 fn n481_env_missing_is_loud_and_names_the_variable() {
+    // №965 × №952: the runtime-behavior pin runs with the static lane
+    // silenced (the documented test-only knob, runtime_labels.rs) —
+    // the flow-edge summaries must not mask the behavior under test;
+    // the runtime second line stays live.
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
     let _env = lock_env();
     std::env::remove_var(PROBE);
 
@@ -107,20 +112,32 @@ fn n481_env_missing_is_loud_and_names_the_variable() {
         "VM parity of the loud env refusal: {}",
         vm_err
     );
+    std::env::remove_var("METALOGOS_STATIC_LABEL_GATE_OFF");
 }
 
 #[test]
 fn n481_env_present_returns_the_value() {
+    // №965 × №952: the runtime-behavior pin runs with the static lane
+    // silenced (the documented test-only knob, runtime_labels.rs) —
+    // the flow-edge summaries must not mask the behavior under test;
+    // the runtime second line stays live.
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
     let _env = lock_env();
     let _probe = EnvVar::set(PROBE, "n481-value");
 
     let src = program(&format!("  return env(\"{}\")", PROBE));
     let out = metalogos::run_program(&src).expect("a set variable reads fine");
     assert_eq!(out.unwrap_or_default().trim_end(), "n481-value");
+    std::env::remove_var("METALOGOS_STATIC_LABEL_GATE_OFF");
 }
 
 #[test]
 fn n481_env_or_carries_the_explicit_silence() {
+    // №965 × №952: the runtime-behavior pin runs with the static lane
+    // silenced (the documented test-only knob, runtime_labels.rs) —
+    // the flow-edge summaries must not mask the behavior under test;
+    // the runtime second line stays live.
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
     let _env = lock_env();
     std::env::remove_var(PROBE);
 
@@ -147,6 +164,7 @@ fn n481_env_or_carries_the_explicit_silence() {
         "n481-default",
         "VM parity of the env_or silent fallback"
     );
+    std::env::remove_var("METALOGOS_STATIC_LABEL_GATE_OFF");
 }
 
 /// The №326 op-log posture: the fallback firing is ANNOUNCED on the audit
@@ -155,6 +173,11 @@ fn n481_env_or_carries_the_explicit_silence() {
 /// capturable in-process).
 #[test]
 fn n481_env_or_fallback_is_announced_without_the_value() {
+    // №965 × №952: the runtime-behavior pin runs with the static lane
+    // silenced (the documented test-only knob, runtime_labels.rs) —
+    // the flow-edge summaries must not mask the behavior under test;
+    // the runtime second line stays live.
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
     let probe = "METALOGOS_N481_OR_PROBE";
     std::env::remove_var(probe);
 
@@ -200,10 +223,16 @@ fn n481_env_or_fallback_is_announced_without_the_value() {
         "the value still flows to the PROGRAM result (silence is about the log, not the data): {}",
         stdout.trim()
     );
+    std::env::remove_var("METALOGOS_STATIC_LABEL_GATE_OFF");
 }
 
 #[test]
 fn n481_env_or_does_not_bypass_the_serve_gate() {
+    // №965 × №952: the runtime-behavior pin runs with the static lane
+    // silenced (the documented test-only knob, runtime_labels.rs) —
+    // the flow-edge summaries must not mask the behavior under test;
+    // the runtime second line stays live.
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
     let _env = lock_env();
     let _restore = RestoreProcessMode;
     set_process_mode(ProcessMode::Serve);
@@ -220,6 +249,7 @@ fn n481_env_or_does_not_bypass_the_serve_gate() {
         "the №259 gate must fire BEFORE the silence: {}",
         err
     );
+    std::env::remove_var("METALOGOS_STATIC_LABEL_GATE_OFF");
 }
 
 #[cfg(unix)]

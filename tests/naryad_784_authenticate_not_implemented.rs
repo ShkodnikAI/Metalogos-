@@ -76,6 +76,11 @@ flow Main { input: String = "e@b.c" -> Probe -> output }
 /// env discipline — serialized mutation, no reader contention).
 #[test]
 fn n784_authenticate_refuses_loudly_secret_password() {
+    // №965 × №952: the runtime-behavior pin runs with the static lane
+    // silenced (the documented test-only knob, runtime_labels.rs) —
+    // the flow-edge summaries must not mask the behavior under test;
+    // the runtime second line stays live.
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
     // The №413 ENV_LOCK form: the env mutation is serialized per binary.
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
@@ -90,6 +95,7 @@ flow Main { input: String = "e@b.c" -> Probe -> output }
         &["[NOT_IMPLEMENTED]", "verify_password(password, hash)"],
         "authenticate(String, Secret)",
     );
+    std::env::remove_var("METALOGOS_STATIC_LABEL_GATE_OFF");
 }
 
 /// Regression pin: the honest argument validation keeps its pre-№784

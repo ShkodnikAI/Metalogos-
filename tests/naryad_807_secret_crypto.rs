@@ -60,6 +60,11 @@ flow Main {{ input: String = "x" -> Probe -> output }}
 
 #[test]
 fn n807_hmac_sha256_accepts_secret_key_both_backends() {
+    // №965 × №952: the runtime-behavior pin runs with the static lane
+    // silenced (the documented test-only knob, runtime_labels.rs) —
+    // the flow-edge summaries must not mask the behavior under test;
+    // the runtime second line stays live.
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
     std::env::set_var(KEY_ENV, KEY_VAL);
     let src = hmac_secret_src();
     let tw = run_tw(&src).expect("TW must run");
@@ -72,10 +77,16 @@ fn n807_hmac_sha256_accepts_secret_key_both_backends() {
         tw.chars().all(|c| c.is_ascii_hexdigit()),
         "the hex form: {tw}"
     );
+    std::env::remove_var("METALOGOS_STATIC_LABEL_GATE_OFF");
 }
 
 #[test]
 fn n807_hmac_sha256_secret_key_differs_from_string_key() {
+    // №965 × №952: the runtime-behavior pin runs with the static lane
+    // silenced (the documented test-only knob, runtime_labels.rs) —
+    // the flow-edge summaries must not mask the behavior under test;
+    // the runtime second line stays live.
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
     // The keyed digest over the SAME material must equal regardless of
     // the carrier (Secret vs String) — the carrier is the memory-safety
     // posture, not the crypto input.
@@ -98,6 +109,7 @@ flow Main { input: String = "x" -> Probe -> output }
         via_secret, via_string,
         "the digest must not depend on the carrier"
     );
+    std::env::remove_var("METALOGOS_STATIC_LABEL_GATE_OFF");
 }
 
 #[test]
@@ -124,6 +136,11 @@ flow Main { input: String = "x" -> Probe -> output }
 
 #[test]
 fn n807_redact_accepts_secret_in_place() {
+    // №965 × №952: the runtime-behavior pin runs with the static lane
+    // silenced (the documented test-only knob, runtime_labels.rs) —
+    // the flow-edge summaries must not mask the behavior under test;
+    // the runtime second line stays live.
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
     // The masking path: the Secret rides the policy pipeline by borrow.
     std::env::set_var(KEY_ENV, KEY_VAL);
     let src = r#"
@@ -139,6 +156,7 @@ flow Main { input: String = "x" -> Probe -> output }
     assert_eq!(tw, vm, "the backends must agree");
     assert!(tw.starts_with("[HASH:"), "the digest shape: {tw}");
     assert!(!tw.contains(KEY_VAL), "the data must be destroyed");
+    std::env::remove_var("METALOGOS_STATIC_LABEL_GATE_OFF");
 }
 
 // ── 2. The structural zero-copy pin (the №604 source-scan form) ──────

@@ -257,6 +257,11 @@ flow Main { input: String = "t" -> R -> output }
 
 #[test]
 fn n706_cron_list_fixed_job_shape_with_private_content_fields() {
+    // №965 × №952: the runtime-behavior pin runs with the static lane
+    // silenced (the documented test-only knob, runtime_labels.rs) —
+    // the flow-edge summaries must not mask the behavior under test;
+    // the runtime second line stays live.
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
     // A FRESH job via the language surface: cron_add(expr, prompt, tz,
     // catch_up, payload) appends; jobs[-1] is the fresh row. The fresh
     // job pins the OPTIONAL fields deterministically: last_run /
@@ -283,6 +288,7 @@ flow Main { input: String = "t" -> C -> output }
         src,
         "String|String|String|Float|Float|Float|Float|Unit|String|Unit|String|String|String|Float|String|*/7 * * * *|Europe/Moscow|skip|pl-706",
     );
+    std::env::remove_var("METALOGOS_STATIC_LABEL_GATE_OFF");
 }
 
 // ── 5. ledger_verify → Struct<LedgerVerdict> (the soft-missing arm) ───

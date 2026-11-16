@@ -335,6 +335,11 @@ flow Main { input: String = "x" -> P -> output }
 
 #[test]
 fn n418_store_lifecycle_migration_list_and_validation() {
+    // №965 × №952: the runtime-behavior pin runs with the static lane
+    // silenced (the documented test-only knob, runtime_labels.rs) —
+    // the flow-edge summaries must not mask the behavior under test;
+    // the runtime second line stays live.
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
     let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 
     // (8) A 0.20.x-era job seeded through the language surface survives —
@@ -399,4 +404,5 @@ flow Main { input: String = "x" -> P -> output }
         .with_timezone(&"Europe/Moscow".parse::<chrono_tz::Tz>().unwrap());
     assert_eq!(local.hour(), 21);
     assert_eq!(local.minute(), 30, "next_run is in the JOB's wall clock");
+    std::env::remove_var("METALOGOS_STATIC_LABEL_GATE_OFF");
 }

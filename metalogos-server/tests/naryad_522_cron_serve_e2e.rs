@@ -69,6 +69,7 @@ fn source(persist_path: &str) -> String {
     format!(
         r#"
 memory {{ persist: "{persist_path}" }}
+profile legacy {{ approval: warn }}
 pattern tick_job() -> Unit {{
   let n = kv_get("tick_n")
   let v = to_float_or(n, 0)

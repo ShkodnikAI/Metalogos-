@@ -72,7 +72,8 @@ fn serve_source(serve_port: u16, receiver_port: u16, with_declaration: bool) -> 
         ""
     };
     format!(
-        r#"{capability_line}pattern tick_probe() -> Unit {{
+        r#"{capability_line}profile legacy {{ approval: warn }}
+pattern tick_probe() -> Unit {{
   let r = try http_post("http://127.0.0.1:{receiver_port}/ping", "{{}}", "application/json")
   if r.ok {{
     kv_set("outcome", "TICK-OK")

@@ -235,6 +235,17 @@ fn seed_map() -> AttestationMap {
             "src/approval.rs",
             "the-861-approval-gate",
         ),
+        // №957 (issue #1924, ADR-0211 §3): the «actor verification» row —
+        // the counted class of the human-oversight coverage is the
+        // VERIFIED one (the host CLI `mlog approve` mints it outside the
+        // program); the same mandate-kernel source pins the marking.
+        (
+            "approval.actor-verification",
+            "the-verified-mandate-class",
+            EvidenceKind::Mandate,
+            "src/approval.rs",
+            "the-957-verified-gate-pins",
+        ),
         (
             "parent.ssot.compliance-kernel",
             "the-attestation-kernel",
@@ -327,8 +338,12 @@ fn run_both_backends(source: &str) {
 #[test]
 fn the_e2e_trace_action_ledger_attestation_row_package() {
     // (1) the ACTION under the live mandate — the №861 arc on BOTH
-    // backends (the gates pass; the Ledger journals the trace).
+    // backends (the gates pass; the Ledger journals the trace). №957:
+    // the arc carries the TRANSITION WINDOW key — a program-issued
+    // mandate opens the carrier loudly (ADR-0211 §3); the e2e subject
+    // here is the Ledger trace, not the mandate origin.
     let arc = r#"
+profile legacy { approval: warn }
 pattern T(_t: String) -> String {
   let job = cron_add("0 0 * * *", "N868Archive")
   let _m = approval_issue("owner", "carrier:cron_run", 600)

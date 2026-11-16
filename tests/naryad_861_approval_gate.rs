@@ -23,6 +23,16 @@
 // `approval::HUMAN_OVERSIGHT` opens with `cron_run` — pinned by the
 // totality test in src/approval.rs (an empty class or a
 // non-ProfilePermit name reddens there).
+//
+// №957 (issue #1924, ADR-0211 §3): the COUNTED class is the VERIFIED one
+// — the host CLI `mlog approve` mints it outside the program; a mandate
+// recorded by `approval_issue` from .mlog is actor_verified=false and
+// never counts in the default mode. The programs below that rely on a
+// program-issued mandate declare the TRANSITION WINDOW key
+// `profile legacy { approval: warn }` (the §12.5 form — one release
+// window of loud warnings), so this file pins BOTH facts: the old arc
+// holds under the window, and the new default refuses without it (the
+// default-mode pins live in tests/naryad_957_verified_mandate.rs).
 
 use std::path::Path;
 
@@ -65,8 +75,11 @@ fn the_full_consent_arc_passes_then_denies_on_both_lanes() {
     // untouched (ADR-0205 §6) — its registry arity contract is not this
     // naryad's boundary (the finding rides the PR description).
     for (name, runner) in runners() {
+        // №957: the program-issued mandate opens the carrier ONLY under
+        // the transition-window key — the migration form this file pins.
         let out = runner(
             r#"
+profile legacy { approval: warn }
 pattern T(_t: String) -> String {
   let job = cron_add("0 0 * * *", "N861Archive")
   let m = approval_issue("owner", "carrier:cron_run", 600)
@@ -183,14 +196,19 @@ fn a_revoked_mandate_stops_covering_the_carrier_on_both_lanes() {
     reset();
     for (name, runner) in runners() {
         // The Rust-side arc (the store seam) then the in-language arc:
-        // issue → pass → revoke → refuse.
+        // issue → pass → revoke → refuse. №957: the program-issued
+        // mandate passes ONLY under the transition-window flag — the
+        // Rust-side arc pins the window semantics of the gate directly.
         metalogos::approval::mandate_issue("owner", "carrier:cron_run", 600).unwrap();
-        assert!(metalogos::approval::authorize_overseen_call("cron_run").is_ok());
+        assert!(metalogos::approval::authorize_overseen_call("cron_run", true).is_ok());
         assert_eq!(
             metalogos::approval::mandate_revoke("carrier:cron_run").unwrap(),
             1
         );
-        assert!(metalogos::approval::authorize_overseen_call("cron_run").is_err());
+        assert!(
+            metalogos::approval::authorize_overseen_call("cron_run", true).is_err(),
+            "a revoked mandate refuses even under the window (revocation is permanent)"
+        );
 
         // The in-language revoke is idempotent (the second call is a
         // no-op over the already-revoked record) and the carrier still
@@ -282,8 +300,14 @@ fn the_composed_authorize_call_carries_both_layers() {
     reset();
     // The capability layer alone is NOT enough for the oversight class:
     // the standard baseline passes cron_run, the approval gate refuses —
-    // and a live mandate satisfies the approval layer without any
-    // capability artifact (the baseline keeps its named posture).
+    // and №957 (ADR-0211 §3): the default mode refuses a PROGRAM-issued
+    // mandate too (the counted class is the verified one); the
+    // transition-window permits open the carrier loudly (the §12.5 form).
+    let warn_permits = {
+        let mut p = metalogos::capability::CapabilityPermits::default();
+        p.set_legacy_approval_warn(true);
+        p
+    };
     assert!(
         metalogos::capability::authorize_call(
             "cron_run",
@@ -298,8 +322,14 @@ fn the_composed_authorize_call_carries_both_layers() {
             "cron_run",
             &metalogos::capability::CapabilityPermits::default()
         )
-        .is_ok(),
-        "the live mandate satisfies the approval layer on the baseline posture"
+        .is_err(),
+        "№957: the default mode never counts a program-issued mandate \
+         (actor_verified=false, ADR-0211 §3)"
+    );
+    assert!(
+        metalogos::capability::authorize_call("cron_run", &warn_permits).is_ok(),
+        "the transition window opens the carrier with the loud mark \
+         (the §12.5 form of the №949 п.5 rule)"
     );
     // A carrier outside the class: the approval layer resolves trivially.
     assert!(

@@ -474,3 +474,71 @@ stated here so the gap is not mistaken for a guarantee.
   confidentiality word, the three entity seeds, the derived registry
   source classes, and the two exclusions with their reasons
   (`world_state`, the `Internal` class).
+
+## 0.40.0 → next (the verifiable mandate actor, №957 — BREAKING)
+
+**What changed and where it bites.** A program can no longer approve
+itself. On ≤ 0.40.0 the program could issue its own human-oversight
+mandate — `approval_issue("owner", "carrier:cron_run", 60)` — and the
+`cron_run` call passed: the gate verified the window, the target digest
+and the revocation state, but NOT the ORIGIN of the decision (the audit
+12.11 probe `4_capability/c05`). Now the mandate record carries
+`actor_verified`, the `approval_issue` builtin always records `false`
+(a string the program typed is not a human), and the approval gate in
+the default mode counts ONLY the VERIFIED class — mandates issued
+OUTSIDE the program by the host CLI:
+
+```
+./target/release/mlog approve carrier:cron_run --actor owner --ttl 3600
+```
+
+The verified mandate lands in the host-owned persisted store
+(`METALOGOS_MANDATE_STORE` or `~/.metalogos/mandates.json`) and
+survives the restart. The store is on the №455 sensitive-path deny
+vocabulary (`.metalogos/**`, `mandates.json`) — no `.mlog` program can
+read or write it.
+
+### The migration (one release window)
+
+1. **The minimal (transition) path** — the program keeps working for
+   ONE release window, loudly: declare the window key in the ENTRY
+   program:
+
+   ```
+   profile legacy { approval: warn }
+   ```
+
+   A live program-issued mandate opens the human-oversight carrier with
+   the `[APPROVAL_ACTOR_UNVERIFIED]` stderr warning. After the window
+   the key is REMOVED from the language and a program still carrying it
+   is a check error (the §12.5 form).
+2. **The strict path** — do it now: remove the `approval_issue` call
+   from the program, run the host ritual once per carrier
+   (`mlog approve carrier:cron_run --actor <who> [--ttl S]`), and the
+   program runs in the default mode with no key. The mandate persists
+   across restarts; revoke by marking the store row revoked (the
+   in-language `approval_revoke` covers the in-memory class; the
+   verified store row is the host's to withdraw — the dedicated
+   `mlog revoke` surface follows the owner's acceptance of ADR-0211).
+3. The refusal text names the remedy verbatim: the frozen
+   `IRREVERSIBLE_NO_GRANT` class (№385) with the `mlog approve` command
+   spelled out — no diagnostic vocabulary changed.
+
+### What keeps this honest
+
+- `tests/naryad_957_verified_mandate.rs` — the c05 probe flip on BOTH
+  lanes (the default mode refuses a program-issued mandate; the
+  mutation that counts one reds this file), the transition window, the
+  verified path, the marking visibility, and the store isolation (the
+  program cannot read or write `.metalogos/mandates.json`).
+- `metalogos-server/tests/naryad_957_cli_approve.rs` — the REAL binary
+  e2e: refuse → `mlog approve` → pass on a fresh process (the restart
+  half).
+- `scripts/mutation_verify_957.sh` — M1 counts a program-issued
+  mandate (the c05 pin reds); M2 the same mutation drops the gate_036
+  machine fact and `gen_metrics --check` reds (the floor follows the
+  fact).
+- The APPROVAL_COVERAGE machine fact (gate_036) requires the
+  verified-class gate site — the coverage is now a checked fact about
+  HUMANS, not about strings; the attestation map carries the «actor
+  verification» row.

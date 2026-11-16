@@ -82,6 +82,7 @@ fn test_cron_mark_fired_resets_force_run() {
     let _g = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     one_passing(
         r#"
+        profile legacy { approval: warn }
         test "cron mark fired" {
             sleep(1.1)
             let job = cron_add("0 0 * * *", "TestJobMF488")

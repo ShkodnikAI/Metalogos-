@@ -76,9 +76,12 @@ flow Main { input: String = "t" -> T -> output }
 
 /// The SAME program under the minimal migration (docs/upgrade.md §
 /// Step 2 + Step 4): the profile permit for the delivery pair, the
-/// live mandate for the autonomous trigger.
+/// live mandate for the autonomous trigger. №957: the program-issued
+/// mandate opens the carrier under the TRANSITION WINDOW key (the
+/// §12.5 form — the strict migration is the host `mlog approve`).
 const MIGRATED_MINIMAL: &str = r#"
 profile capability { allow_carrier: "http_post" allow_carrier: "send_message" }
+profile legacy { approval: warn }
 pattern T(_t: String) -> String {
   let job = cron_add("0 0 * * *", "N865Migrated")
   let _m = approval_issue("owner", "carrier:cron_run", 600)
@@ -187,9 +190,11 @@ fn migrated_program_executes_the_autonomous_trigger_and_passes_the_delivery_gate
     reset();
     // (4a) the FULLY executable pass: the mandate is live, cron_run
     // queues offline — the whole program completes (the n861 form).
+    // №957: the program-issued mandate rides the transition-window key.
     for (name, runner) in runners() {
         let out = runner(
             r#"
+profile legacy { approval: warn }
 pattern T(_t: String) -> String {
   let job = cron_add("0 0 * * *", "N865FullPass")
   let _m = approval_issue("owner", "carrier:cron_run", 600)

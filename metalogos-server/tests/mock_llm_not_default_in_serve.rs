@@ -76,7 +76,7 @@ learnable pattern Tag(text: String) -> String {
 }
 mlogserver {
   port: 18095
-  route "/tag" method=GET { return respond("200", Tag(query_param("q"))) }
+  route "/tag" method=GET { return respond("200", escape_html(Tag(query_param("q")))) }
 }
 "#;
 

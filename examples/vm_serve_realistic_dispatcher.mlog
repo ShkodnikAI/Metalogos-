@@ -14,6 +14,6 @@ mlogserver {
   route "/dispatch" method=GET {
     let dept = query_param("dept")
     let q = query_param("q")
-    respond("200 " + RouteByDept(dept, q))
+    respond("200 " + escape_html(RouteByDept(dept, q)))
   }
 }

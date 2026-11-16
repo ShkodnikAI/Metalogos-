@@ -111,6 +111,17 @@ pub struct Interpreter {
     /// `Program::capability_permits` (the wire field). consulted by
     /// `capability::authorize_call` at every builtin dispatch site.
     pub capability_permits: crate::capability::CapabilityPermits,
+    /// №952 + ADR-0161: the entry program's egress posture (the runtime
+    /// twin of the static audit's `advisory` — see Program::egress_advisory
+    /// for the wire form; resolved in the TW boot from the same
+    /// declarations).
+    pub(super) egress_advisory: bool,
+    /// №953 × №952: the `mlog test --allow-unchecked` opt-out silences the
+    /// RUNTIME value-label second line too — the contract of
+    /// `test_program_with_dir_unchecked` is "NO gates for this test run"
+    /// and the runtime lane is a gate; the loud banner is the witness.
+    /// Default false: every other path keeps the second line.
+    pub(super) runtime_label_gate_off: bool,
     /// №952 (the audit 12.11, ADR-0156 §5): the runtime value-label env —
     /// name-keyed, VM parity (`Vm::label_env`, №328). Fed at the binding
     /// sites (LetBinding/Assign/entity writes/parameter seeding), read by
@@ -353,6 +364,13 @@ impl Default for Interpreter {
 }
 
 impl Interpreter {
+    /// №953 × №952: the mechanical implementation of the
+    /// `--allow-unchecked` contract — silences the runtime sink gate for
+    /// this interpreter instance (the caller prints the loud banner).
+    pub fn set_runtime_label_gate_off(&mut self, off: bool) {
+        self.runtime_label_gate_off = off;
+    }
+
     pub fn new() -> Self {
         // №489: the background distill-training mailbox (sender stays with
         // the interpreter, cloned per spawn; the receiver is drained lazily
@@ -363,6 +381,8 @@ impl Interpreter {
             label_env: std::sync::Mutex::new(BTreeMap::new()),
             flow_current_label: crate::labels::Label::bottom(),
             capability_permits: crate::capability::CapabilityPermits::default(),
+            egress_advisory: false,
+            runtime_label_gate_off: false,
             call_depth: std::sync::atomic::AtomicUsize::new(0),
             struct_types: HashMap::new(),
             patterns: HashMap::new(),
@@ -851,6 +871,11 @@ impl Interpreter {
         target
             .capability_permits
             .merge_union(&self.capability_permits);
+        // №952 + ADR-0161: the egress posture rides the boot merge too —
+        // the route bodies (the native cron ticks, the TW route bodies)
+        // must see the SAME posture the boot resolved (the №426 lesson:
+        // the tick executes on the TW interpreter whatever the backend).
+        target.egress_advisory = self.egress_advisory;
         // ADR-0053: copy conversation config (conversations themselves are per-session).
         // №521: CONDITIONAL on the source actually having SEEN a
         // `conversation {}` declaration — the boot merge runs ONE

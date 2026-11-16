@@ -769,6 +769,10 @@ pub fn test_program_with_dir_unchecked(
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
     let mut interp = interpreter::Interpreter::new();
     interp.set_base_dir(base_dir);
+    // №952: the runtime value-label second line is a gate — the
+    // `--allow-unchecked` contract ("NO gates", the loud banner above in
+    // the CLI) silences it alongside the static Category-A gates.
+    interp.set_runtime_label_gate_off(true);
     interp.run(declarations)?;
     Ok(interp.run_test_blocks())
 }

@@ -69,6 +69,9 @@ pub struct Vm {
     /// (the TW twin lives on Interpreter::capability_permits); consulted
     /// by `capability::authorize_call` at the call_builtin choke point.
     capability_permits: crate::capability::CapabilityPermits,
+    /// №952 + ADR-0161: the egress posture (Program::egress_advisory —
+    /// loaded in load_program; the TW twin lives on Interpreter).
+    egress_advisory: bool,
     /// №782 (audit-23.10 A3): the native-recursion depth of execute_code
     /// entries (CallPattern in both loops, run_deny_handler, the value-
     /// expression calls, routes). Reset at the run()/execute_route_code
@@ -422,6 +425,7 @@ impl Vm {
             value_register_labels: Vec::new(),
             last_return_label: crate::labels::Label::bottom(),
             capability_permits: crate::capability::CapabilityPermits::default(),
+            egress_advisory: false,
             call_depth: 0,
             value_registers: Vec::new(),
             globals: Vec::new(),
@@ -518,6 +522,9 @@ impl Vm {
         self.capability_permits = crate::capability::CapabilityPermits::from_iter(
             program.capability_permits.iter().cloned(),
         );
+        // №952 + ADR-0161: the posture rides the Program (the parity by
+        // construction with the TW boot resolve).
+        self.egress_advisory = program.egress_advisory;
         // №392: lift the deny handler table onto the VM (flow steps run
         // pattern bodies against a synthetic empty Program — see
         // invoke_step — so the deny path reads the VM's own table).
@@ -996,7 +1003,7 @@ impl Vm {
         for (i, value) in args.iter().enumerate() {
             let walk_label = arg_labels.get(i).cloned().unwrap_or_default();
             let label = walk_label.join(&Self::variant_floor(value));
-            crate::runtime_labels::runtime_sink_check(name, i, &label, 0)?;
+            crate::runtime_labels::runtime_sink_check(name, i, &label, 0, self.egress_advisory)?;
         }
         Ok(())
     }
@@ -4704,6 +4711,7 @@ impl Vm {
                 base_bp: 0,
             }];
             let program = Program {
+                egress_advisory: false,
                 globals: Vec::new(),
                 patterns: std::sync::Arc::new(Vec::new()),
                 learnables: Vec::new(),
@@ -4746,6 +4754,7 @@ impl Vm {
                     base_bp: 0,
                 }];
                 let empty_program = Program {
+                    egress_advisory: false,
                     globals: Vec::new(),
                     patterns: std::sync::Arc::new(Vec::new()),
                     learnables: Vec::new(),

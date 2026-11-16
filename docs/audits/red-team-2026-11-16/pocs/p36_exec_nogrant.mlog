@@ -1,0 +1,6 @@
+pattern go(x: String) -> output {
+  let r = exec("echo hi")
+  "done"
+}
+
+flow Main { input: String = "x" -> go -> output }

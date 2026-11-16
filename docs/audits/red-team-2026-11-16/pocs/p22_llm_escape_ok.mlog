@@ -1,0 +1,5 @@
+pattern main() -> output {
+  let a = call_llm("say hi")
+  let safe = escape_html(a)
+  let r = respond_html(safe)
+}

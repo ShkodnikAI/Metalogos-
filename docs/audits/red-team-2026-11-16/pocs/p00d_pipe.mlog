@@ -1,0 +1,8 @@
+pattern helper() -> output {
+  let x = "hi"
+  x
+}
+
+pattern main() -> output {
+  helper() -> output
+}

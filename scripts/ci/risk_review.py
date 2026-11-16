@@ -403,6 +403,16 @@ def main():
     sec = sanitizer_section(sanitizer_hits)
     if sec:
         print(sec)
+    # №961: a security-class PR carries the independent red-team pass —
+    # the reminder rides the same triggered report (the gate is the
+    # red-team-gate blocking job; this section is the visible pointer).
+    if sanitizer_hits:
+        print("## Red-team requirement (№961) — the security class")
+        print()
+        print("The diff touches a label/sink/gate site: the PR must carry the")
+        print("`red-team: <report link>` field (the independent adversary pass,")
+        print("docs/red-team-protocol.md — the red-team-gate blocking job enforces it).")
+        print()
     # №480: the same-effect lists close the report — item 8's protocol.
     print(same_effect_section(files))
 

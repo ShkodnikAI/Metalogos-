@@ -1,0 +1,5 @@
+pattern echo(x: String) -> output {
+  x
+}
+
+flow Main { input: String = "hello" -> echo -> output }

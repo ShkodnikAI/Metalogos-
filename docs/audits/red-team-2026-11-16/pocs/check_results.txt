@@ -1,0 +1,200 @@
+##### p00_discover.mlog
+5 errors:
+  1: строка 2: cannot assign to immutable variable: x (use 'let mut x' to make it mutable)
+  2: строка 2: assignment to undefined variable: x
+  3: undefined variable: x
+  4: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed to print()
+  5: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in pattern main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--exit:1
+##### p00b_hello.mlog
+OK: no issues found.
+--exit:0
+##### p00c_flow.mlog
+OK: no issues found.
+--exit:0
+##### p00d_pipe.mlog
+error: parse error:  --> 7:13
+  |
+7 |   helper() -> output
+  |             ^---
+  |
+  = expected unary_expr
+--exit:1
+##### p00e_flowrun.mlog
+OK: no issues found.
+--exit:0
+##### p01_secret_print.mlog
+2 errors:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed to print()
+  2: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in pattern main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--exit:1
+##### p02_secret_struct.mlog
+1 error:
+  1: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in pattern main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--exit:1
+##### p03_secret_list.mlog
+1 error:
+  1: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in pattern main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--exit:1
+##### p04_secret_each.mlog
+2 errors:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed to print()
+  2: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in pattern main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--exit:1
+##### p05_secret_while.mlog
+2 errors:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed to print()
+  2: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in pattern main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--exit:1
+##### p06_secret_if.mlog
+1 error:
+  1: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in pattern main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--exit:1
+##### p07_secret_helper_return.mlog
+1 error:
+  1: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in pattern main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--exit:1
+##### p08_secret_param.mlog
+1 error:
+  1: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in pattern main → leak(…) → print (parameter 0 reaches the sink) carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--exit:1
+##### p09_secret_transform.mlog
+2 errors:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed to print()
+  2: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in pattern main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--exit:1
+##### p10_secret_redact.mlog
+[REDACT][audit-event] redact applied in pattern main — policy 'secret', target conf 'unknown'
+2 errors:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed to print()
+  2: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in pattern main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--exit:1
+##### p11_secret_httppost.mlog
+2 errors:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed as http_post URL
+  2: [SECRET_EGRESS_NETWORK] sink clearance violated: argument 0 of http_post in pattern main carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of http_post must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: private-egress
+--exit:1
+##### p12_secret_exec.mlog
+1 error:
+  1: [SECRET_TO_EXEC] sink clearance violated: argument 0 of exec in pattern main carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of exec must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: secret-exec
+--exit:1
+##### p13_secret_writefile.mlog
+2 errors:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed to write_file()
+  2: [SECRET_LEAK] sink clearance violated: argument 1 of write_file in pattern main carries label 'private, trusted'; sinks require public — write_file is classified sink/internal/reversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--exit:1
+##### p14_secret_sendmessage.mlog
+1 error:
+  1: [PII_EGRESS_NETWORK] sink clearance violated: argument 1 of send_message in pattern main carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of send_message must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: private-egress
+--exit:1
+##### p15_secret_memset.mlog
+1 error:
+  1: [TAINT_PERSISTENCE] sink clearance violated: argument 1 of mem_set in pattern main carries label 'private, trusted'; sinks require public — mem_set is classified sink/internal/reversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--exit:1
+##### p16_secret_gitpush.mlog
+OK: no issues found.
+--exit:0
+##### p17_secret_flowout.mlog
+1 error:
+  1: строка 5: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in flow Main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--exit:1
+##### p18_secret_escapehtml.mlog
+2 errors:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed to print()
+  2: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in pattern main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--exit:1
+##### p19_sql_concat.mlog
+1 error:
+  1: строка 1: [SQL_DYNAMIC] SQL injection risk — db_execute() with non-literal SQL at argument 0 (dynamic expression)
+--exit:1
+##### p20_sql_grant.mlog
+1 error:
+  1: строка 1: [SQL_DYNAMIC] SQL injection risk — db_execute_with_grant() with non-literal SQL at argument 1 (g)
+--exit:1
+##### p21_llm_html.mlog
+3 errors:
+  1: строка 1: [HTML_INJECTION] LLM output passed to respond() — use template/render for XSS safety
+  2: строка 1: [TAINT_INTERP] LLM output reaches respond_html() through merged control-flow state (match arms / loop boundary / memory) — use render()/escape_html() for XSS safety
+  3: [HTML_INJECTION] sink clearance violated: argument 0 of respond_html in pattern main carries label 'public, untrusted'; sinks require public — respond_html is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+--exit:1
+##### p22_llm_escape_ok.mlog
+OK: no issues found.
+--exit:0
+##### p23_llm_redact.mlog
+[REDACT][audit-event] redact applied in pattern main — policy 'pii', target conf 'private'
+3 errors:
+  1: строка 1: [HTML_INJECTION] LLM output passed to respond() — use template/render for XSS safety
+  2: строка 1: [TAINT_INTERP] LLM output reaches respond_html() through merged control-flow state (match arms / loop boundary / memory) — use render()/escape_html() for XSS safety
+  3: [HTML_INJECTION] sink clearance violated: argument 0 of respond_html in pattern main carries label 'public, untrusted'; sinks require public — respond_html is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+--exit:1
+##### p24_escape_rewrap.mlog
+3 errors:
+  1: строка 1: [HTML_INJECTION] LLM output passed to respond() — use template/render for XSS safety
+  2: строка 1: [TAINT_INTERP] LLM output reaches respond_html() through merged control-flow state (match arms / loop boundary / memory) — use render()/escape_html() for XSS safety
+  3: [HTML_INJECTION] sink clearance violated: argument 0 of respond_html in pattern main carries label 'public, untrusted'; sinks require public — respond_html is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+--exit:1
+##### p25_llm_struct_each.mlog
+1 error:
+  1: [HTML_INJECTION] sink clearance violated: argument 0 of respond_html in pattern main carries label 'public, untrusted'; sinks require public — respond_html is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+--exit:1
+##### p26_llm_exec.mlog
+1 error:
+  1: [UNTRUSTED_EXEC_DECISION] sink clearance violated: argument 0 of exec in pattern main carries label 'public, untrusted'; sinks require public — bridge (№391): the decision/data argument of exec must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: untrusted-exec
+--exit:1
+##### p27_queryparam_respond.mlog
+1 error:
+  1: [HTML_INJECTION] sink clearance violated: argument 0 of respond in pattern main carries label 'public, untrusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+--exit:1
+##### p28_readfile_html.mlog
+1 error:
+  1: [HTML_INJECTION] sink clearance violated: argument 0 of respond_html in pattern main carries label 'public, untrusted'; sinks require public — respond_html is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+--exit:1
+##### p29_llm_flowout.mlog
+OK: no issues found.
+--exit:0
+##### p30_llm_join.mlog
+2 errors:
+  1: строка 1: [HTML_INJECTION] LLM output passed to respond() — use template/render for XSS safety
+  2: [HTML_INJECTION] sink clearance violated: argument 0 of respond_html in pattern main carries label 'public, untrusted'; sinks require public — respond_html is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+--exit:1
+##### p31_cron_nomandate.mlog
+OK: no issues found.
+--exit:0
+##### p32_cron_wrongcarrier.mlog
+OK: no issues found.
+--exit:0
+##### p33_cron_expired.mlog
+OK: no issues found.
+--exit:0
+##### p34_cron_ok.mlog
+OK: no issues found.
+--exit:0
+##### p35_cron_wrongactor.mlog
+OK: no issues found.
+--exit:0
+##### p36_exec_nogrant.mlog
+OK: no issues found.
+--exit:0
+##### p37_profile_capability.mlog
+OK: no issues found.
+--exit:0
+##### p38_profile_legacy.mlog
+1 error:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed to print()
+--exit:1
+##### p39_serve_env.mlog
+error: parse error:  --> 3:8
+  |
+3 |   routes {
+  |        ^---
+  |
+  = expected STRING_LITERAL
+--exit:1
+##### p40_serve_dotenv.mlog
+error: parse error:  --> 3:8
+  |
+3 |   routes {
+  |        ^---
+  |
+  = expected STRING_LITERAL
+--exit:1

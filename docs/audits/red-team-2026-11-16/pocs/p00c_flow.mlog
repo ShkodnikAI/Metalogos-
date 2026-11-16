@@ -1,0 +1,4 @@
+pattern main() -> output {
+  let x = "hi"
+  x
+}

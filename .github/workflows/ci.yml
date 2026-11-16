@@ -579,6 +579,22 @@ jobs:
           git diff origin/main...HEAD > /tmp/pr.diff
           python3 scripts/ci/honest_boundary_check.py --diff /tmp/pr.diff --pr-number "$PR_NUMBER"
 
+  red-team-gate:
+    name: Red-team gate (blocking on the security class — №961)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: A security-class PR merges only with the red-team pass attached (№961)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -z "${{ github.event.pull_request.title }}" ]; then
+            echo "Push/main event — not a PR: the release-candidate line is the release checklist's (docs/red-team-protocol.md §1)."
+            exit 0
+          fi
+          python3 scripts/ci/red_team_gate.py --pr-number "$PR_NUMBER"
+
   module-size-guard:
     name: module-size-guard (blocking)
     runs-on: ubuntu-latest

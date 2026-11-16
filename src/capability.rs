@@ -322,6 +322,20 @@ impl CapabilityPermits {
         for name in &other.carriers {
             self.carriers.insert(name.clone());
         }
+        // №957 (ADR-0211 §3): the transition-window flag is UNION'd too —
+        // add-only, the same discipline as the roster. Without this the
+        // serve boot (one declaration per throwaway interpreter, merged
+        // into the shared context) DROPS the entry's
+        // `profile legacy { approval: warn }`: the flag lives only on
+        // the permits of the declaration that carried it, and the shared
+        // context would keep false — the serve routes would refuse under
+        // the window (the CI reality the serve e2e lanes caught).
+        // Setting it here cannot GRANT anything: the flag only DOWNGRADES
+        // the №957 default-mode refusal to the loud window warning, and
+        // only for the entry program that declared the key.
+        if other.legacy_approval_warn {
+            self.legacy_approval_warn = true;
+        }
     }
 }
 

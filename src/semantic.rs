@@ -7664,7 +7664,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                 // edge value (the threat-model row B7: «метка возврата
                 // шага потока теряется на ребре ->») — gated as the
                 // print channel it is, with the SAME frozen class.
-                let mut env = seed.clone();
+                let env = seed.clone();
                 let mut edge = expr_label(&f.source, &env);
                 for step_name in &f.pipeline {
                     if let Some(summary) = interproc_summary_of(step_name) {

@@ -448,12 +448,14 @@ program that printed or persisted such an answer directly now refuses, and
 the fix is the ordinary one: `escape_html`/`render` for an HTML sink,
 validation before a decision, or not persisting remote content.
 
-**Still open in this window:** the flow output (threat-model row B7) is
-held by three owner decisions, and the `Label::Internal` source class (94
-names) goes to a name-by-name pass of its own. Until both land, a flow
-that returns a source value and a read-back from the program's own store
-remain unlabelled — stated here so the gap is not mistaken for a
-guarantee.
+**Still open in this window:** the flow output's integrity half
+(threat-model row B13) is measured, not gated — the confidentiality half
+closed with №965, the integrity package (the 16 idiom files and the three
+candidate forms, ADR-0154 §13) waits for the owner's explicit choice of
+the form, and the `Label::Internal` source class (94 names) goes to a
+name-by-name pass of its own. Until both land, a flow that ends in
+model/remote/own-file output stays unlabelled on the integrity axis —
+stated here so the gap is not mistaken for a guarantee.
 
 ### Pinned by
 

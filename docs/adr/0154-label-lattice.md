@@ -343,3 +343,75 @@ The appendix is the CONTRACT; this subsection records what the implementation ac
 8. **Three rule families cross the boundary, not one.** §12.2 (б) speaks of «the clearances of the sinks the parameter reaches». The walk also refuses on two rules that are NOT the generic clearance and whose names are not sinks at all: `profile duty { materialization: denied }` fires on `str`/`json_encode` (`Role::Pure`), and the Н455 untrusted-file-path rule fires on `read_file` (`Role::Source`). Both are label-dependent, so both cross the boundary — each re-decided at the call site by ITS OWN rule, under its own class (`DUTY_MATERIALIZATION`, `UNTRUSTED_FILE_PATH`). Propagating them through the clearance rule, as the first implementation did, named the wrong rule — a `str` call reported as a network egress. What does NOT cross: the label-INDEPENDENT refusals (`duty-network-sink`, `irreversible-content`, `video-likeness-no-consent` — identical in the probe's baseline, so the baseline subtraction drops them and the inner site reports them), and `media_save`, whose gate reads caller-context credentials (a consent scope or a bound likeness token, №387) that the probe cannot hold — re-deciding it at the call site would refuse a caller that legitimately holds the credential, so its own site keeps that gate.
 
 9. **What №950 does NOT close**, unchanged from §12.7 and the threat-model table: the intraprocedural losses B5–B8 (№951) and dynamic dispatch beyond the static lattice B12 (№952).
+
+## 13. Appendix (№966): the flow output's integrity half — the measured idiom, the three forms, the decision package
+
+Added by naryad №966 (gh#1954, the B7 line — the owner decision 13–14.11: ONE axis on the flow edge, the integrity half measured before any gate). **This appendix is PROPOSED** — the owner's explicit «принято» turns it Accepted TOGETHER with the choice of one §13.4 form; the implementation lands after that choice, as a separate commit of №966 or the next naryad (the owner decides both together). The executor does not promote the status and does not implement a form before the choice (канон §13.14 п.6).
+
+### 13.1 The fact — the idiom is the corpus's primary shape
+
+№965 closed the flow edge on the CONFIDENTIALITY axis. Gating the integrity axis too — the output edge treated as the print channel it is already treated as on the confidentiality side (`clearance_failure("print", &edge)` — the SAME frozen classes: `HTML_INJECTION` for untrusted-public, `PII_EGRESS_OUTPUT` for private, no new check_id, §12.4) — is a one-call change. The reason it is NOT landed is the measured price: a flow that legitimately ends in MODEL, REMOTE or own-file data — `call_llm`, `http_get`, `mcp_call`, the html/xml extraction family, `read_file` — carries a `(public, untrusted)` edge, and the integrity half refuses EVERY such flow. Displaying what the pipeline fetched is the language's primary idiom: the corpus carries it in the project's own examples (`v05_call_llm`, `p100_mcp_echo`, `n5_html_tender`, `n6_feed_parse`) and in the SELF-HOSTED toolchain (`self-host/lexer.mlog`, `self-host/parser.mlog` — both read the compilation target and print the result through a flow).
+
+### 13.2 The measurement — three sweeps on one tree
+
+The tree of the measurement: main `53f0fdd9` (v0.40.0 stable), 476 `.mlog` files (`find . -name '*.mlog' -not -path './target/*'`), the sweep = `mlog check` per file, the verdict = the exit code + the findings text. Three builds differing ONLY in the Flow arm of `sink_clearance_violations` (`src/semantic.rs`):
+
+| Build | The Flow arm | What it means |
+|---|---|---|
+| A — the landed tree | the output edge gated on `edge.conf` (№965) | the CURRENT behavior |
+| B — both axes | `clearance_failure("print", &edge)` | the hypothetical integrity half |
+| C — the gate off | the whole arm skipped | the corpus without ANY flow-edge gate |
+
+Two definitions, both reported (they answer different questions):
+
+- **The carrier count** — the files whose check output carries a flow-edge finding (the container `flow …`, the print-channel class): **A = 7, B = 30; integrity-only = 23.**
+- **The marginal refusals** — the files whose VERDICT flips because of the gate (refused in the build, clean in build C): **conf-only = 0, both-axes = 16.** The 0 is itself a finding: after №965 fixed the three examples as leaks, every file that carries the confidentiality flow finding refuses ANYWAY through its own pattern bodies (b01–b08 and b12 are the flipped leak-suite pins; `p114_secret_no_print` refuses on its pattern path) — the conf half has NO marginal refusals left on this tree.
+
+The pre-№966 numbers (the owner decision 13–14.11, recorded in the №965 row: 8 conf / 29 both / 21 integrity-only) were measured BEFORE №950/№951/№964/№965 landed, on the 475-file corpus. The re-measured numbers moved (7 / 30 / 23 carriers; 0 / 16 marginal) — the discrepancy is the FINDING this appendix records, not a rounding: the corpus grew by one file, the №965 example fixes removed the only marginal confidentiality refusals, and the №950/№951 label work shifted both sets.
+
+### 13.3 The idiom files — the measured table
+
+The 16 marginal files — the files the integrity half refuses OUT OF HAND, the price of gating it before a form exists:
+
+| File | The `source → flow output` path | The idiom |
+|---|---|---|
+| `examples/v05_call_llm.mlog` | `call_llm` → `AskLLM` → output | the model answer displayed |
+| `examples/p100_mcp_echo.mlog` | `mcp_call` → `EchoIt` → output | the MCP round-trip displayed |
+| `examples/n5_html_tender.mlog` | the html extraction family → `ExtractTender` → output | the parsed tender page displayed |
+| `examples/n6_feed_parse.mlog` | the xml extraction family → `Digest` → output | the parsed feed displayed |
+| `examples/p76_http_download.mlog` | `http_download` status string → `test_http_download` → output | the remote-fetch status displayed |
+| `examples/v05_file_io.mlog` | `read_file` (the program's own file) → `WriteAndRead` → output | the read-back displayed |
+| `examples/w385_office_branch.mlog` | `try call_llm` result → `OfficeStep` → output | the office-branch outcome displayed |
+| `examples/w385_try_fallback.mlog` | `try call_llm` error code → `Probe` → output | the fallback outcome displayed |
+| `examples/w385_try_llm_timeout.mlog` | `try call_llm` error code → `Probe` → output | the timeout outcome displayed |
+| `examples/w385_try_llm_unavailable.mlog` | `try call_llm` error code → `Probe` → output | the unavailable outcome displayed |
+| `examples/w72_capability_deny_no_grant.mlog` | the capability deny object → `NoGrant` → output | the deny trace displayed |
+| `examples/w72_capability_trace.mlog` | the capability trace → `CapabilityTrace` → output | the trace displayed |
+| `self-host/lexer.mlog` | `read_file(env("MLOG_LEXER_TARGET"))` → `Tokenize` → output | the token stream displayed |
+| `self-host/parser.mlog` | `read_file(env("MLOG_PARSE_TARGET"))` → `Parse` → output | the parse result displayed |
+| `tests/conformance/serr_004_code_unstamped_fallback.mlog` | `try read_file` error code → `p` → output | the conformance outcome displayed |
+| `tests/conformance/serr_005_code_nonwhitelisted_stamp.mlog` | `try read_file` error code → `p` → output | the conformance outcome displayed |
+
+Every row is the SAME idiom: **a flow whose pipeline touches remote/model/file data ends by DISPLAYING the outcome on the operator console** — no secrecy concern (the conf axis is public), and the integrity concern is the display itself, which is the program's purpose. A further 7 files carry the integrity finding among their refusals but refuse anyway (`examples/boundaries/b04_exec_via_pattern.mlog`, `examples/l1_injection.mlog`, `examples/leak/n33_duty_http_get.mlog`, `examples/reflex_gen_declare.mlog`, `examples/reflex_gen_from_text.mlog`, `examples/taint_chain_d3.mlog`, `examples/taint_chain_d4.mlog` — the leak-suite pins and the exec/reflex demos): they add no marginal refusals, and under the integrity half they would refuse with one finding more.
+
+### 13.4 The three candidate forms, each with its price
+
+The criterion (the naryad's, verbatim): NOT the minimum corpus edits — **whether the refusal stays readable to an author who did NOT declare the idiom.**
+
+**(а) The annotation on the output edge** — the pipeline terminator `output` accepts the existing `label_ann` (§3): `-> output<public, untrusted>`. The machinery is the §3 carrier (`type_name label_ann?`, strictly additive — a `<` after the terminator was previously a parse error) and the annotation-as-claim contract (§12.2: a declared label is VERIFIED against the body — a mismatch is a loud error, so the annotation cannot become a silencer). Price: one grammar surface on the terminator + the check that the ACTUAL edge label is covered by the declared one; the corpus edits = one annotation per idiom flow (the 16 marginal files + the project's examples). An author who does NOT declare still refuses, and the refusal text can NAME the form («the flow output carries 'public, untrusted' — declare `-> output<public, untrusted>` if the display is intended»). The refusal stays readable.
+
+**(б) The declaration on the flow head** — a keyword on the flow itself, e.g. `flow Main accepts untrusted { … }`, covering the whole pipeline. Price: one new keyword surface on `flow_decl` + the same edge-vs-declaration check; the corpus edits are the same 16 + the examples, but the declaration sits at the FLOW, one line further from the data leaving. The undeclaring author still refuses (readable); the declared flow reads as a unit.
+
+**(в) The program-level profile key** — `profile legacy { flow_output: untrusted-ok }` (the §12.5 transition-window shape). Price: zero grammar growth, one profile option; the corpus edits = one line per PROGRAM. But the refusal disappears for EVERY flow in the program — an author who did NOT declare anything loses the integrity refusal entirely and silently. This FAILS the naryad's criterion: it is the transition-window shape, not an idiom shape — legal as a migration bridge (the §12.5 precedent), wrong as the permanent form.
+
+### 13.5 The recommendation
+
+**(а), with the refusal text that names the form.** The reasons: the annotation sits exactly where the data leaves — the pipeline's own last position, the reader sees the claim and the data together; it reuses the §3 annotation machinery with NO new keyword and NO new label vocabulary (§12.4 holds — the check_ids stay frozen); it is a CHECKABLE claim (a declared `output<public, untrusted>` the edge does not justify is the loud §12.2 error — the annotation cannot become a silencer); and the undeclaring author's refusal remains loud and readable, now naming the escape hatch. (б) is the honest runner-up — the same guarantees, one line further from the edge — and stays available if the grammar cost of (а) proves worse than estimated. (в) is recorded as the migration bridge ONLY.
+
+What stays open under EVERY choice: the in-flow param→sink integrity facts the №965 arm deliberately skips (`duty-materialization`, `untrusted-file-path`) — they are the incoming-edge half of the same package and land WITH the chosen form, measured the same way; the `Label::Internal` source-class pass (the owner's name-by-name decision of 13.11) is untouched by this appendix.
+
+### 13.6 What this appendix does NOT promise
+
+- **No gate is landed.** On the tree of this appendix the integrity half refuses NOWHERE: build A and build C share the marginal sets (the conf-only marginal is 0), the 16 idiom files pass `mlog check` today, and the CURRENT behavior is pinned by `examples/boundaries/b13_flow_output_integrity_idiom.mlog` + `tests/naryad_966_flow_integrity.rs` (the mutation that gates both axes reds the pin — `scripts/mutation_verify_966.sh`).
+- The measurement is a corpus snapshot at `53f0fdd9` (476 files). A corpus change moves the numbers — the b13 pin, not the count, is the durable artifact.
+- The integrity refusals under build B carry the FROZEN classes (`HTML_INJECTION` on the print channel — `sink_check_id`); no decision in this appendix mints a new check_id (§12.4).

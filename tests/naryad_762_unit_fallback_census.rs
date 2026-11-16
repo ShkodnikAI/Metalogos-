@@ -56,7 +56,6 @@ fn repo_root() -> PathBuf {
 }
 
 fn bare_program(main_code: Vec<Instruction>) -> Program {
-    legacy_approval_warn: false,
     Program {
         legacy_approval_warn: false,
         egress_advisory: false,
@@ -85,14 +84,12 @@ fn bare_program(main_code: Vec<Instruction>) -> Program {
 }
 
 fn underflow_program(instrs: Vec<Instruction>) -> Program {
-    legacy_approval_warn: false,
     let mut p = bare_program(instrs);
     p.main_code.push(Instruction::Halt);
     p
 }
 
 fn pattern_program(body: Vec<Instruction>) -> Program {
-    legacy_approval_warn: false,
     let mut p = bare_program(vec![
         Instruction::RegisterPatternRef(0),
         Instruction::CallPattern(0, 0),

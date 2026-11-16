@@ -9,7 +9,6 @@
 use metalogos::bytecode::{Instruction, Program};
 
 fn minimal_program() -> Program {
-    legacy_approval_warn: false,
     Program {
         legacy_approval_warn: false,
         egress_advisory: false,

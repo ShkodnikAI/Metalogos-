@@ -22,7 +22,6 @@ use std::path::Path;
 const MANIFEST: &str = env!("CARGO_MANIFEST_DIR");
 
 fn compile(src: &str) -> Program {
-    legacy_approval_warn: false,
     metalogos::compile_program(src).unwrap_or_else(|e| panic!("compile failed: {}", e))
 }
 

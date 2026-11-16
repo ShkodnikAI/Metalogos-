@@ -45,6 +45,7 @@ const SINGLE_FILE_PINS: &[(&str, &str, u32)] = &[
     ("b07_flow_output.mlog", "B7", 965),
     ("b08_secret_entity_to_string.mlog", "B8", 951),
     ("b09_error_text_value.mlog", "B9", 955),
+    ("b13_flow_output_integrity_idiom.mlog", "B13", 966),
 ];
 
 /// The rows whose gap is STILL OPEN — the pins that must keep passing
@@ -56,9 +57,18 @@ const SINGLE_FILE_PINS: &[(&str, &str, u32)] = &[
 const STILL_OPEN_PINS: &[(&str, &str, u32)] = &[
     // B7 left this list with №965 (the owner decisions 13–14.11 made: the
     // axis is CONFIDENTIALITY, the three examples are fixed as leaks, the
-    // receipt blocker closed by №964). The integrity half of the flow
-    // output is the №966 row — measured, not guessed.
+    // receipt blocker closed by №964). The confidentiality half landed;
+    // the integrity half became its OWN row — B13 below.
+    //
+    // B13 is a DECISION boundary, not a leak gap: the flow output's
+    // integrity half is MEASURED, not gated (№966 — ADR-0154 §13,
+    // Proposed). The owner decision 13–14.11 gated ONE axis on the flow
+    // edge, and this pin fixes the CURRENT behavior (the idiom passes)
+    // so it cannot move silently. It leaves this list when the owner's
+    // chosen §13.4 form lands (a separate commit of №966 or the next
+    // naryad).
     ("b09_error_text_value.mlog", "B9", 955),
+    ("b13_flow_output_integrity_idiom.mlog", "B13", 966),
 ];
 
 /// The row FLIPPED by №965 — the flow edge carries the step-return label
@@ -107,7 +117,7 @@ fn n948_threat_model_carries_the_boundary_table_and_no_overclaim() {
         "the pre-№948 overclaim 'interprocedural taint IS tracked' returned to threat-model.md — the honest-boundary mutation gate (№948)"
     );
     for row in [
-        "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10", "B11", "B12",
+        "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10", "B11", "B12", "B13",
     ] {
         assert!(
             tm.contains(&format!("| {} |", row)),

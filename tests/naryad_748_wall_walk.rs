@@ -356,6 +356,11 @@ flow Main { input: String = "t" -> M -> output }
 
 #[test]
 fn n748_the_opaque_and_empty_list_grouns_live_on_both_backends() {
+    // №965 × №952: the runtime-behavior pin runs with the static lane
+    // silenced (the documented test-only knob, runtime_labels.rs) —
+    // the flow-edge summaries must not mask the behavior under test;
+    // the runtime second line stays live.
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
     // The D/H-class live grounds, pinned per shape:
     //   generate_key → the Secret opaque (crypto.rs:216 — the parked
     //     ADR-0195 §7 (c) class; type_of "Secret");
@@ -373,4 +378,5 @@ pattern M(_t: String) -> String {
 flow Main { input: String = "t" -> M -> output }
 "#;
     assert_both(src, "Secret|Secret|List|0");
+    std::env::remove_var("METALOGOS_STATIC_LABEL_GATE_OFF");
 }

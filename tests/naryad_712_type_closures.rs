@@ -242,6 +242,11 @@ flow Main { input: String = "t" -> M -> output }
 
 #[test]
 fn n712_user_profile_live_shape_both_backends() {
+    // №965 × №952: the runtime-behavior pin runs with the static lane
+    // silenced (the documented test-only knob, runtime_labels.rs) —
+    // the flow-edge summaries must not mask the behavior under test;
+    // the runtime second line stays live.
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
     // The kv_store fixture lives in a sandboxed FILE db inside a TEMP
     // root (the №676 A3 rule: a fixture write never lands in the repo
     // tree — the naryad_387 EgressSandbox form): one static record; the
@@ -284,6 +289,7 @@ flow Main { input: String = "t" -> M -> output }
         "Struct/String/Float/List",
         "VM output mismatch\n{src}"
     );
+    std::env::remove_var("METALOGOS_STATIC_LABEL_GATE_OFF");
 }
 
 // ── The refusal re-verification: the Unknown ground holds ──────────────

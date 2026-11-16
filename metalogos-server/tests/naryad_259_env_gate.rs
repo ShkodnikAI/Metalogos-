@@ -237,6 +237,11 @@ async fn vm_serve_route_env_allowlist_reads() {
 
 #[test]
 fn process_context_reads_env_as_before() {
+    // №965 × №952: the runtime-behavior pin runs with the static lane
+    // silenced (the documented test-only knob, runtime_labels.rs) —
+    // the flow-edge summaries must not mask the behavior under test;
+    // the runtime second line stays live.
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
     let _env = lock_env();
     clean_env_state();
     std::env::set_var(SECRET_NAME, SECRET_VALUE);
@@ -260,6 +265,7 @@ fn process_context_reads_env_as_before() {
         "allowlist не должен быть нужен вне serve (и не должен мешать), got: {:?}",
         out2
     );
+    std::env::remove_var("METALOGOS_STATIC_LABEL_GATE_OFF");
 }
 
 // ── 7. SSOT env_gate: семантика альтернатив напрямую ────────────────

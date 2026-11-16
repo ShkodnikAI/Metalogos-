@@ -229,6 +229,11 @@ flow Main { input: String = "x" -> T -> output }
 
 #[test]
 fn n702_secret_is_opaque() {
+    // №965 × №952: the runtime-behavior pin runs with the static lane
+    // silenced (the documented test-only knob, runtime_labels.rs) —
+    // the flow-edge summaries must not mask the behavior under test;
+    // the runtime second line stays live.
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let prev = std::env::var("METALOGOS_N702_SECRET").ok();
     std::env::set_var("METALOGOS_N702_SECRET", "hunter2");
@@ -271,6 +276,7 @@ flow Main { input: String = "x" -> T -> output }
         Some(v) => std::env::set_var("METALOGOS_N702_SECRET", v),
         None => std::env::remove_var("METALOGOS_N702_SECRET"),
     }
+    std::env::remove_var("METALOGOS_STATIC_LABEL_GATE_OFF");
 }
 
 // ── the dynamic-shape Struct: request_body ────────────────────────────

@@ -47,9 +47,9 @@ mlogserver {
   route "/archive" method=GET {
     let name = query_param("name")
     db_execute("CREATE TABLE IF NOT EXISTS frames (id INTEGER PRIMARY KEY, path TEXT)")
-    db_execute("INSERT INTO frames (path) VALUES ($1)", [name])
+    db_execute("INSERT INTO frames (path) VALUES ($1)", [escape_html(name)])
     let g = grant_issue("db:delete:frames", 60, "n", 1)
-    let n1 = db_execute_with_grant(g, "DELETE FROM frames WHERE path = $1", [name])
+    let n1 = db_execute_with_grant(g, "DELETE FROM frames WHERE path = $1", [escape_html(name)])
     let refused = db_execute_with_grant(g, "DELETE FROM frames")
     let snap = ledger_snapshot()
     // №676 (A2): the export path is INJECTED by the test into a THROWAWAY
@@ -57,7 +57,7 @@ mlogserver {
     // was the audit's artifact-leak class (every run re-appended to a
     // committed file; the A3 porcelain gate caught it on the full suite).
     let trail = ledger_export("target/n402-data/n402_ledger.jsonl")
-    respond("200", "deleted:" + n1 + "|refused:" + type_of(refused) + "|trail:" + type_of(trail) + "|name:" + name)
+    respond("200", "deleted:" + n1 + "|refused:" + type_of(refused) + "|trail:" + type_of(trail) + "|name:" + escape_html(name))
   }
 }
 "#;

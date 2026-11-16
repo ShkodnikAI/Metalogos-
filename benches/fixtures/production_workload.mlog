@@ -1995,7 +1995,7 @@ pattern db_order1(customer: String, amount: Float) -> String {
   query("CREATE TABLE IF NOT EXISTS orders1 (customer TEXT UNIQUE, amount REAL)", [])
   query("INSERT OR IGNORE INTO orders1 (customer, amount) VALUES ('seed-a-1', 10.0)", [])
   query("INSERT OR IGNORE INTO orders1 (customer, amount) VALUES ('seed-b-1', 20.0)", [])
-  query("INSERT OR REPLACE INTO orders1 (customer, amount) VALUES (?, ?)", [customer, amount])
+  query("INSERT OR REPLACE INTO orders1 (customer, amount) VALUES (?, ?)", [escape_html(customer), amount])
   let rows = query("SELECT customer, amount FROM orders1 WHERE customer LIKE 'seed-%' ORDER BY amount", [])
   let n = to_float(length(rows))
   let top = get(rows, n - 1.0)
@@ -2006,7 +2006,7 @@ pattern db_order2(customer: String, amount: Float) -> String {
   query("CREATE TABLE IF NOT EXISTS orders2 (customer TEXT UNIQUE, amount REAL)", [])
   query("INSERT OR IGNORE INTO orders2 (customer, amount) VALUES ('seed-a-2', 10.0)", [])
   query("INSERT OR IGNORE INTO orders2 (customer, amount) VALUES ('seed-b-2', 20.0)", [])
-  query("INSERT OR REPLACE INTO orders2 (customer, amount) VALUES (?, ?)", [customer, amount])
+  query("INSERT OR REPLACE INTO orders2 (customer, amount) VALUES (?, ?)", [escape_html(customer), amount])
   let rows = query("SELECT customer, amount FROM orders2 WHERE customer LIKE 'seed-%' ORDER BY amount", [])
   let n = to_float(length(rows))
   let top = get(rows, n - 1.0)
@@ -2195,7 +2195,7 @@ pattern db_order_entry(customer: String, amount: Float) -> String {
   // restores the integrity axis (keys stay distinct, no runtime key
   // needed). The flow was always a TAINT_PERSISTENCE violation; it was
   // invisible only because it crossed a pattern boundary.
-  let customer_fp = redact(customer, "hash_only")
+  let customer_fp = redact(customer, "hash_keyed")
   let a = db_order1(customer, amount)
   let b = db_order2(customer, amount + 1.0)
   let c = session1(customer_fp, "ops")
@@ -2217,7 +2217,7 @@ pattern db_list_entry(limit: String) -> String {
 
 pattern kv_entry(sid: String) -> String {
   // №950: same fingerprint before the session id reaches a persisted key.
-  let sid_fp = redact(sid, "hash_only")
+  let sid_fp = redact(sid, "hash_keyed")
   let a = session2(sid_fp, "billing")
   let b = report5("kv-" + sid_fp, 3.0)
   return a + " | " + b
@@ -2241,7 +2241,7 @@ pattern mix_pipeline(text: String, dept: String, amount: Float) -> String {
   // `match` over MODEL OUTPUT and the lattice carries the scrutinee's
   // label into the result (ADR-0154 §8 — the implicit-flow rule), so
   // storing it would persist untrusted data.
-  let kv_part = session3(redact(dept, "hash_only"), "mix")
+  let kv_part = session3(redact(dept, "hash_keyed"), "mix")
   let guarded = safe_math1(amount)
   let scored = dispatch11(dept2, text)
   let ledger = report7(dept, 5.0)

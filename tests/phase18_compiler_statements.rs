@@ -32,6 +32,7 @@ fn compile_ok(source: &str) {
 fn test_make_list_instruction() {
     let mut vm = Vm::new();
     let program = Program {
+        egress_advisory: false,
         globals: vec![],
         patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],
@@ -69,6 +70,7 @@ fn test_make_list_instruction() {
 fn test_list_len_instruction() {
     let mut vm = Vm::new();
     let program = Program {
+        egress_advisory: false,
         globals: vec![],
         patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],
@@ -105,6 +107,7 @@ fn test_list_len_instruction() {
 fn test_pop_instruction() {
     let mut vm = Vm::new();
     let program = Program {
+        egress_advisory: false,
         globals: vec![],
         patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],

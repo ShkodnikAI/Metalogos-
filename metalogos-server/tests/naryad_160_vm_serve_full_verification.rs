@@ -17,17 +17,17 @@ mlogserver {
   port: 8090
   route "/hello" method=GET {
     let name = query_param("name")
-    respond("200", "hello " + name)
+    respond("200", escape_html("hello " + name))
   }
   route "/echo" method=POST {
     let body = json_body()
     let msg = body.message
-    respond("200", "echo: " + msg)
+    respond("200", escape_html("echo: " + msg))
   }
   route "/concat" method=GET {
     let a = query_param("a")
     let b = query_param("b")
-    respond("200", a + "-" + b)
+    respond("200", escape_html(a + "-" + b))
   }
   route "/status" method=GET {
     respond("201", "created")
@@ -36,7 +36,7 @@ mlogserver {
     let body = json_body()
     let name = body.name
     let up = upper(name)
-    respond("200", "HELLO " + up)
+    respond("200", escape_html("HELLO " + up))
   }
 }
 "#;
@@ -47,13 +47,14 @@ mlogserver {
   route "/set" method=GET {
     let key = query_param("key")
     let val = query_param("val")
-    kv_set(key, val)
-    respond("200", "set " + key + "=" + val)
+    let kf = redact(key, "hash_keyed")
+    kv_set(kf, escape_html(val))
+    respond("200", escape_html("set " + key + "=" + val))
   }
   route "/get" method=GET {
     let key = query_param("key")
-    let val = kv_get(key)
-    respond("200", val)
+    let val = kv_get(redact(key, "hash_keyed"))
+    respond("200", escape_html(val))
   }
 }
 "#;
@@ -63,11 +64,11 @@ mlogserver {
   port: 8090
   route "/whoami" method=GET {
     let id = query_param("id")
-    respond("200", "you are " + id)
+    respond("200", escape_html("you are " + id))
   }
   route "/echo_n" method=GET {
     let n = query_param("n")
-    respond("200", "n=" + n)
+    respond("200", escape_html("n=" + n))
   }
 }
 "#;
@@ -399,6 +400,10 @@ async fn block3_vm_parallel_mixed_routes() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn block3_vm_parallel_kv_isolation() {
+    // №806 (B1): the keyed fingerprint declassifies only under the
+    // process-scoped REDACT key — the kv-isolation block fingerprints its
+    // request keys, so the window anchor is set BEFORE the server boots.
+    std::env::set_var("METALOGOS_REDACT_KEY", "n160-kv-isolation-key");
     let (port, _handle) = start_server(SOURCE_KV_ROUTES, ServeBackend::Vm).await;
     let mut handles = Vec::new();
     for i in 0..8u32 {

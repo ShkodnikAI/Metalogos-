@@ -293,11 +293,7 @@ fn main() {
         Commands::Health { url } => cmd_health(url.as_deref()),
         Commands::Ledger { cmd } => cmd_ledger(cmd),
         Commands::Attest { cmd } => cmd_attest(cmd),
-        Commands::Approve {
-            target,
-            actor,
-            ttl,
-        } => cmd_approve(&target, &actor, ttl),
+        Commands::Approve { target, actor, ttl } => cmd_approve(&target, &actor, ttl),
     }
 }
 

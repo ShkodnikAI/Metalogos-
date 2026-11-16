@@ -615,6 +615,7 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
+    #[allow(clippy::disallowed_methods)] // the №475 ratchet: the test harness class — the fixture is the corrupt store itself
     fn a_corrupt_verified_store_is_the_loud_error_never_a_pass() {
         // The fail-closed direction: a corrupt store is the loud error
         // (the gate refuses the verified class), never an empty pass.

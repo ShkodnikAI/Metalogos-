@@ -125,7 +125,13 @@ impl Model {
         }
     }
 
-    fn issue(&mut self, id: &str, scope: &[String], class: &MClass) -> MOutcome {
+    fn issue(
+        &mut self,
+        id: &str,
+        scope: &[String],
+        class: &MClass,
+        real_expires: u64,
+    ) -> MOutcome {
         self.grants.insert(
             id.to_string(),
             MGrant {
@@ -133,7 +139,7 @@ impl Model {
                 scope: scope.to_vec(),
                 class: class.clone(),
                 remaining: class.initial_remaining(),
-                expires: grants::now_secs() + 3600,
+                expires: real_expires,
                 state: MState::Active,
             },
         );
@@ -146,6 +152,7 @@ impl Model {
         &mut self,
         parent_id: &str,
         child_real_id: Option<&str>,
+        child_real_expires: Option<u64>,
         scope: &[String],
         class: &MClass,
     ) -> MOutcome {
@@ -166,7 +173,14 @@ impl Model {
         if !m_scope_attenuates(&p_scope, scope) {
             return MOutcome::Err(MFam::Escalation);
         }
-        let child_expires = grants::now_secs() + 600;
+        // The child's expiry is the REAL ledger's observed one when the
+        // real call minted the handle; otherwise the model predicts with
+        // its own now+600 against the parent's OBSERVED expiry. Both
+        // clocks must be the ledger's — a model-derived expiry accumulates
+        // a one-second skew per nesting level and the child-TTL law
+        // flickers at the boundary (the №604 fuzz round-394 flake).
+        let child_expires =
+            child_real_expires.unwrap_or_else(|| grants::now_secs() + 600);
         if child_expires > p_expires {
             return MOutcome::Err(MFam::Escalation);
         }
@@ -328,6 +342,8 @@ fn fuzz_finds_no_amplification() {
                         &key,
                         &scope.split(':').map(|s| s.to_string()).collect::<Vec<_>>(),
                         &class,
+                        real.as_ref().map(|h| h.expires_at)
+                            .unwrap_or_else(|| grants::now_secs() + 3600),
                     )
                 });
                 if let Ok(h) = &real {
@@ -382,6 +398,7 @@ fn fuzz_finds_no_amplification() {
                     Ok(h) => Some(h.grant_id.clone()),
                     Err(_) => None,
                 };
+                let child_expires = real.as_ref().map(|h| h.expires_at);
                 if let Some(cid) = &child_id {
                     live.push(cid.clone());
                 }
@@ -389,6 +406,7 @@ fn fuzz_finds_no_amplification() {
                     m.borrow_mut().subgrant(
                         &target,
                         child_id.as_deref(),
+                        child_expires,
                         &scope.split(':').map(|s| s.to_string()).collect::<Vec<_>>(),
                         &class,
                     )

@@ -345,12 +345,12 @@ flow Main { input: String = "x" -> Check -> output }
 #[test]
 #[serial_test::serial]
 fn n284_leak_scenario_green_in_tw_and_vm() {
+    let _env = n284_lock_env();
     // №965 × №952: the runtime-behavior pin runs with the static lane
     // silenced (the documented test-only knob, runtime_labels.rs) —
     // the flow-edge summaries must not mask the behavior under test;
     // the runtime second line stays live.
     std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
-    let _env = n284_lock_env();
     std::env::set_var("METALOGOS_MOCK_LLM", "1");
     let tw = run_tw(LEAK_SCENARIO).expect("TW run").unwrap_or_default();
     assert_eq!(tw, "true", "TW: leak detected");
@@ -372,15 +372,15 @@ fn n284_leak_scenario_green_in_tw_and_vm() {
 #[test]
 #[serial_test::serial]
 fn n284_counter_observable_via_llm_usage() {
+    // №478 + the №376 lesson: the mock env is load-bearing now — tests in
+    // this file set/remove it; a parallel test's remove must not flip this
+    // test's contour. The whole file's mock tests are serialized below.
+    let _env = n284_lock_env();
     // №965 × №952: the runtime-behavior pin runs with the static lane
     // silenced (the documented test-only knob, runtime_labels.rs) —
     // the flow-edge summaries must not mask the behavior under test;
     // the runtime second line stays live.
     std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
-    // №478 + the №376 lesson: the mock env is load-bearing now — tests in
-    // this file set/remove it; a parallel test's remove must not flip this
-    // test's contour. The whole file's mock tests are serialized below.
-    let _env = n284_lock_env();
     std::env::set_var("METALOGOS_MOCK_LLM", "1");
     let source = r#"
 pattern Obs(_input: String) -> String {
@@ -404,12 +404,12 @@ flow Main { input: String = "x" -> Obs -> output }
 #[test]
 #[serial_test::serial]
 fn n284_clean_response_no_leak_in_tw() {
+    let _env = n284_lock_env();
     // №965 × №952: the runtime-behavior pin runs with the static lane
     // silenced (the documented test-only knob, runtime_labels.rs) —
     // the flow-edge summaries must not mask the behavior under test;
     // the runtime second line stays live.
     std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
-    let _env = n284_lock_env();
     std::env::set_var("METALOGOS_MOCK_LLM", "1");
     // Ответ mock-провайдера не содержит маркера (marked_text не летит в LLM)
     let source = r#"
@@ -581,6 +581,7 @@ fn n284_static_not_promoted_to_compile_error() {
 
 #[test]
 fn n284_arity_pins() {
+    let _env = n284_lock_env();
     // №965 × №952: the runtime-behavior pin runs with the static lane
     // silenced (the documented test-only knob, runtime_labels.rs) —
     // the flow-edge summaries must not mask the behavior under test;
@@ -623,12 +624,12 @@ flow F { input: String = "x" -> M -> output }
 
 #[test]
 fn n284_check_result_struct_fields() {
+    let _env = n284_lock_env();
     // №965 × №952: the runtime-behavior pin runs with the static lane
     // silenced (the documented test-only knob, runtime_labels.rs) —
     // the flow-edge summaries must not mask the behavior under test;
     // the runtime second line stays live.
     std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
-    let _env = n284_lock_env();
     std::env::set_var("METALOGOS_MOCK_LLM", "1");
     let source = r#"
 pattern M(_input: String) -> String {

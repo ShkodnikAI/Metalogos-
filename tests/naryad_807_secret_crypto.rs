@@ -27,6 +27,10 @@
 
 use metalogos::interpreter::{SecretString, Value};
 
+// №965 × №952: the three silenced pins serialize their knob — the env var
+// is process-global and the set/remove must not interleave.
+static N807_KNOB_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn run_tw(source: &str) -> Result<Option<String>, String> {
     metalogos::run_program(source)
 }
@@ -60,6 +64,7 @@ flow Main {{ input: String = "x" -> Probe -> output }}
 
 #[test]
 fn n807_hmac_sha256_accepts_secret_key_both_backends() {
+    let _knob = N807_KNOB_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     // №965 × №952: the runtime-behavior pin runs with the static lane
     // silenced (the documented test-only knob, runtime_labels.rs) —
     // the flow-edge summaries must not mask the behavior under test;
@@ -82,6 +87,7 @@ fn n807_hmac_sha256_accepts_secret_key_both_backends() {
 
 #[test]
 fn n807_hmac_sha256_secret_key_differs_from_string_key() {
+    let _knob = N807_KNOB_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     // №965 × №952: the runtime-behavior pin runs with the static lane
     // silenced (the documented test-only knob, runtime_labels.rs) —
     // the flow-edge summaries must not mask the behavior under test;
@@ -136,6 +142,7 @@ flow Main { input: String = "x" -> Probe -> output }
 
 #[test]
 fn n807_redact_accepts_secret_in_place() {
+    let _knob = N807_KNOB_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     // №965 × №952: the runtime-behavior pin runs with the static lane
     // silenced (the documented test-only knob, runtime_labels.rs) —
     // the flow-edge summaries must not mask the behavior under test;

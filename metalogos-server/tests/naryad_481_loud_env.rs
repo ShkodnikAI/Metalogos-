@@ -70,12 +70,12 @@ fn program(body: &str) -> String {
 
 #[test]
 fn n481_env_missing_is_loud_and_names_the_variable() {
+    let _env = lock_env();
     // №965 × №952: the runtime-behavior pin runs with the static lane
     // silenced (the documented test-only knob, runtime_labels.rs) —
     // the flow-edge summaries must not mask the behavior under test;
     // the runtime second line stays live.
     std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
-    let _env = lock_env();
     std::env::remove_var(PROBE);
 
     let src = program(&format!("  return env(\"{}\")", PROBE));
@@ -117,12 +117,12 @@ fn n481_env_missing_is_loud_and_names_the_variable() {
 
 #[test]
 fn n481_env_present_returns_the_value() {
+    let _env = lock_env();
     // №965 × №952: the runtime-behavior pin runs with the static lane
     // silenced (the documented test-only knob, runtime_labels.rs) —
     // the flow-edge summaries must not mask the behavior under test;
     // the runtime second line stays live.
     std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
-    let _env = lock_env();
     let _probe = EnvVar::set(PROBE, "n481-value");
 
     let src = program(&format!("  return env(\"{}\")", PROBE));
@@ -133,12 +133,12 @@ fn n481_env_present_returns_the_value() {
 
 #[test]
 fn n481_env_or_carries_the_explicit_silence() {
+    let _env = lock_env();
     // №965 × №952: the runtime-behavior pin runs with the static lane
     // silenced (the documented test-only knob, runtime_labels.rs) —
     // the flow-edge summaries must not mask the behavior under test;
     // the runtime second line stays live.
     std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
-    let _env = lock_env();
     std::env::remove_var(PROBE);
 
     // Missing → the default, NO refusal (the silence the name declares).
@@ -173,6 +173,7 @@ fn n481_env_or_carries_the_explicit_silence() {
 /// capturable in-process).
 #[test]
 fn n481_env_or_fallback_is_announced_without_the_value() {
+    let _env = lock_env();
     // №965 × №952: the runtime-behavior pin runs with the static lane
     // silenced (the documented test-only knob, runtime_labels.rs) —
     // the flow-edge summaries must not mask the behavior under test;
@@ -228,12 +229,12 @@ fn n481_env_or_fallback_is_announced_without_the_value() {
 
 #[test]
 fn n481_env_or_does_not_bypass_the_serve_gate() {
+    let _env = lock_env();
     // №965 × №952: the runtime-behavior pin runs with the static lane
     // silenced (the documented test-only knob, runtime_labels.rs) —
     // the flow-edge summaries must not mask the behavior under test;
     // the runtime second line stays live.
     std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
-    let _env = lock_env();
     let _restore = RestoreProcessMode;
     set_process_mode(ProcessMode::Serve);
     std::env::remove_var(PROBE);

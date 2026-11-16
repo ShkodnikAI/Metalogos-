@@ -522,6 +522,11 @@ impl Vm {
         self.capability_permits = crate::capability::CapabilityPermits::from_iter(
             program.capability_permits.iter().cloned(),
         );
+        // №957 (ADR-0211 §3): the approval transition-window flag rides
+        // the Program (the parity by construction with the TW boot
+        // resolve — one flag, both lanes).
+        self.capability_permits
+            .set_legacy_approval_warn(program.legacy_approval_warn);
         // №952 + ADR-0161: the posture rides the Program (the parity by
         // construction with the TW boot resolve).
         self.egress_advisory = program.egress_advisory;
@@ -4711,6 +4716,7 @@ impl Vm {
                 base_bp: 0,
             }];
             let program = Program {
+                legacy_approval_warn: false,
                 egress_advisory: false,
                 globals: Vec::new(),
                 patterns: std::sync::Arc::new(Vec::new()),
@@ -4754,6 +4760,7 @@ impl Vm {
                     base_bp: 0,
                 }];
                 let empty_program = Program {
+                    legacy_approval_warn: false,
                     egress_advisory: false,
                     globals: Vec::new(),
                     patterns: std::sync::Arc::new(Vec::new()),

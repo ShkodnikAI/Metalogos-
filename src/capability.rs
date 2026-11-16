@@ -259,11 +259,35 @@ pub fn is_carrier_name(word: &str) -> bool {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CapabilityPermits {
     carriers: std::collections::HashSet<String>,
+    /// №957 (issue #1924, ADR-0211 §3): the transition-window flag — the
+    /// ENTRY program's `profile legacy { approval: warn }`. While it is
+    /// set, a live PROGRAM-issued mandate (actor_verified=false) opens a
+    /// human-oversight carrier with a LOUD stderr warning (the §12.5
+    /// form: the new refusals fire as warnings for one release window);
+    /// the default (false) is the ERROR — only the host-issued verified
+    /// class counts. Resolved from the entry declarations
+    /// (`permits_from_declarations`, the TW run() pre-pass) and carried
+    /// to the VM on the `Program::legacy_approval_warn` wire field, so
+    /// both backends share the flag by construction.
+    legacy_approval_warn: bool,
 }
 
 impl CapabilityPermits {
     pub fn allow_carrier(&self, name: &str) -> bool {
         self.carriers.contains(name)
+    }
+
+    /// №957: the transition-window flag as resolved from the ENTRY
+    /// program (the warn form of the §12.5 mechanism).
+    pub fn legacy_approval_warn(&self) -> bool {
+        self.legacy_approval_warn
+    }
+
+    /// №957: set the transition-window flag (the VM load path — the
+    /// compiled wire field carries the flag the compiler resolved from
+    /// the entry declarations).
+    pub fn set_legacy_approval_warn(&mut self, warn: bool) {
+        self.legacy_approval_warn = warn;
     }
 
     /// The roster as a Vec (the Program wire-field form — the compiler's
@@ -308,6 +332,10 @@ impl std::iter::FromIterator<String> for CapabilityPermits {
     fn from_iter<I: IntoIterator<Item = String>>(names: I) -> Self {
         CapabilityPermits {
             carriers: names.into_iter().collect(),
+            // The carriers-only form carries NO window flag (the default
+            // mode) — the flag resolves through permits_from_declarations
+            // and the compiled wire, never through this trait form.
+            legacy_approval_warn: false,
         }
     }
 }
@@ -316,9 +344,13 @@ impl std::iter::FromIterator<String> for CapabilityPermits {
 /// (`profile capability { allow_carrier: … }`). Unknown profile names or
 /// option shapes were already refused loudly by `profile::validate` in
 /// the semantic lane — here a non-capability profile simply contributes
-/// nothing.
+/// nothing. №957: the ENTRY's `profile legacy { approval: warn }` sets
+/// the transition-window flag (the §12.5 form — one release window of
+/// loud warnings while program-issued mandates still open the
+/// human-oversight carriers; the default is the verified-only refusal).
 pub fn permits_from_declarations(declarations: &[crate::ast::Declaration]) -> CapabilityPermits {
     let mut carriers = Vec::new();
+    let mut legacy_approval_warn = false;
     for decl in declarations {
         if let crate::ast::Declaration::Profile(p) = decl {
             if p.name == "capability" {
@@ -328,9 +360,22 @@ pub fn permits_from_declarations(declarations: &[crate::ast::Declaration]) -> Ca
                     }
                 }
             }
+            // №957: the approval transition window (the №949 п.5 rule —
+            // the §12.5 mechanics; profile::validate has already
+            // refused any unknown key/mode loudly, so this scan trusts
+            // the shape).
+            if p.name == "legacy" {
+                for (k, v) in &p.options {
+                    if k == "approval" && v == "warn" {
+                        legacy_approval_warn = true;
+                    }
+                }
+            }
         }
     }
-    CapabilityPermits::from_iter(carriers)
+    let mut permits = CapabilityPermits::from_iter(carriers);
+    permits.set_legacy_approval_warn(legacy_approval_warn);
+    permits
 }
 
 /// The named HOST permit (№97): `METALOGOS_ALLOW_EXEC=1` authorizes the
@@ -401,7 +446,10 @@ pub fn authorize_call(name: &str, permits: &CapabilityPermits) -> Result<(), Str
     // additionally demands a live mandate; carriers outside the class
     // resolve trivially (Ok). The composed surface keeps the TW/VM
     // parity and the deny-event wiring of the №845 refusal path.
-    crate::approval::authorize_overseen_call(name)
+    // №957 (ADR-0211 §3): the counted class is the VERIFIED one — the
+    // ENTRY's transition-window flag rides the permits, so both
+    // backends share it by construction.
+    crate::approval::authorize_overseen_call(name, permits.legacy_approval_warn())
 }
 
 fn authorize_capability_call(name: &str, permits: &CapabilityPermits) -> Result<(), String> {
@@ -719,32 +767,42 @@ mod gate_tests {
 
     #[test]
     #[serial_test::serial]
-    fn the_gate_refuses_without_a_mandate_and_passes_with_one() {
+    fn the_gate_refuses_without_a_mandate_and_the_window_opens_loudly() {
         mandate_store_reset();
-        // fail-closed: no mandate → the loud refusal with the remedy.
-        let err = authorize_overseen_call("cron_run").unwrap_err();
+        // fail-closed: no mandate → the loud refusal with the HOST
+        // remedy (№957: the counted class is the verified one — the
+        // text names `mlog approve`, not the program builtin).
+        let err = authorize_overseen_call("cron_run", false).unwrap_err();
         assert!(err.starts_with("IRREVERSIBLE_NO_GRANT"), "got: {err}");
-        assert!(err.contains("approval_issue"), "got: {err}");
+        assert!(err.contains("mlog approve"), "got: {err}");
         assert!(err.contains("carrier:cron_run"), "got: {err}");
-        // a mandate over a foreign target does NOT cover the carrier.
+        // №957 (ADR-0211 §3): a PROGRAM-issued mandate never counts in
+        // the default mode — a mandate over a foreign target and a
+        // mandate over the carrier itself both refuse.
         mandate_issue("owner", "carrier:other", 600).unwrap();
-        assert!(authorize_overseen_call("cron_run").is_err());
-        // the mandate over the carrier target passes.
+        assert!(authorize_overseen_call("cron_run", false).is_err());
         mandate_issue("owner", "carrier:cron_run", 600).unwrap();
-        assert!(authorize_overseen_call("cron_run").is_ok());
+        assert!(
+            authorize_overseen_call("cron_run", false).is_err(),
+            "the default mode never counts a program-issued mandate"
+        );
+        // The TRANSITION WINDOW (the №949 п.5 rule, the §12.5 form): the
+        // same mandate opens the carrier loudly while the entry declares
+        // the legacy key.
+        assert!(authorize_overseen_call("cron_run", true).is_ok());
         // the mandate store resets clean (the harness seam).
         mandate_store_reset();
-        assert!(authorize_overseen_call("cron_run").is_err());
+        assert!(authorize_overseen_call("cron_run", true).is_err());
     }
 
     #[test]
     #[serial_test::serial]
-    fn a_revoked_mandate_stops_covering_the_carrier() {
+    fn a_revoked_mandate_stops_covering_the_carrier_even_under_the_window() {
         mandate_store_reset();
         mandate_issue("owner", "carrier:cron_run", 600).unwrap();
-        assert!(authorize_overseen_call("cron_run").is_ok());
+        assert!(authorize_overseen_call("cron_run", true).is_ok());
         assert_eq!(mandate_revoke("carrier:cron_run").unwrap(), 1);
-        assert!(authorize_overseen_call("cron_run").is_err());
+        assert!(authorize_overseen_call("cron_run", true).is_err());
         assert_eq!(mandate_revoke("carrier:cron_run").unwrap(), 0, "idempotent");
         mandate_store_reset();
     }

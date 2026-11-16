@@ -65,6 +65,16 @@ pub struct TypedApproval {
     pub expires_at: u64,
     /// Revocation state — once true, permanent (the stale-token posture).
     pub revoked: bool,
+    /// №957 (ADR-0211 §3): whether the mandate was issued by a path
+    /// OUTSIDE the program's reach (the host CLI `mlog approve`) — the
+    /// counted class of the human-oversight coverage. The
+    /// `approval_issue` builtin always records `false`: the actor name a
+    /// program passes is a STRING, not a human (ADR-0211 §1 — the trust
+    /// anchor moves outside the machine). `serde(default)` keeps the
+    /// fail-closed direction for any store row that predates the field:
+    /// a missing mark reads as `false` — never-counted, never forged.
+    #[serde(default)]
+    pub actor_verified: bool,
 }
 
 impl TypedApproval {
@@ -72,6 +82,12 @@ impl TypedApproval {
     /// no expiry window (the consent-ledger convention); any other value
     /// closes the window at `granted_at + ttl` (overflow saturates to
     /// the no-window form — a mandate never wraps into the past).
+    ///
+    /// The PROGRAM-reachable constructor: the mandate it records is
+    /// NEVER verified (`actor_verified: false`, ADR-0211 §3 — the
+    /// marking mechanic of variant (в) inside variant (б)); the verified
+    /// class is born only through `issue_verified`, whose call sites are
+    /// host tooling outside the `.mlog` reach.
     pub fn issue(actor: &str, target_digest: &str, granted_at: u64, ttl_seconds: u64) -> Self {
         let expires_at = if ttl_seconds == 0 {
             u64::MAX
@@ -84,7 +100,25 @@ impl TypedApproval {
             granted_at,
             expires_at,
             revoked: false,
+            actor_verified: false,
         }
+    }
+
+    /// №957 (ADR-0211 §3): the HOST-issued constructor — the verified
+    /// class. The call sites live in the host CLI (`mlog approve`) and
+    /// the tests that pin the seam; no `.mlog` builtin reaches it, so a
+    /// counted mandate is born outside the program's reach by
+    /// construction (the fail-closed direction is structural, §3.2 of
+    /// the recommendation).
+    pub fn issue_verified(
+        actor: &str,
+        target_digest: &str,
+        granted_at: u64,
+        ttl_seconds: u64,
+    ) -> Self {
+        let mut m = Self::issue(actor, target_digest, granted_at, ttl_seconds);
+        m.actor_verified = true;
+        m
     }
 
     /// The live check (ADR-0205 §3): the window holds, the target digest
@@ -244,45 +278,257 @@ pub fn mandate_store_reset() {
     }
 }
 
+// ── №957 (issue #1924, ADR-0211 §3): the host-issued verified store ───
+//
+// The counted class of the human-oversight coverage is born OUTSIDE the
+// program's reach: the host CLI (`mlog approve`) appends verified
+// mandates to a host-owned file, and the gate reads that file AT CALL
+// TIME. The file is the persistence form (the in-memory limitation of
+// the №861 store is closed for the verified class — a mandate survives
+// the restart by construction, because it never lived in the process).
+//
+// The trust boundary (ADR-0211 §2.2, the ADR-0186 §4.5 posture): the
+// store path is HOST territory — `METALOGOS_MANDATE_STORE` or
+// `$HOME/.metalogos/mandates.json` — and the path is on the №455
+// sensitive-path deny vocabulary (`.metalogos/**`, `mandates.json`,
+// src/builtins/io.rs), so a program cannot read OR write it through any
+// gated file surface: the fail-closed direction is structural, not a
+// check the program could talk its way past.
+//
+// The file I/O here is raw `std::fs` BY DESIGN (the №475 ratchet's
+// explicitly-justified service module): this path is the HOST'S approval
+// authority, not a program-influenced surface — routing it through
+// `crate::fs_gate` would apply the program-facing sandbox to the very
+// file the program must never touch. Every call below runs in the host
+// seam (`mlog approve`) or the runtime gate's read; no `.mlog` path
+// reaches them.
+
+/// The verified-store path: `METALOGOS_MANDATE_STORE` wins (the host
+/// contour's override — tests and multi-store hosts), the default is the
+/// host-scoped `~/.metalogos/mandates.json`. No HOME and no override →
+/// the loud error (fail-closed: the CLI refuses, the gate reports the
+/// store unavailable and refuses the verified class).
+pub fn mandate_store_path() -> Result<std::path::PathBuf, String> {
+    if let Ok(p) = std::env::var("METALOGOS_MANDATE_STORE") {
+        if p.trim().is_empty() {
+            return Err("METALOGOS_MANDATE_STORE is set but empty".to_string());
+        }
+        return Ok(std::path::PathBuf::from(p));
+    }
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map_err(|_| {
+            "no mandate store: set METALOGOS_MANDATE_STORE, or run with HOME/USERPROFILE set"
+                .to_string()
+        })?;
+    Ok(std::path::PathBuf::from(home)
+        .join(".metalogos")
+        .join("mandates.json"))
+}
+
+/// Load the persisted verified mandates. A MISSING file is the normal
+/// empty state (no host approval has ever been recorded) — NOT an error.
+/// An UNREADABLE or CORRUPT store is the loud error: the gate turns it
+/// into the fail-closed refusal, never a silent pass (the same posture
+/// as the in-memory lock error).
+#[allow(clippy::disallowed_methods)] // №957: the host-owned approval store — see the section note
+fn verified_store_load() -> Result<Vec<TypedApproval>, String> {
+    let path = mandate_store_path()?;
+    let Ok(bytes) = std::fs::read(&path) else {
+        // Missing = empty. Any other read error (permissions, is-a-dir)
+        // is loud: the host must see why its authority is unreadable.
+        if std::fs::metadata(&path).is_err() {
+            return Ok(Vec::new());
+        }
+        return Err(format!(
+            "the verified mandate store {} is unreadable",
+            path.display()
+        ));
+    };
+    #[derive(serde::Deserialize)]
+    struct StoreFile {
+        mandates: Vec<TypedApproval>,
+    }
+    let parsed: StoreFile = serde_json::from_slice(&bytes).map_err(|e| {
+        format!(
+            "the verified mandate store {} is corrupt: {e}",
+            path.display()
+        )
+    })?;
+    Ok(parsed.mandates)
+}
+
+/// Append one verified mandate to the persisted store. The write is
+/// atomic (temp file + rename — a torn write would be a corrupt store,
+/// the fail-closed refusal of every later carrier call) and the file is
+/// host-private (0700 dir / 0600 file, unix). Append-only like the
+/// in-memory store: a revocation MARKS, it never deletes.
+#[allow(clippy::disallowed_methods)] // №957: the host-owned approval store — see the section note
+fn verified_store_append(mandate: &TypedApproval) -> Result<std::path::PathBuf, String> {
+    use std::io::Write;
+    let path = mandate_store_path()?;
+    let mut existing = verified_store_load()?;
+    existing.push(mandate.clone());
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("the mandate store dir {}: {e}", dir.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+        }
+    }
+    #[derive(serde::Serialize)]
+    struct StoreFile<'a> {
+        mandates: &'a [TypedApproval],
+    }
+    let body = serde_json::to_vec_pretty(&StoreFile {
+        mandates: &existing,
+    })
+    .map_err(|e| format!("the mandate store serialize: {e}"))?;
+    let tmp = path.with_extension("json.tmp");
+    {
+        let mut f = std::fs::File::create(&tmp)
+            .map_err(|e| format!("the mandate store {}: {e}", tmp.display()))?;
+        f.write_all(&body)
+            .map_err(|e| format!("the mandate store {}: {e}", tmp.display()))?;
+        f.sync_all()
+            .map_err(|e| format!("the mandate store sync {}: {e}", tmp.display()))?;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
+    }
+    std::fs::rename(&tmp, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("the mandate store rename {}: {e}", path.display())
+    })?;
+    Ok(path)
+}
+
+/// №957 (ADR-0211 §3): the HOST seam — record the human's approval as a
+/// VERIFIED mandate over `target` and persist it (the mandate survives
+/// the restart; the in-memory limitation of the №861 store is closed for
+/// the verified class). The ONLY path that mints `actor_verified: true`;
+/// its call sites are the host CLI (`mlog approve`) and the tests pinning
+/// the seam — no `.mlog` builtin reaches it.
+pub fn mandate_issue_verified(
+    actor: &str,
+    target: &str,
+    ttl_seconds: u64,
+) -> Result<TypedApproval, String> {
+    if actor.trim().is_empty() {
+        return Err(
+            "approve: the actor must name the human who approved (non-empty String)".to_string(),
+        );
+    }
+    if target.trim().is_empty() {
+        return Err("approve: the target must name what was approved (non-empty String, e.g. \"carrier:cron_run\")".to_string());
+    }
+    let mandate =
+        TypedApproval::issue_verified(actor, &target_digest(&[target]), now_epoch(), ttl_seconds);
+    let path = verified_store_append(&mandate)?;
+    let _ = path;
+    Ok(mandate)
+}
+
 /// The refusal text (the typed deny surface): the SAME reason class as
 /// the capability gate — the vocabulary does not grow (№385) — with the
-/// human remedy verbatim (the honest refusal form of №845).
+/// human remedy verbatim (the honest refusal form of №845). №957: the
+/// remedy is the HOST CLI — a program-issued mandate is never counted
+/// (ADR-0211 §3), so the text names `mlog approve` and, for the
+/// migration window, the §12.5-form key.
 fn approval_refusal(name: &str) -> String {
     format!(
         "IRREVERSIBLE_NO_GRANT: approval gate: '{name}' is a human-oversight carrier — no live \
-         approval mandate (record the human's decision with approval_issue(\"actor\", \
-         \"carrier:{name}\", ttl_seconds) after the human approves; the refusal is BEFORE the \
-         action — ADR-0205 §2.6, №861: fail-closed, a silent pass is forbidden)"
+         VERIFIED approval mandate (issue one OUTSIDE the program — the host CLI `mlog approve \
+         carrier:{name} --actor <who> [--ttl S]`; a mandate recorded by approval_issue from \
+         .mlog is actor_verified=false and never counts — ADR-0205 §2.6, №861, №957/ADR-0211 \
+         §3: fail-closed, a silent pass is forbidden; the migration window key is `profile \
+         legacy {{ approval: warn }}` in the entry program)"
     )
 }
 
-/// THE approval decision (№861/ADR-0205 §2.6): a human-oversight carrier
-/// without a LIVE mandate refuses BEFORE the action. Composed at the tail
-/// of `capability::authorize_call` — every dispatch site that authorizes
+/// THE approval decision (№861/ADR-0205 §2.6; №957/ADR-0211 §3 — the
+/// verified class): a human-oversight carrier without a LIVE VERIFIED
+/// mandate refuses BEFORE the action. Composed at the tail of
+/// `capability::authorize_call` — every dispatch site that authorizes
 /// the capability layer approval-gates too, both backends, one surface.
 /// A carrier outside the class resolves trivially (`Ok`).
-pub fn authorize_overseen_call(name: &str) -> Result<(), String> {
+///
+/// The counted class is the VERIFIED one: the mandates minted by the
+/// host CLI (`mlog approve` — `mandate_issue_verified`, the persisted
+/// host-owned store) and nothing else. A PROGRAM-issued mandate
+/// (`approval_issue` from .mlog, `actor_verified: false`) is never
+/// counted in the default mode — the marking mechanic of ADR-0211 §3
+/// (variant (в) inside variant (б)). The TRANSITION WINDOW (the №949
+/// п.5 rule, the §12.5 form): while the ENTRY program declares
+/// `profile legacy { approval: warn }`, a live program-issued mandate
+/// still opens the carrier, with a LOUD stderr warning naming the host
+/// remedy — one release window, then the key is removed and the program
+/// carrying it is a check error (the window flag rides the
+/// CapabilityPermits wire, so TW and VM share it by construction).
+///
+/// Fail-closed directions: an unavailable in-memory store refuses; an
+/// unreadable or corrupt VERIFIED store refuses (the host's authority
+/// must never degrade into a silent pass); a missing store file is the
+/// normal empty state.
+pub fn authorize_overseen_call(name: &str, legacy_approval_warn: bool) -> Result<(), String> {
     if !HUMAN_OVERSIGHT.contains(&name) {
         return Ok(());
     }
     let digest = target_digest(&[&carrier_target(name)]);
     let now = now_epoch();
-    match lock_store() {
+    // 1. The verified class — the persisted host-issued store. Missing
+    //    file = empty (no host approval yet); corrupt/unreadable = the
+    //    loud fail-closed refusal.
+    match verified_store_load() {
         Ok(store) => {
             if store
                 .iter()
-                .any(|m| m.verify(now, &digest) == Verdict::Allow)
+                .any(|m| m.actor_verified && m.verify(now, &digest) == Verdict::Allow)
             {
                 return Ok(());
             }
         }
-        // The gate cannot verify the live state → fail-closed (the same
-        // posture as an unreadable coverage record: never a silent pass).
         Err(e) => {
             return Err(format!(
-                "{} (the mandate store is unavailable: {e})",
+                "{} (the verified mandate store is unavailable: {e})",
                 approval_refusal(name)
             ))
+        }
+    }
+    // 2. The transition window — a live PROGRAM-issued mandate opens the
+    //    carrier only while the entry declares the legacy key, loudly
+    //    (the §12.5 form: the refusals fire as warnings, one window).
+    if legacy_approval_warn {
+        match lock_store() {
+            Ok(store) => {
+                if store
+                    .iter()
+                    .any(|m| m.verify(now, &digest) == Verdict::Allow)
+                {
+                    eprintln!(
+                        "⚠  [APPROVAL_ACTOR_UNVERIFIED] (the transition window): the live \
+                         mandate over carrier:{name} was issued by the PROGRAM (approval_issue \
+                         — actor_verified=false) and stops counting after the window; the \
+                         human-oversight carrier is opened THIS ONCE with the loud mark. \
+                         Issue the verified mandate OUTSIDE the program: `mlog approve \
+                         carrier:{name} --actor <who> [--ttl S]` (№957, ADR-0211 §3; the key \
+                         `profile legacy {{ approval: warn }}` is removed after the window)."
+                    );
+                    return Ok(());
+                }
+            }
+            // The window cannot verify the live state → fail-closed even
+            // under the warn flag (never a silent pass).
+            Err(e) => {
+                return Err(format!(
+                    "{} (the mandate store is unavailable: {e})",
+                    approval_refusal(name)
+                ))
+            }
         }
     }
     Err(approval_refusal(name))
@@ -299,8 +545,105 @@ mod tests {
         assert!(!m.revoked);
         assert_eq!(m.actor, "owner");
         assert_eq!(m.expires_at, 1_600);
+        // №957 (ADR-0211 §3): the program-reachable constructor NEVER
+        // mints the verified class — the actor a program passes is a
+        // string, not a human.
+        assert!(
+            !m.actor_verified,
+            "TypedApproval::issue must record actor_verified=false (№957)"
+        );
         assert_eq!(m.verify(1_000, &d), Verdict::Allow);
         assert_eq!(m.verify(1_599, &d), Verdict::Allow);
+    }
+
+    #[test]
+    fn the_verified_constructor_is_the_only_verified_birth() {
+        // №957 (ADR-0211 §3): the host seam mints the counted class; the
+        // marking travels the serde round-trip (the persisted store
+        // reads back what the host wrote).
+        let d = target_digest(&["carrier:cron_run"]);
+        let m = TypedApproval::issue_verified("owner", &d, 10, 60);
+        assert!(m.actor_verified, "issue_verified mints the verified class");
+        let json = serde_json::to_string(&m).expect("serialize");
+        let back: TypedApproval = serde_json::from_str(&json).expect("deserialize");
+        assert!(back.actor_verified);
+        assert_eq!(back.verify(20, &d), Verdict::Allow);
+
+        // The fail-closed default: a store row without the field (the
+        // pre-№957 form) reads as NEVER-COUNTED, not as verified.
+        let legacy_row = format!(
+            r#"{{"actor":"owner","target_digest":"{d}","granted_at":10,"expires_at":70,"revoked":false}}"#
+        );
+        let old: TypedApproval = serde_json::from_str(&legacy_row).expect("deserialize");
+        assert!(
+            !old.actor_verified,
+            "a missing actor_verified mark reads fail-closed (never-counted)"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn the_verified_store_persists_and_survives_the_restart_shape() {
+        // №957 (ADR-0211 §3): the host-issued mandate lives in the
+        // persisted store — the "survives the restart" half of the
+        // naryad is the file being the SSOT (the gate reads it AT CALL
+        // TIME, a fresh load every time; the in-memory store never sees
+        // the verified class).
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = dir.path().join("mandates.json");
+        // SAFETY (serial): the env var is process-global; the test is
+        // serialized and restores the caller's value.
+        let saved = std::env::var("METALOGOS_MANDATE_STORE").ok();
+        std::env::set_var("METALOGOS_MANDATE_STORE", &store);
+        let issued = mandate_issue_verified("owner", "carrier:cron_run", 600)
+            .expect("the host seam issues and persists");
+        assert!(issued.actor_verified);
+        // The file exists, holds the mandate, and a FRESH load (the
+        // restart shape: nothing in memory carries it) verifies it live.
+        let digest = target_digest(&["carrier:cron_run"]);
+        let reloaded = verified_store_load().expect("the persisted store reads back");
+        assert_eq!(reloaded.len(), 1);
+        assert!(reloaded[0].actor_verified);
+        assert_eq!(reloaded[0].verify(now_epoch(), &digest), Verdict::Allow);
+        assert!(store.exists(), "the store file is written");
+        let _ = issued;
+        match saved {
+            Some(v) => std::env::set_var("METALOGOS_MANDATE_STORE", v),
+            None => std::env::remove_var("METALOGOS_MANDATE_STORE"),
+        }
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn a_corrupt_verified_store_is_the_loud_error_never_a_pass() {
+        // The fail-closed direction: a corrupt store is the loud error
+        // (the gate refuses the verified class), never an empty pass.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = dir.path().join("mandates.json");
+        let saved = std::env::var("METALOGOS_MANDATE_STORE").ok();
+        std::env::set_var("METALOGOS_MANDATE_STORE", &store);
+        std::fs::write(&store, b"{ not json").expect("write the corrupt store");
+        let err = verified_store_load().expect_err("a corrupt store refuses loudly");
+        assert!(
+            err.contains("corrupt"),
+            "the error names the corruption: {err}"
+        );
+        match saved {
+            Some(v) => std::env::set_var("METALOGOS_MANDATE_STORE", v),
+            None => std::env::remove_var("METALOGOS_MANDATE_STORE"),
+        }
+    }
+
+    #[test]
+    fn the_gate_refuses_without_a_verified_mandate_and_names_the_host_remedy() {
+        // №957 (ADR-0211 §3): the default-mode gate text names the HOST
+        // remedy (`mlog approve`) — the refusal stays explainable after
+        // the program path stops counting. The frozen class is
+        // unchanged (№385).
+        let text = approval_refusal("cron_run");
+        assert!(text.contains("IRREVERSIBLE_NO_GRANT"));
+        assert!(text.contains("mlog approve"), "the remedy is the host CLI");
+        assert!(text.contains("actor_verified=false"));
     }
 
     #[test]

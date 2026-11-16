@@ -718,6 +718,14 @@ pub struct Program {
     /// standard posture, the fail-closed default).
     #[serde(default)]
     pub capability_permits: Vec<String>,
+    /// №957 (ADR-0211 §3): the approval transition-window flag — the
+    /// ENTRY's `profile legacy { approval: warn }`, resolved by the
+    /// compiler and consumed by `Vm::load_program` (the TW lane carries
+    /// the same flag on `CapabilityPermits`). `#[serde(default)]` — old
+    /// .mbc files deserialize cleanly (false = the default mode: the
+    /// verified-only refusal, the fail-closed posture).
+    #[serde(default)]
+    pub legacy_approval_warn: bool,
     /// №952 (ADR-0156 §5 + ADR-0161): the egress posture of the entry
     /// program — `profile legacy { egress: permissive_with_audit }` makes
     /// the sink-clearance verdicts ADVISORY on BOTH lanes (the static

@@ -35,6 +35,12 @@ pub(crate) fn mandate_view(m: &TypedApproval) -> Value {
     fields.insert("granted_at".to_string(), Value::Float(m.granted_at as f64));
     fields.insert("expires_at".to_string(), Value::Float(m.expires_at as f64));
     fields.insert("revoked".to_string(), Value::Bool(m.revoked));
+    // №957 (ADR-0211 §3): the marking is VISIBLE to the program — a
+    // program-issued mandate can read its own `actor_verified=false` and
+    // knows it never counts toward the human-oversight coverage. The
+    // visibility is honesty, not authority: the field is a plain value,
+    // the gate reads the store AT CALL TIME.
+    fields.insert("actor_verified".to_string(), Value::Bool(m.actor_verified));
     Value::Struct {
         type_name: APPROVAL_TYPE.to_string(),
         fields,

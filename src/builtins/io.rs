@@ -341,8 +341,14 @@ pub(crate) fn sensitive_path_match(path: &str) -> bool {
         // `.GIT` component IS `.git`, so the match must not depend on
         // the letter case the program happened to spell.
         let name = c.to_string_lossy().to_lowercase();
-        // Directory forms: `.git/**`, `.mlog/**` — anything under them.
-        if name == ".git" || name == ".mlog" {
+        // Directory forms: `.git/**`, `.mlog/**`, `.metalogos/**` —
+        // anything under them. №957 (ADR-0211 §3): `.metalogos` is the
+        // HOST authority contour — the verified-approval store
+        // (`mandates.json`) lives there; a program must never read or
+        // write the store, or it could forge a counted human-oversight
+        // mandate (the counted class is born outside the program's reach
+        // by construction, not by a check it could talk past).
+        if name == ".git" || name == ".mlog" || name == ".metalogos" {
             return true;
         }
     }
@@ -376,6 +382,13 @@ pub(crate) fn sensitive_name_match(file_name: &str) -> bool {
         || file_name.starts_with(".npmrc")
         || file_name.starts_with("credentials")
         || file_name == "metalogos.toml"
+        // №957 (ADR-0211 §3): the host's verified-approval store — the
+        // counted human-oversight class lives here; the name is denied
+        // in EVERY directory (not only under `.metalogos`), together
+        // with its atomic-write temp form, so a program cannot relocate
+        // or race the store past the dir form.
+        || file_name == "mandates.json"
+        || file_name == "mandates.json.tmp"
 }
 
 /// The №455 escape crane (layer 3): is this path explicitly allowed by
@@ -448,7 +461,7 @@ pub(crate) fn file_ingest_gate(
         if sensitive_path_match(raw) {
             return Err(sandbox_sensitive_violation(format!(
                 "{}('{}'): the path matches the sensitive-path deny-list \
-                 (.env*, *.db, *.sqlite*, .git/**, *.mlog, metalogos.toml, .mlog/**) — \
+                 (.env*, *.db, *.sqlite*, .git/**, *.mlog, metalogos.toml, .mlog/**, .metalogos/**, mandates.json) — \
                  set METALOGOS_SENSITIVE_PATH_ALLOWLIST=\"NAME\" to allow a specific \
                  file explicitly (Naryad #455)",
                 builtin, raw
@@ -629,7 +642,7 @@ fn read_file_impl(
     if sensitive_path_match(path) && !sensitive_allowlisted(path) {
         return Err(sandbox_sensitive_violation(format!(
             "{}('{}'): the path matches the sensitive-path deny-list \
-             (.env*, *.db, *.sqlite*, .git/**, *.mlog, metalogos.toml, .mlog/**) — \
+             (.env*, *.db, *.sqlite*, .git/**, *.mlog, metalogos.toml, .mlog/**, .metalogos/**, mandates.json) — \
              set METALOGOS_SENSITIVE_PATH_ALLOWLIST=\"NAME\" to allow a specific \
              file explicitly (Naryad #455)",
             name, path

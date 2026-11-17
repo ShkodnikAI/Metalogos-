@@ -7716,11 +7716,9 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                                 // — no new check_id).
                                 let seen = axis.view(&edge);
                                 let decided: Option<&'static str> = match *inner_reason {
-                                    "duty-materialization" => {
-                                        (duty_materialization_denied
-                                            && seen.conf == crate::labels::Conf::Private)
-                                            .then_some("duty-materialization")
-                                    }
+                                    "duty-materialization" => (duty_materialization_denied
+                                        && seen.conf == crate::labels::Conf::Private)
+                                        .then_some("duty-materialization"),
                                     "untrusted-file-path" => (seen.integrity
                                         == crate::labels::Integrity::Untrusted)
                                         .then_some("untrusted-file-path"),

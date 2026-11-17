@@ -338,7 +338,8 @@ fn n966_the_integrity_package_is_measured_in_the_docs() {
          half records its landing in the same PR (the №966 §13 form)"
     );
     assert!(
-        adr.contains("583 `.mlog` files: marginal refusals 0") && adr.contains("carriers of the new flow findings 0"),
+        adr.contains("583 `.mlog` files: marginal refusals 0")
+            && adr.contains("carriers of the new flow findings 0"),
         "ADR-0154 §13.10 lost the measured numbers — the zero-migration claim \
          must carry its sweep record (the №956 discipline)"
     );

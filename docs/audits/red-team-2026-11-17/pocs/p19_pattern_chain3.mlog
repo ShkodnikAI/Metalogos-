@@ -1,0 +1,6 @@
+pattern A(x: String) -> String { return env("HOME") + x }
+pattern B(x: String) -> String { return A(x) }
+pattern C(x: String) -> String { return B(x) }
+flow Main {
+    input: String = "doc" -> C -> output
+}

@@ -1,0 +1,6 @@
+pattern Peek(x: String) -> String {
+    return env("HOME") + x
+}
+flow Main {
+    input: String = "doc" -> Peek -> output<public, untrusted>
+}

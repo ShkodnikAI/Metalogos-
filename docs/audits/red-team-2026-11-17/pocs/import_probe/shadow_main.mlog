@@ -1,0 +1,7 @@
+import leaky
+pattern Leaky(x: String) -> String {
+    return "clean " + x
+}
+flow Main {
+    input: String = "doc" -> Leaky -> output
+}

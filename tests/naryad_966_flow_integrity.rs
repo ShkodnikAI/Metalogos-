@@ -82,14 +82,14 @@ fn n966_b13_unannotated_refuses() {
         if rendered.is_empty() {
             "<no errors — the B13 gate is back to silence>"
         } else {
-            &rendered
+            rendered.as_str()
         }
     );
     assert!(
         rendered.contains("declare `-> output<public, untrusted>`"),
         "the refusal must name the idiom form (ADR-0154 §13.8 п.3 — the §13.4 \
          criterion); got: {}",
-        &rendered
+        rendered
     );
 }
 
@@ -139,7 +139,7 @@ fn n966_the_weaker_claim_refuses() {
         if rendered.is_empty() {
             "<no errors — the annotation became a silencer>"
         } else {
-            &rendered
+            rendered.as_str()
         }
     );
 }
@@ -160,13 +160,15 @@ fn n966_the_conf_word_refuses() {
         if rendered.is_empty() {
             "<no errors>"
         } else {
-            &rendered
+            rendered.as_str()
         }
     );
 }
 
 /// The CONTROL (the №965 confidentiality gate, unchanged by №967): a
-/// flow ending in a SOURCE value (`env`) refuses with the frozen class.
+/// flow ending in a SOURCE value (`env`) refuses with the frozen class,
+/// and the refusal does NOT advise a terminator declaration (the p08
+/// red-team dead-end — the private edge is not declareable).
 #[test]
 fn n966_private_flow_output_still_refuses() {
     let src = "pattern P(x: String) -> String { return env(\"SP\") }\n\
@@ -179,8 +181,13 @@ fn n966_private_flow_output_still_refuses() {
         if rendered.is_empty() {
             "<no errors>"
         } else {
-            &rendered
+            rendered.as_str()
         }
+    );
+    assert!(
+        !rendered.contains("declare `-> output<"),
+        "the private-edge refusal must NOT advise a terminator declaration (the \
+         p08 red-team dead-end); got: {rendered}"
     );
 }
 
@@ -189,6 +196,12 @@ fn n966_private_flow_output_still_refuses() {
 /// the declared `public` over a private edge fires the mismatch
 /// discipline first, and the private egress refuses either way (layer
 /// (2) of the landed Flow arm).
+///
+/// The p08 red-team finding (docs/audits/red-team-2026-11-17/): the
+/// refusal must NOT advise `-> output<private, ...>` — a declaration
+/// layer (1) refuses by design, the advice would be an undecareable
+/// dead end. The private-edge refusal carries the redact() downward
+/// move instead (№326).
 #[test]
 fn n966_private_flow_output_annotated_still_refuses() {
     let src = "pattern P(x: String) -> String { return env(\"SP\") }\n\
@@ -201,8 +214,19 @@ fn n966_private_flow_output_annotated_still_refuses() {
         if rendered.is_empty() {
             "<no errors — the annotation waived the confidentiality half>"
         } else {
-            &rendered
+            rendered.as_str()
         }
+    );
+    assert!(
+        !rendered.contains("declare `-> output<"),
+        "the private-edge refusal must NOT advise a terminator declaration — the \
+         advice would be the undecareable dead end the red-team pass p08 caught; \
+         got: {rendered}"
+    );
+    assert!(
+        rendered.contains("redact()"),
+        "the private-edge refusal must carry the sanctioned downward move (№326); \
+         got: {rendered}"
     );
 }
 
@@ -238,7 +262,7 @@ fn n966_the_bogus_word_refuses() {
         if rendered.is_empty() {
             "<no errors>"
         } else {
-            &rendered
+            rendered.as_str()
         }
     );
 }

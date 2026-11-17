@@ -38,7 +38,7 @@ use std::sync::{Arc, Mutex};
 
 fn eval_expr(src: &str) -> Result<String, String> {
     let full = format!(
-        "pattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
+        "pattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output<public, untrusted> }}",
         src
     );
     match metalogos::run_program(&full) {
@@ -52,7 +52,7 @@ fn eval_expr(src: &str) -> Result<String, String> {
 fn eval_expr_vm(src: &str) -> Result<String, String> {
     let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let declarations = metalogos::parser::parse(&format!(
-        "pattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
+        "pattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output<public, untrusted> }}",
         src
     ))
     .map_err(|e| format!("parse error: {e}"))?;

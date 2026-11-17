@@ -1,0 +1,7 @@
+pattern Scrub(x: String) -> String {
+    let raw = env("HOME")
+    return redact(raw, "email")
+}
+flow Main {
+    input: String = "doc" -> Scrub -> output
+}

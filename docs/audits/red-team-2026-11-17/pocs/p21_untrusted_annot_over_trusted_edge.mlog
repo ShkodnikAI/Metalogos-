@@ -1,0 +1,3 @@
+flow Main {
+    input: String = "doc" -> output<public, untrusted>
+}

@@ -6138,7 +6138,10 @@ fn check_sink_clearance(
                      than the computed edge '{}' — the annotation cannot silence what the program \
                      computes (§12.2, №967); declare `-> output<{}>` (the computed one) if the \
                      display is intended, or drop the annotation",
-                    v.annotation.as_deref().unwrap_or(""), v.container, v.label, v.label,
+                    v.annotation.as_deref().unwrap_or(""),
+                    v.container,
+                    v.label,
+                    v.label,
                 ),
             });
             continue;
@@ -6182,12 +6185,34 @@ fn check_sink_clearance(
         // refusal stays readable to an author who did NOT declare the
         // idiom): the computed label and the one-line declaration that
         // makes the display intended.
-        let form_note = if v.fn_name == "print" && v.container.starts_with("flow ") {
+        //
+        // The red-team pass 17.11 (p08, docs/audits/red-team-2026-11-17/)
+        // caught the dead-end shape: for a PRIVATE edge the advice named
+        // `-> output<private, ...>` — a declaration layer (1) of the
+        // Flow arm refuses by design — a diagnostic loop (refusal
+        // guaranteed, advice undecareable). The form note names the
+        // declaration ONLY on a public edge (the idiom form governs the
+        // INTEGRITY half); a private edge ends the message without an
+        // annotation advice — the confidentiality half is not
+        // declareable (№965), `redact()` in the foreground contour is
+        // the sanctioned downward move (№326).
+        let form_note = if v.fn_name == "print"
+            && v.container.starts_with("flow ")
+            && v.label.conf == crate::labels::Conf::Public
+        {
             format!(
                 " — the flow output carries '{}'; declare `-> output<{}>` if the display is \
                  intended (ADR-0154 §13.4 form (а))",
                 v.label, v.label
             )
+        } else if v.fn_name == "print"
+            && v.container.starts_with("flow ")
+            && v.label.conf != crate::labels::Conf::Public
+        {
+            " — the flow output carries a non-public label; the confidentiality half is not \
+             declareable on the terminator (№967): redact() in the foreground contour is the \
+             sanctioned downward move (№326)"
+                .to_string()
         } else {
             String::new()
         };

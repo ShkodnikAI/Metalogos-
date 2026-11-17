@@ -47,7 +47,7 @@ fn eval_expr(src: &str) -> Result<String, String> {
         )
     };
     let full = format!(
-        "{}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
+        "{}\nflow Main {{ input: String = \"x\" -> __eval -> output<public, untrusted> }}",
         body
     );
     match metalogos::run_program(&full) {

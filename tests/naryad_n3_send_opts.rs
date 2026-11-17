@@ -59,7 +59,7 @@ fn eval_expr(src: &str) -> Result<String, String> {
     // a local mock; the capability layer requires the explicit carrier
     // permits for the delivery builtins (ADR-0203 §2.4).
     let full = format!(
-        "profile capability {{ allow_carrier: \"send_message\" allow_carrier: \"send_photo\" }}\npattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
+        "profile capability {{ allow_carrier: \"send_message\" allow_carrier: \"send_photo\" }}\npattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output<public, untrusted> }}",
         src
     );
     match metalogos::run_program(&full) {
@@ -75,7 +75,7 @@ fn eval_expr(src: &str) -> Result<String, String> {
 fn eval_expr_vm(src: &str) -> Result<String, String> {
     let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let declarations = metalogos::parser::parse(&format!(
-        "profile capability {{ allow_carrier: \"send_message\" allow_carrier: \"send_photo\" }}\npattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
+        "profile capability {{ allow_carrier: \"send_message\" allow_carrier: \"send_photo\" }}\npattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output<public, untrusted> }}",
         src
     ))
     .map_err(|e| format!("parse error: {e}"))?;

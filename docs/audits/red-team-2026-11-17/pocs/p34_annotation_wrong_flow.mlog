@@ -1,0 +1,8 @@
+pattern Ask(x: String) -> String { return call_llm("key", x) }
+pattern Clean(x: String) -> String { return x }
+flow Dirty {
+    input: String = "doc" -> Ask -> output
+}
+flow CleanFlow {
+    input: String = "doc" -> Clean -> output<public, untrusted>
+}

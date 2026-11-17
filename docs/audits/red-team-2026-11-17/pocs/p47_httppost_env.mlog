@@ -1,0 +1,7 @@
+pattern P(x: String) -> String {
+    http_post("http://127.0.0.1:9/", env("HOME"))
+    return "done"
+}
+flow Main {
+    input: String = "doc" -> P -> output
+}

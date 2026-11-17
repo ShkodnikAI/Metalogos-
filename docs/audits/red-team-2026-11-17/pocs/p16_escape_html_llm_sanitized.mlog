@@ -1,0 +1,6 @@
+pattern Probe(x: String) -> String {
+    return escape_html(call_llm("key", "<script>alert(1)</script>"))
+}
+flow Main {
+    input: String = "doc" -> Probe -> output
+}

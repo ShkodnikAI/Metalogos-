@@ -1,0 +1,6 @@
+pattern Step(x: String) -> String {
+    return x
+}
+flow Main {
+    input: String = "doc" -> Step -> output<private, untrusted>
+}

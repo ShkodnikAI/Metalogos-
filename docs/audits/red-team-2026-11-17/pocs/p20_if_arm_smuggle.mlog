@@ -1,0 +1,9 @@
+pattern P(x: String) -> String {
+    if x == "a" {
+        return env("HOME")
+    }
+    return "safe"
+}
+flow Main {
+    input: String = "doc" -> P -> output
+}

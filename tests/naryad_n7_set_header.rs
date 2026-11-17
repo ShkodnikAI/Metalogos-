@@ -35,7 +35,7 @@ fn eval_expr(src: &str) -> Result<String, String> {
         format!("return {}", src)
     };
     let full = format!(
-        "pattern __eval(input: String) -> String {{ {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
+        "pattern __eval(input: String) -> String {{ {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output<public, untrusted> }}",
         body
     );
     match metalogos::run_program(&full) {
@@ -53,7 +53,7 @@ fn eval_expr_vm(src: &str) -> Result<String, String> {
     };
     let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let declarations = metalogos::parser::parse(&format!(
-        "pattern __eval(input: String) -> String {{ {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
+        "pattern __eval(input: String) -> String {{ {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output<public, untrusted> }}",
         body
     ))
     .map_err(|e| format!("parse error: {e}"))?;

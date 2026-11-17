@@ -1,0 +1,7 @@
+pattern P(x: String) -> String {
+    exec("ls " + call_llm("k", x))
+    return "done"
+}
+flow Main {
+    input: String = "doc" -> P -> output
+}

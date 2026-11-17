@@ -1,0 +1,4 @@
+profile capability { allow_carrier: "exec" }
+flow Main {
+    input: String = "echo SECRET_MARKER_XYZ" -> exec -> output
+}

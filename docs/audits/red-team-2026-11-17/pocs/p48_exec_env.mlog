@@ -1,0 +1,7 @@
+pattern P(x: String) -> String {
+    exec(env("HOME"))
+    return "done"
+}
+flow Main {
+    input: String = "doc" -> P -> output
+}

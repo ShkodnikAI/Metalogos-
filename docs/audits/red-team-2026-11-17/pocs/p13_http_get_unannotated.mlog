@@ -1,0 +1,6 @@
+pattern Fetch(x: String) -> String {
+    return html_text(http_get("http://127.0.0.1:9/"), "body")
+}
+flow Main {
+    input: String = "doc" -> Fetch -> output
+}

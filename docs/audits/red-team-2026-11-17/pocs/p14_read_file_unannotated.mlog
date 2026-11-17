@@ -1,0 +1,6 @@
+pattern Slurp(x: String) -> String {
+    return read_file("/etc/hostname")
+}
+flow Main {
+    input: String = "doc" -> Slurp -> output
+}

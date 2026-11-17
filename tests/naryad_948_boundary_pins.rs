@@ -74,8 +74,11 @@ const STILL_OPEN_PINS: &[(&str, &str, u32)] = &[
 /// ADR-0154 §13.8): an UNANNOTATED untrusted-public flow output refuses
 /// with the frozen print-channel class, and the §3 terminator annotation
 /// is the checkable claim (a weaker claim is the loud mismatch).
-const FLIPPED_967_PINS: &[(&str, &str, &str)] =
-    &[("b13_flow_output_integrity_idiom.mlog", "B13", "HTML_INJECTION")];
+const FLIPPED_967_PINS: &[(&str, &str, &str)] = &[(
+    "b13_flow_output_integrity_idiom.mlog",
+    "B13",
+    "HTML_INJECTION",
+)];
 
 /// The row FLIPPED by №965 — the flow edge carries the step-return label
 /// (the confidentiality axis): the pin is a blocking leak-suite negative.
@@ -265,7 +268,7 @@ fn n948_b01_b04_interprocedural_boundary_is_the_refusal() {
             if rendered.is_empty() {
                 "<no errors — check passes again>"
             } else {
-                &rendered
+                rendered.as_str()
             }
         );
     }
@@ -304,7 +307,7 @@ fn n948_b05_b06_b08_in_pattern_losses_are_the_refusal() {
             if rendered.is_empty() {
                 "<no errors — the loss is back>"
             } else {
-                &rendered
+                rendered.as_str()
             }
         );
     }
@@ -344,7 +347,7 @@ fn n948_b12_value_labels_second_line_is_the_refusal() {
             if rendered.is_empty() {
                 "<no errors — the second line is back to silence>"
             } else {
-                &rendered
+                rendered.as_str()
             }
         );
     }
@@ -376,7 +379,7 @@ fn n948_b07_flow_edge_carries_the_return_label() {
             if rendered.is_empty() {
                 "<no errors — the flow edge is back to silence>"
             } else {
-                &rendered
+                rendered.as_str()
             }
         );
     }
@@ -413,7 +416,7 @@ fn n948_b13_flow_output_integrity_gated() {
             if rendered.is_empty() {
                 "<no errors — the B13 gate is back to silence>"
             } else {
-                &rendered
+                rendered.as_str()
             }
         );
         assert!(
@@ -421,7 +424,7 @@ fn n948_b13_flow_output_integrity_gated() {
             "row {} ({}): the refusal must name the idiom form (ADR-0154 §13.8 п.3); got: {}",
             row,
             fixture,
-            &rendered
+            rendered
         );
     }
 }

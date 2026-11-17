@@ -1,0 +1,6 @@
+pattern Echo(x: String) -> String {
+    return x
+}
+flow Main {
+    input: String = env("HOME") -> Echo -> output
+}

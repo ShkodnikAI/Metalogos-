@@ -1,0 +1,3 @@
+flow Main {
+    input: String = call_llm("key", "doc") -> output
+}

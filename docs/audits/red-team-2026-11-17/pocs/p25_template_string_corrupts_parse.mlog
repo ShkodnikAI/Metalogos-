@@ -1,0 +1,6 @@
+pattern Ask(x: String) -> String {
+    return template("Hello {{x}}", call_llm("key", x))
+}
+flow Main {
+    input: String = "doc" -> Ask -> output
+}

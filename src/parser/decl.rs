@@ -2292,8 +2292,7 @@ pub(super) fn parse_flow_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErro
     // itself is verified in the semantic walk (§12.2 — the declared set
     // must cover the computed edge; a weaker claim is the loud mismatch
     // error), never here.
-    let output_ann = find_child(&pipeline_children, Rule::label_ann)
-        .map(|p| parse_label_ann(&p));
+    let output_ann = find_child(&pipeline_children, Rule::label_ann).map(|p| parse_label_ann(&p));
 
     // Parse branch_def blocks after the pipeline
     let mut branch_defs: Vec<(String, Vec<Branch>)> = Vec::new();

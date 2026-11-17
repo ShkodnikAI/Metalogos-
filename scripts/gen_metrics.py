@@ -857,7 +857,40 @@ def _approval_gate_composition_site(content: str | None = None) -> bool:
     pass)."""
     if content is None:
         content = CAPABILITY_RS.read_text(encoding="utf-8")
-    return "crate::approval::authorize_overseen_call(name)" in content
+    return (
+        "crate::approval::authorize_overseen_call(name, permits.legacy_approval_warn())"
+        in content
+    )
+
+
+def _approval_verified_gate_site(content: str | None = None) -> bool:
+    """№957 (issue #1924, ADR-0211 §3): the VERIFIED-CLASS gate site —
+    the counted class of the human-oversight coverage is born OUTSIDE
+    the program (the host CLI `mlog approve`), and the gate body reads
+    the `actor_verified` marking INSIDE `authorize_overseen_call`. The
+    mutation that counts a program-issued mandate removes the marking
+    from the gate body — the site disappears and the coverage reads 0
+    against the 10000 bp only-up floor (the floor follows the fact; the
+    behavioral proof is the Rust mutation test
+    tests/naryad_957_verified_mandate.rs, this is the structural half —
+    the №959 form)."""
+    if content is None:
+        content = APPROVAL_RS.read_text(encoding="utf-8")
+    try:
+        start = content.index("pub fn authorize_overseen_call")
+        rest = content[start + 10 :]
+        end = rest.find("\npub fn ")
+        body = rest if end < 0 else rest[:end]
+    except ValueError:
+        return False
+    # The CONJUNCTION (the №957 form): the gate body must READ the
+    # persisted verified store AND filter it by the actor_verified
+    # marking. The word "actor_verified" alone is NOT the marker — it
+    # also appears in the window warning text inside the same body; the
+    # mutation that counts a program-issued mandate replaces the
+    # verified-store read and drops the filter, killing both halves.
+    marker = ".any(|m| m.actor_verified && m.verify(now, &digest) == Verdict::Allow)"
+    return "verified_store_load()" in body and marker in body
 
 
 def approval_coverage_bp(
@@ -869,8 +902,10 @@ def approval_coverage_bp(
     covered by the fail-closed approval gate, bps (№862, ADR-0205 §4).
 
     Numerator: the roster names that are CLASSIFIED Irreversible
-    carriers, counted only when the gate's composition site is in
-    place. Denominator: the whole roster. An empty roster is 0 bp (a
+    carriers, counted only when the gate's composition site AND the
+    №957 verified-class site are in place (ADR-0211 §3: the counted
+    class is the VERIFIED one — the machine reads the marking from the
+    gate body). Denominator: the whole roster. An empty roster is 0 bp (a
     vacuous class is a gate failure, never a pass); a roster name
     outside the classification is UNCOVERED (a forged name lowers the
     coverage — the machine source is the classification, never the
@@ -880,7 +915,9 @@ def approval_coverage_bp(
     if classification is None:
         classification = _irreversible_carriers()
     if composition_site is None:
-        composition_site = _approval_gate_composition_site()
+        composition_site = _approval_gate_composition_site() and (
+            _approval_verified_gate_site()
+        )
     total = len(roster)
     if total == 0 or not composition_site:
         return 0
@@ -895,14 +932,17 @@ def approval_coverage_pair(
     composition_site: bool | None = None,
 ) -> tuple[int, int]:
     """APPROVAL_COVERAGE — (covered, roster total); №900: the pair rides
-    the printed fact. A dead composition site reads (0, total) — the
-    displayed zero never inflates."""
+    the printed fact. A dead composition site or a dead №957
+    verified-class site reads (0, total) — the displayed zero never
+    inflates."""
     if roster is None:
         roster = _human_oversight_roster()
     if classification is None:
         classification = _irreversible_carriers()
     if composition_site is None:
-        composition_site = _approval_gate_composition_site()
+        composition_site = _approval_gate_composition_site() and (
+            _approval_verified_gate_site()
+        )
     total = len(roster)
     if total == 0 or not composition_site:
         return 0, total

@@ -156,6 +156,25 @@ enum Commands {
         #[command(subcommand)]
         cmd: AttestCmd,
     },
+    /// №957 (issue #1924, ADR-0211 §3): issue a VERIFIED human-oversight
+    /// mandate OUTSIDE the program — the counted class of the approval
+    /// gate. The store is host-owned (`METALOGOS_MANDATE_STORE` or
+    /// `~/.metalogos/mandates.json`, on the №455 sensitive-path deny
+    /// vocabulary — a program cannot read or write it), and it persists
+    /// across restarts. A mandate recorded by `approval_issue` from .mlog
+    /// is actor_verified=false and NEVER counts (ADR-0211 §3).
+    Approve {
+        /// What was approved — the carrier form `carrier:cron_run` (the
+        /// human-oversight roster target, src/approval.rs HUMAN_OVERSIGHT).
+        target: String,
+        /// Who approved — the human actor's name (recorded verbatim).
+        #[arg(long)]
+        actor: String,
+        /// The window in seconds (0 = no expiry — the consent-ledger
+        /// convention). Default: 3600.
+        #[arg(long, default_value_t = 3600)]
+        ttl: u64,
+    },
 }
 
 #[derive(clap::Subcommand, Debug)]
@@ -274,6 +293,40 @@ fn main() {
         Commands::Health { url } => cmd_health(url.as_deref()),
         Commands::Ledger { cmd } => cmd_ledger(cmd),
         Commands::Attest { cmd } => cmd_attest(cmd),
+        Commands::Approve { target, actor, ttl } => cmd_approve(&target, &actor, ttl),
+    }
+}
+
+/// `mlog approve <target> --actor <name> [--ttl S]` — №957 (issue #1924,
+/// ADR-0211 §3): the HOST issuance of a VERIFIED human-oversight mandate.
+/// This is the trust anchor's ritual: the human approves OUTSIDE the
+/// program, the mandate lands in the host-owned persisted store
+/// (`METALOGOS_MANDATE_STORE` or `~/.metalogos/mandates.json` — on the
+/// №455 sensitive-path deny vocabulary, so no `.mlog` program can read
+/// or write it), and the approval gate counts ONLY this class in the
+/// default mode. The store survives the restart — the mandate never
+/// lived in the process.
+fn cmd_approve(target: &str, actor: &str, ttl: u64) {
+    match metalogos::approval::mandate_issue_verified(actor, target, ttl) {
+        Ok(mandate) => {
+            let store = metalogos::approval::mandate_store_path()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|e| format!("<unresolvable: {e}>"));
+            println!(
+                "approved: actor='{}' target='{}' actor_verified=true window=[{}, {}) ttl={}s",
+                mandate.actor, target, mandate.granted_at, mandate.expires_at, ttl
+            );
+            println!("store: {store}");
+            println!(
+                "the counted class of the human-oversight coverage (ADR-0211 §3); \
+                 revoke with approval_revoke (a program) or by deleting the store row — \
+                 a revoked mandate never revives"
+            );
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
     }
 }
 

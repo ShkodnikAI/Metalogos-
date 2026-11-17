@@ -64,7 +64,7 @@ pub fn builtin_read_file_tokens(args: &[Value]) -> Result<Value, String> {
     if sensitive_path_match(&path) && !sensitive_allowlisted(&path) {
         return Err(sandbox_sensitive_violation(format!(
             "read_file_tokens('{}'): the path matches the sensitive-path deny-list \
-             (.env*, *.db, *.sqlite*, .git/**, *.mlog, metalogos.toml, .mlog/**) — \
+             (.env*, *.db, *.sqlite*, .git/**, *.mlog, metalogos.toml, .mlog/**, .metalogos/**, mandates.json) — \
              set METALOGOS_SENSITIVE_PATH_ALLOWLIST=\"NAME\" to allow a specific \
              file explicitly (Naryad #455)",
             path

@@ -57,6 +57,7 @@ fn repo_root() -> PathBuf {
 
 fn bare_program(main_code: Vec<Instruction>) -> Program {
     Program {
+        legacy_approval_warn: false,
         egress_advisory: false,
         globals: vec![],
         patterns: Arc::new(vec![]),

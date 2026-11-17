@@ -114,6 +114,11 @@ pub struct Compiler {
     /// `profile capability { allow_carrier: … }` declarations, collected
     /// in `compile()` and emitted into `Program::capability_permits`.
     capability_permits: Vec<String>,
+    /// №957 (ADR-0211 §3): the approval transition-window flag — the
+    /// ENTRY's `profile legacy { approval: warn }`, collected in
+    /// `compile()` (the same `all_decls` scope as the permit roster) and
+    /// emitted into `Program::legacy_approval_warn`.
+    legacy_approval_warn: bool,
     /// №952 + ADR-0161: resolved in `compile()` (the same `all_decls`
     /// scope as the permit roster) and emitted into `Program::egress_advisory`.
     egress_advisory: bool,
@@ -381,6 +386,7 @@ impl Compiler {
             conversation_config: Default::default(),
             db_url: None,
             capability_permits: Vec::new(),
+            legacy_approval_warn: false,
             egress_advisory: false,
             db_url_env: None,
             schema_ddl: Vec::new(),
@@ -544,6 +550,10 @@ impl Compiler {
         // same declarations, the same roster; the TW/VM parity by
         // construction, the №829 lesson).
         self.capability_permits = crate::capability::permits_from_declarations(&all_decls).to_vec();
+        // №957 (ADR-0211 §3): the approval transition window from the
+        // SAME all_decls scope (the resolved record rides the wire with
+        // the roster — one resolution, both lanes).
+        self.legacy_approval_warn = crate::profile::resolve(&all_decls).legacy_approval_warn;
         // №952 + ADR-0161: the posture from the SAME all_decls scope.
         self.egress_advisory = crate::profile::resolve(&all_decls).permissive();
 
@@ -717,6 +727,7 @@ impl Compiler {
             deny_handlers: std::mem::take(&mut self.deny_handlers),
             db_url: self.db_url.take(),
             capability_permits: std::mem::take(&mut self.capability_permits),
+            legacy_approval_warn: std::mem::replace(&mut self.legacy_approval_warn, false),
             db_url_env: self.db_url_env.take(),
             memory_persist_path: self.memory_persist_path.take(),
             conversation_config: self.conversation_config.clone(),

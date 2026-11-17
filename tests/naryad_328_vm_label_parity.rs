@@ -18,6 +18,7 @@ use metalogos::vm::Vm;
 
 fn program_with(main_code: Vec<Instruction>) -> Program {
     Program {
+        legacy_approval_warn: false,
         egress_advisory: false,
         globals: vec![],
         patterns: std::sync::Arc::new(vec![]),

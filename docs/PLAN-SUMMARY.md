@@ -1137,7 +1137,7 @@ owner's ADR gate.
 | GRANT_COVERAGE — the 8B-1 machine fact (№846) | 10000 bp (44/44) |
 | SEMA_EXTERNAL — the 8F-1 machine fact (№857) | 3 |
 | APPROVAL_COVERAGE — the 8B-2 machine fact (№862) | 10000 bp (1/1) |
-| ATTEST_MAP — the 8A-1 machine fact (№869) | 45 live attestation rows |
+| ATTEST_MAP — the 8A-1 machine fact (№869) | 46 live attestation rows |
 | PROVENANCE_SHARE — the 8C/C3 machine fact (№875) | 10000 bp (6/6) |
 | OFFLINE_SUITE — the 8E-1/C5 machine fact (№881) | 10000 bp (12/12) |
 | JURISDICTION_MATRIX — the 8D-2/C10 machine fact (№888) | 3 (3/3) jurisdictions |

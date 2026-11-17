@@ -120,6 +120,7 @@ fn n415_legacy_wire_still_loads_and_runs() {
         is_pure: true,
     };
     let program = Program {
+        legacy_approval_warn: false,
         egress_advisory: false,
         globals: vec![],
         patterns: std::sync::Arc::new(vec![]),
@@ -170,6 +171,7 @@ fn n415_out_of_range_ref_fails_loudly() {
     };
     let _ = body_fn; // table stays EMPTY on purpose; ref points nowhere
     let program = Program {
+        legacy_approval_warn: false,
         egress_advisory: false,
         globals: vec![],
         patterns: std::sync::Arc::new(vec![]),

@@ -69,6 +69,15 @@ pub struct ResolvedProfiles {
     /// summaries added — every intraprocedural refusal keeps blocking,
     /// and the duty/likeness gates are never downgraded by any profile.
     pub legacy_interproc_warn: bool,
+    /// №957 (ADR-0211 §3): the transition-window flag —
+    /// `profile legacy { approval: warn }`. While declared, a live
+    /// PROGRAM-issued mandate (actor_verified=false) opens a
+    /// human-oversight carrier with a LOUD stderr warning for ONE
+    /// release window; the default (absent) is the verified-only
+    /// refusal. The RUNTIME flag rides the CapabilityPermits wire
+    /// (permits_from_declarations → TW/VM), this field is the resolved
+    /// record of the same declaration at the profile layer.
+    pub legacy_approval_warn: bool,
     /// `profile licensing { backends: permissive_with_audit }` declared —
     /// the №333 backend-license gate reports audit events instead of
     /// compile errors for non-osi/restrictive weights references.
@@ -140,46 +149,59 @@ impl ResolvedProfiles {
 pub fn validate(p: &crate::ast::ProfileDecl) -> Result<(), String> {
     match p.name.as_str() {
         "legacy" => {
-            // №954: hand-rolled (NOT validate_options — the legacy profile
-            // carries TWO option keys now: the №325 egress mode and the
-            // №954 transition-window key; validate_options is single-key).
-            if p.options.is_empty() {
-                return Err(
-                    "profile 'legacy' requires options (egress: permissive_with_audit; capability_imports: warn — the №954 transition window; interproc: warn — the №950 transition window)"
-                        .to_string(),
-                );
-            }
-            for (k, v) in &p.options {
-                match (k.as_str(), v.as_str()) {
-                    ("egress", "permissive_with_audit") => {}
-                    ("egress", other) => {
-                        return Err(format!(
-                            "unknown egress mode '{other}' for 'legacy' (available: permissive_with_audit)"
-                        ));
+                    // №954: hand-rolled (NOT validate_options — the legacy profile
+                    // carries THREE option keys now: the №325 egress mode and the
+                    // №954/№950 transition-window keys; validate_options is single-key).
+                    if p.options.is_empty() {
+                        return Err(
+                            "profile 'legacy' requires options (egress: permissive_with_audit; capability_imports: warn — the №954 transition window; interproc: warn — the №950 transition window; approval: warn — the №957 transition window, ADR-0211 §3)"
+                                .to_string(),
+                        );
                     }
-                    ("capability_imports", "warn") => {}
-                    ("capability_imports", other) => {
-                        return Err(format!(
-                            "unknown capability_imports mode '{other}' for 'legacy' (available: warn — the №954 transition window)"
-                        ));
+                    for (k, v) in &p.options {
+                        match (k.as_str(), v.as_str()) {
+                            ("egress", "permissive_with_audit") => {}
+                            ("egress", other) => {
+                                return Err(format!(
+                                    "unknown egress mode '{other}' for 'legacy' (available: permissive_with_audit)"
+                                ));
+                            }
+                            ("capability_imports", "warn") => {}
+                            ("capability_imports", other) => {
+                                return Err(format!(
+                                    "unknown capability_imports mode '{other}' for 'legacy' (available: warn — the №954 transition window)"
+                                ));
+                            }
+                            // №950 (ADR-0154 §12.5): the interprocedural
+                            // transition window — one release window, then the
+                            // key is removed and the gate blocks.
+                            ("interproc", "warn") => {}
+                            ("interproc", other) => {
+                                return Err(format!(
+                                    "unknown interproc mode '{other}' for 'legacy' (available: warn — the №950 transition window, ADR-0154 §12.5)"
+                                ));
+                            }
+                            // №957 (ADR-0211 §3): the approval transition
+                            // window — while the key is declared, a live
+                            // PROGRAM-issued mandate opens a human-oversight
+                            // carrier with a LOUD stderr warning (the §12.5
+                            // form); the default is the verified-only
+                            // refusal. One release window, then the key is
+                            // removed.
+                            ("approval", "warn") => {}
+                            ("approval", other) => {
+                                return Err(format!(
+                                    "unknown approval mode '{other}' for 'legacy' (available: warn — the №957 transition window, ADR-0211 §3)"
+                                ));
+                            }
+                            (other, _) => {
+                                return Err(format!(
+                                    "unknown profile option '{other}' for 'legacy' (available: egress, capability_imports, interproc, approval)"
+                                ));
+                            }
+                        }
                     }
-                    // №950 (ADR-0154 §12.5): the interprocedural
-                    // transition window — one release window, then the
-                    // key is removed and the gate blocks.
-                    ("interproc", "warn") => {}
-                    ("interproc", other) => {
-                        return Err(format!(
-                            "unknown interproc mode '{other}' for 'legacy' (available: warn — the №950 transition window, ADR-0154 §12.5)"
-                        ));
-                    }
-                    (other, _) => {
-                        return Err(format!(
-                            "unknown profile option '{other}' for 'legacy' (available: egress, capability_imports, interproc)"
-                        ));
-                    }
-                }
-            }
-            Ok(())
+                    Ok(())
         }
         "licensing" => {
             // №333 (the bridge) + №839 (the named class permits): two
@@ -351,6 +373,14 @@ pub fn resolve(declarations: &[Declaration]) -> ResolvedProfiles {
                         .options
                         .iter()
                         .any(|(k, v)| k == "interproc" && v == "warn");
+                    // №957 (ADR-0211 §3): the approval transition window —
+                    // a live program-issued mandate opens the
+                    // human-oversight carrier loudly for one window; the
+                    // runtime flag rides the CapabilityPermits wire.
+                    resolved.legacy_approval_warn = p
+                        .options
+                        .iter()
+                        .any(|(k, v)| k == "approval" && v == "warn");
                 }
                 "licensing" => {
                     // №333: the audited blanket bridge (unchanged).

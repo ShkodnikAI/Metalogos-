@@ -7,5 +7,5 @@ pattern p(x: String) -> String {
   return r.error.code
 }
 flow Main {
-  input: String = "go" -> p -> output
+  input: String = "go" -> p -> output<public, untrusted>
 }

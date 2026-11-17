@@ -1,0 +1,3 @@
+pattern Leaky(x: String) -> String {
+    return env("HOME") + x
+}

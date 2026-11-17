@@ -46,7 +46,7 @@ fn eval_expr(src: &str) -> Result<String, String> {
         // metadata endpoints, deny-lists) stays the thing under test.
         "profile capability {{ allow_carrier: \"http_post\" }}\n\
          pattern __eval(input: String) -> String {{ return {} }}\n\
-         flow Main {{ input: String = \"x\" -> __eval -> output }}",
+         flow Main {{ input: String = \"x\" -> __eval -> output<public, untrusted> }}",
         src
     );
     match metalogos::run_program(&full) {

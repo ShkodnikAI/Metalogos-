@@ -1,0 +1,5 @@
+pattern output(x: String) -> String { return x }
+pattern Ask(x: String) -> String { return x }
+flow Main {
+    input: String = "doc" -> output -> Ask -> output
+}

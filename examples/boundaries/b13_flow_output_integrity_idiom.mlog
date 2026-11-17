@@ -1,14 +1,18 @@
-// №966 boundary pin B13 (the B7 line — the owner decisions 13–14.11:
-// the flow output is gated on ONE axis, the integrity half is measured
-// separately): the flow ends in MODEL output — public, untrusted — and
-// that is the language's primary idiom (p100_mcp_echo, n5_html_tender,
-// the self-hosted parser and lexer).
-// CURRENT behavior (the owner decision, pinned so it cannot move
-// silently): mlog check PASSES — the confidentiality axis does not
-// refuse an untrusted-PUBLIC flow output, and the integrity half is NOT
-// gated on the flow edge (the Flow arm reads seen.conf, never
-// seen.integrity). The measured price of the other choice and the three
-// candidate idiom forms live in ADR-0154 §13 (Proposed) and
-// docs/threat-model.md row B13.
+// №967 boundary pin B13 — the GATED NEGATIVE (flipped by №967, gh#1954,
+// ADR-0154 §13.8 — form (а), the owner decision 16.11): the flow ends in
+// MODEL output — public, untrusted — UNANNOTATED, and that refuses.
+// LANDED behavior (pinned so it cannot move silently): mlog check
+// REFUSES with [HTML_INJECTION] (the frozen print-channel integrity
+// class, no new check_id, §12.4) and the refusal names the idiom form —
+// «declare `-> output<public, untrusted>` if the display is intended»
+// (ADR-0154 §13.8 п.3). The annotated positive, the weaker-claim
+// negative (the §12.2 mismatch — the annotation cannot become a
+// silencer) and the confidentiality-unwaivable control live in
+// tests/naryad_966_flow_integrity.rs; the mutations are M1–M4 in
+// scripts/mutation_verify_966.sh. The lineage: №966 measured this
+// boundary (ADR-0154 §13 — 7/30/23 carriers, 0/16 marginal refusals,
+// the 16 idiom files) and pinned the then-CURRENT pass as B13; the
+// owner chose form (а) §13.4 on 16.11, and №967 lands the gate with the
+// 16-file migration.
 pattern Summarize(x: String) -> String { return call_llm("summarize", x) }
 flow Main { input: String = "doc" -> Summarize -> output }

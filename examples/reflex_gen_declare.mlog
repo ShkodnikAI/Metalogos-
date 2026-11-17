@@ -20,4 +20,4 @@ pattern Generate(_x: String) -> String {
   return "generated=" + to_string(tokens)
 }
 
-flow Main { input: String = "x" -> Generate -> output }
+flow Main { input: String = "x" -> Generate -> output<public, untrusted> }

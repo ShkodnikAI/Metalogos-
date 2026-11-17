@@ -1892,6 +1892,15 @@ pub struct FlowDecl {
     /// AFTER which the checkpoint fires. E.g., checkpoint("mid") after Step1
     /// with pipeline ["Step1", "Step2"] → checkpoints = {"mid": 0}
     pub checkpoints: HashMap<String, usize>,
+    /// №967 (gh#1954, ADR-0154 §13.8 п.2 — form (а)): the CHECKABLE idiom
+    /// claim on the pipeline terminator — `-> output<public, untrusted>`.
+    /// The declaration names the INTEGRITY display intent (model, remote
+    /// or own-file data printed on purpose); it never waives the
+    /// confidentiality half (№965) — a declared conf word other than
+    /// `public` is the loud §12.2 mismatch error, and a declared set
+    /// weaker than the computed edge is refused (the annotation cannot
+    /// become a silencer).
+    pub output_ann: Option<LabelAnn>,
 }
 
 #[derive(Debug, Clone)]

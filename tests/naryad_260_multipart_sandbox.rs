@@ -38,7 +38,7 @@ fn eval_expr(src: &str) -> Result<String, String> {
         // test; the capability layer has its own suite (naryad_845).
         "profile capability {{ allow_carrier: \"http_post_multipart\" }}\n\
          pattern __eval(input: String) -> String {{ return {} }}\n\
-         flow Main {{ input: String = \"x\" -> __eval -> output }}",
+         flow Main {{ input: String = \"x\" -> __eval -> output<public, untrusted> }}",
         src
     );
     match metalogos::run_program(&full) {

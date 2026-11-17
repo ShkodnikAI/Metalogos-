@@ -16,7 +16,7 @@ fn eval_expr(src: &str) -> Result<String, String> {
     // fs_gate/sandbox contracts (soft-failure, traversal refusal), the
     // capability layer needs the explicit carrier permit for delete_file.
     let full = format!(
-        "profile capability {{ allow_carrier: \"delete_file\" }}\npattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
+        "profile capability {{ allow_carrier: \"delete_file\" }}\npattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output<public, untrusted> }}",
         src
     );
     match metalogos::run_program(&full) {

@@ -2285,6 +2285,15 @@ pub(super) fn parse_flow_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErro
         }
     }
 
+    // №967 (gh#1954, ADR-0154 §13.8 п.2 — form (а)): the optional §3
+    // label_ann on the pipeline terminator — the CHECKABLE idiom claim
+    // (`-> output<public, untrusted>`). Strictly additive grammar: the
+    // pair exists only when the author wrote the annotation; the claim
+    // itself is verified in the semantic walk (§12.2 — the declared set
+    // must cover the computed edge; a weaker claim is the loud mismatch
+    // error), never here.
+    let output_ann = find_child(&pipeline_children, Rule::label_ann).map(|p| parse_label_ann(&p));
+
     // Parse branch_def blocks after the pipeline
     let mut branch_defs: Vec<(String, Vec<Branch>)> = Vec::new();
     for child in &children {
@@ -2311,6 +2320,7 @@ pub(super) fn parse_flow_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErro
         pipeline: pipeline_steps.clone(),
         branch_defs,
         checkpoints: checkpoints.clone(),
+        output_ann,
     }))
 }
 

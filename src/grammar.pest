@@ -446,7 +446,15 @@ continue_stmt = { "continue" }
 // ADR-0056: checkpoint("name") can appear after any step in the pipeline.
 // checkpoint is a pipeline marker (not a step itself) — it saves state after the preceding step.
 flow_decl     = { "flow" ~ IDENT ~ LBRACE ~ flow_pipeline ~ branch_def* ~ RBRACE }
-flow_pipeline = { "input" ~ ":" ~ type_name ~ "=" ~ expression ~ flow_step* ~ ARROW ~ "output" }
+flow_pipeline = { "input" ~ ":" ~ type_name ~ "=" ~ expression ~ flow_step* ~ ARROW ~ "output" ~ label_ann? }
+// №967 (gh#1954, ADR-0154 §13.8 п.2 — form (а), the owner decision 16.11):
+// the optional §3 label_ann on the pipeline terminator is the CHECKABLE
+// idiom claim (`-> output<public, untrusted>`). Strictly additive: a '<'
+// after the terminator was a parse error before (the terminator is
+// followed only by '}' or a branch_def), so no existing program changes
+// meaning. The claim is verified per §12.2 in the semantic walk — a
+// declared set weaker than the computed edge is the loud mismatch error;
+// the annotation cannot become a silencer.
 // Наряд №171: only "output" needs exclusion here — it's the pipeline terminator
 // that flow_step* would greedily consume. All other keywords (~88) were removed
 // because they don't create real parse ambiguity (they just change error messages).

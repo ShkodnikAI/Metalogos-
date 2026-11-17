@@ -17,4 +17,4 @@ pattern NoGrant(_tick: String) -> String {
   let survived = read_file("w72_deny_no_grant.tmp")
   return "type:" + type_of(d) + "|survived:" + survived
 }
-flow Main { input: String = "tick" -> NoGrant -> output }
+flow Main { input: String = "tick" -> NoGrant -> output<public, untrusted> }

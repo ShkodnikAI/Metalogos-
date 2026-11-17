@@ -25,4 +25,4 @@ pattern OfficeStep(task: String) -> String {
   }
   return "escalate:" + r.error.code
 }
-flow Main { input: String = "quarterly-report" -> OfficeStep -> output }
+flow Main { input: String = "quarterly-report" -> OfficeStep -> output<public, untrusted> }

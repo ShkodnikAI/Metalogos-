@@ -10,7 +10,7 @@
 
 fn eval_expr(src: &str) -> String {
     let full = format!(
-        "pattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
+        "pattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output<public, untrusted> }}",
         src
     );
     match metalogos::run_program(&full) {

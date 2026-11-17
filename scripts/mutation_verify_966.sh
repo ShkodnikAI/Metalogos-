@@ -1,27 +1,39 @@
 #!/usr/bin/env bash
-# ── Naryad №966 (issue #1954, the B7 line — the owner decision 13–14.11,
-#    P1, [security][compiler][adr]) — the mutation verification for the
-#    flow output's integrity boundary pin ──
+# ── Naryad №967 (issue #1954 — the same-issue form, gh#1954; the B13
+#    line, ADR-0154 §13.8 — form (а), the owner decision 16.11, P1,
+#    [security][compiler]) — the mutation verification for the LANDED
+#    flow-output integrity gate and the §12.2 terminator claim. ──
 #
 # The contract (pipeline v1.2): the tests must be RED under the mutation
 # the naryad names — a green-under-mutation test does not pin anything.
 #
-#   M1 — the integrity half is gated: the Flow arm of
-#        `sink_clearance_violations` (src/semantic.rs) reads BOTH axes —
-#        `clearance_failure("print", &edge)` instead of the landed
-#        `edge.conf` check
-#        -> n966_b13_idiom_pin_passes_today MUST FAIL
-#        -> n966_the_call_llm_flow_output_passes_inline MUST FAIL
-#        -> n948_boundary_pins_pass_check_today_the_gap_is_real MUST FAIL
-#           (b13 rides STILL_OPEN_PINS — the CURRENT-behavior pin)
-#        (the idiom shape refuses with [HTML_INJECTION]; the boundary
-#        moved — loudly, exactly what the pin exists to catch).
+#   M1 — the integrity arm is DROPPED: the unannotated flow edge goes
+#        back to the confidentiality half only (the pre-№967 shape)
+#        -> n966_b13_unannotated_refuses MUST FAIL
+#        -> n966_the_call_llm_flow_output_unannotated_refuses MUST FAIL
+#        -> n948_b13_flow_output_integrity_gated MUST FAIL
+#        (the boundary moved back to silence — loudly, exactly what the
+#        flipped pins exist to catch).
 #
-#   M2 — the conf control is silenced (the negative control of M1): the
-#        whole output-edge gate is dropped
+#   M2 — the WHOLE output-edge gate is dropped (the negative control of
+#        M1): the unannotated clearance AND the annotated confidentiality
+#        layer both dead
 #        -> n966_private_flow_output_still_refuses MUST FAIL
+#        -> n966_private_flow_output_annotated_still_refuses MUST FAIL
 #        (a private flow output passes — the №965 confidentiality gate
-#        is gone; proves the pin tests gate REAL behavior on both axes).
+#        is gone; proves the pins test gate REAL behavior on both axes).
+#
+#   M3 — the annotation becomes a SILENCER: the §12.2 claim check is
+#        skipped (any declared label passes the annotated flow)
+#        -> n966_the_weaker_claim_refuses MUST FAIL
+#        (`-> output<public, trusted>` over an untrusted edge would
+#        pass — the silencer the design forbids).
+#
+#   M4 — the confidentiality half becomes DECLAREABLE: the annotated
+#        private-edge layer is dead
+#        -> n966_private_flow_output_annotated_still_refuses MUST FAIL
+#        (the declaration would waive №965 — the layer the design keeps
+#        unconditional).
 #
 # Run from the repo root:  bash scripts/mutation_verify_966.sh
 set -u
@@ -34,60 +46,93 @@ BACKUP=/tmp/n966_semantic_backup.rs
 cp src/semantic.rs "$BACKUP" || exit 1
 fail() { cp "$BACKUP" src/semantic.rs; echo "MUTATION VERIFY: FAIL — $1"; exit 1; }
 restore() { cp "$BACKUP" src/semantic.rs; }
+red() { CARGO_INCREMENTAL=0 cargo test --test "$1" "$2" 2>&1 | grep -q "test result: FAILED"; }
 
-echo "── M1: the flow output edge is gated on BOTH axes ──"
+echo "── M1: the integrity arm is dropped (the unannotated edge, conf half only) ──"
 python3 - <<'EOF'
 p = 'src/semantic.rs'
 s = open(p).read()
-needle = """                if edge.conf != crate::labels::Conf::Public {
-                    // The output edge is the print channel (the flow's
-                    // stdout emission) — the frozen class of the print
-                    // sink, no new check_id (ADR-0154 §12.4).
-                    violations.push(SinkViolation {
-                        container: format!("flow {}", f.name),
-                        fn_name: "print".to_string(),
-                        arg_index: 0,
-                        span: f.span.clone(),
-                        reason: "private-egress",
-                        label: edge.clone(),
-                    });
-                }"""
-replacement = """                // MUTATION (M1, №966): the output edge is gated as the
-                // print channel it is on BOTH axes — the integrity half
-                // the owner decision 13–14.11 held back.
-                if let Some(reason) = clearance_failure("print", &edge) {
-                    violations.push(SinkViolation {
-                        container: format!("flow {}", f.name),
-                        fn_name: "print".to_string(),
-                        arg_index: 0,
-                        span: f.span.clone(),
-                        reason,
-                        label: edge.clone(),
-                    });
-                }"""
-assert needle in s, "the landed Flow-arm output gate not found — the tree drifted"
+needle = """                    (None, _) => {
+                        // The unannotated edge answers to the REAL print
+                        // sink's clearance — both axes, the frozen
+                        // classes (ADR-0154 §12.4).
+                        if let Some(reason) = clearance_failure("print", &edge) {"""
+replacement = """                    (None, _) => {
+                        // MUTATION (M1, №967): the integrity arm is
+                        // dropped — the unannotated edge answers to the
+                        // confidentiality half only (the pre-№967 shape).
+                        if let Some(reason) = (if edge.conf != crate::labels::Conf::Public {
+                            Some("private-egress")
+                        } else {
+                            None
+                        }) {"""
+assert needle in s, "the landed unannotated-arm gate not found — the tree drifted"
 open(p, 'w').write(s.replace(needle, replacement, 1))
 EOF
-CARGO_INCREMENTAL=0 cargo test --test naryad_966_flow_integrity 2>&1 | grep -q "test result: FAILED" \
-  && echo "M1 RED — the pin works" || fail "M1: the №966 idiom pin stayed GREEN under the both-axes mutation"
-CARGO_INCREMENTAL=0 cargo test --test naryad_948_boundary_pins n948_boundary_pins_pass_check_today_the_gap_is_real 2>&1 | grep -q "test result: FAILED" \
-  && echo "M1 RED on the STILL_OPEN harness — the pin works" || fail "M1: the №948 STILL_OPEN harness stayed GREEN under the both-axes mutation"
+red naryad_966_flow_integrity n966_b13_unannotated_refuses \
+  && echo "M1 RED on the b13 negative — the pin works" \
+  || fail "M1: the b13 negative stayed GREEN under the integrity-drop mutation"
+red naryad_948_boundary_pins n948_b13_flow_output_integrity_gated \
+  && echo "M1 RED on the №948 FLIPPED harness — the pin works" \
+  || fail "M1: the №948 FLIPPED harness stayed GREEN under the integrity-drop mutation"
 restore
 
 echo "── M2: the whole output-edge gate is dropped (the negative control) ──"
 python3 - <<'EOF'
 p = 'src/semantic.rs'
 s = open(p).read()
-needle = """                if edge.conf != crate::labels::Conf::Public {"""
-replacement = """                if false && edge.conf != crate::labels::Conf::Public {"""
-assert needle in s, "the landed Flow-arm output gate not found — the tree drifted"
+# the unannotated arm: dead
+needle1 = """                        if let Some(reason) = clearance_failure("print", &edge) {"""
+repl1 = """                        if let Some(reason) = None::<&'static str> {"""
+# the annotated confidentiality layer: dead
+needle2 = """                        } else if edge.conf != crate::labels::Conf::Public {"""
+repl2 = """                        } else if false && edge.conf != crate::labels::Conf::Public {"""
+assert needle1 in s and needle2 in s, "the landed gate layers not found — the tree drifted"
+s = s.replace(needle1, repl1, 1).replace(needle2, repl2, 1)
+open(p, 'w').write(s)
+EOF
+red naryad_966_flow_integrity n966_private_flow_output_still_refuses \
+  && echo "M2 RED on the unannotated conf control — the pin works" \
+  || fail "M2: the unannotated conf control stayed GREEN under the gate-drop mutation"
+red naryad_966_flow_integrity n966_private_flow_output_annotated_still_refuses \
+  && echo "M2 RED on the annotated conf control — the pin works" \
+  || fail "M2: the annotated conf control stayed GREEN under the gate-drop mutation"
+restore
+
+echo "── M3: the annotation becomes a silencer (the §12.2 claim check skipped) ──"
+python3 - <<'EOF'
+p = 'src/semantic.rs'
+s = open(p).read()
+needle = """                        } else if decl.integrity == crate::labels::Integrity::Trusted
+                            && edge.integrity == crate::labels::Integrity::Untrusted
+                        {"""
+replacement = """                        } else if false
+                            && decl.integrity == crate::labels::Integrity::Trusted
+                            && edge.integrity == crate::labels::Integrity::Untrusted
+                        {"""
+assert needle in s, "the landed §12.2 claim layer not found — the tree drifted"
 open(p, 'w').write(s.replace(needle, replacement, 1))
 EOF
-CARGO_INCREMENTAL=0 cargo test --test naryad_966_flow_integrity n966_private_flow_output_still_refuses 2>&1 | grep -q "test result: FAILED" \
-  && echo "M2 RED — the conf control works" || fail "M2: the confidentiality control stayed GREEN under the gate-drop mutation"
+red naryad_966_flow_integrity n966_the_weaker_claim_refuses \
+  && echo "M3 RED on the weaker-claim negative — the pin works" \
+  || fail "M3: the weaker-claim negative stayed GREEN — the annotation became a silencer undetected"
+restore
+
+echo "── M4: the confidentiality half becomes declareable (the annotated private layer dead) ──"
+python3 - <<'EOF'
+p = 'src/semantic.rs'
+s = open(p).read()
+needle = """                        } else if edge.conf != crate::labels::Conf::Public {"""
+replacement = """                        } else if false && edge.conf != crate::labels::Conf::Public {"""
+assert needle in s, "the landed annotated-conf layer not found — the tree drifted"
+open(p, 'w').write(s.replace(needle, replacement, 1))
+EOF
+red naryad_966_flow_integrity n966_private_flow_output_annotated_still_refuses \
+  && echo "M4 RED on the annotated conf control — the pin works" \
+  || fail "M4: the annotated conf control stayed GREEN — the declaration waived №965 undetected"
 restore
 
 echo "── restoring and re-checking the tree is byte-identical ──"
 restore
 cmp -s src/semantic.rs "$BACKUP" && echo "RESTORE OK" || fail "the restore is not byte-identical"
-echo "MUTATION VERIFY №966: PASS"
+echo "MUTATION VERIFY №967: PASS"

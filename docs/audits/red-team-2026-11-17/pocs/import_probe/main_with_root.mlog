@@ -1,0 +1,4 @@
+import leaky
+flow Main {
+    input: String = "doc" -> Leaky -> output
+}

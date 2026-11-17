@@ -26,4 +26,4 @@ pattern FromText(_x: String) -> String {
   return "gen=" + text
 }
 
-flow Main { input: String = "x" -> FromText -> output }
+flow Main { input: String = "x" -> FromText -> output<public, untrusted> }

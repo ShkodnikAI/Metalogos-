@@ -56,7 +56,7 @@ fn vm_out(src: &str) -> String {
 /// the parity contract pins the STRING, not the Bool formatting).
 fn ct_src(a: &str, b: &str) -> String {
     format!(
-        "pattern C(_input: String) -> String {{\n  if ct_eq(\"{a}\", \"{b}\") {{ return \"true\" }}\n  return \"false\"\n}}\nflow Main {{ input: String = \"x\" -> C -> output }}"
+        "pattern C(_input: String) -> String {{\n  if ct_eq(\"{a}\", \"{b}\") {{ return \"true\" }}\n  return \"false\"\n}}\nflow Main {{ input: String = \"x\" -> C -> output<public, untrusted> }}"
     )
 }
 
@@ -131,7 +131,7 @@ fn n2_ct_eq_unicode_content_both_backends() {
 fn n2_ct_eq_arity_and_type_loud_both_backends() {
     // One argument → loud; a non-String argument → loud. The secret
     // comparator must not guess (the №514 loud-conversion convention).
-    let one_arg = "pattern C(_input: String) -> String {\n  if ct_eq(\"a\") { return \"true\" }\n  return \"false\"\n}\nflow Main { input: String = \"x\" -> C -> output }";
+    let one_arg = "pattern C(_input: String) -> String {\n  if ct_eq(\"a\") { return \"true\" }\n  return \"false\"\n}\nflow Main { input: String = \"x\" -> C -> output<public, untrusted> }";
     for (lane, out) in [("TW", run_tw(one_arg)), ("VM", run_vm(one_arg))] {
         let err = out
             .err()
@@ -141,7 +141,7 @@ fn n2_ct_eq_arity_and_type_loud_both_backends() {
             "{lane}: the error must name the builtin, got: {err}"
         );
     }
-    let bad_type = "pattern C(_input: String) -> String {\n  if ct_eq(1, \"a\") { return \"true\" }\n  return \"false\"\n}\nflow Main { input: String = \"x\" -> C -> output }";
+    let bad_type = "pattern C(_input: String) -> String {\n  if ct_eq(1, \"a\") { return \"true\" }\n  return \"false\"\n}\nflow Main { input: String = \"x\" -> C -> output<public, untrusted> }";
     for (lane, out) in [("TW", run_tw(bad_type)), ("VM", run_vm(bad_type))] {
         let err = out
             .err()
@@ -161,7 +161,7 @@ fn n2_request_header_without_route_context_empty_both_backends() {
     // no server context → the empty string. A webhook secret check
     // fails CLOSED (empty never matches the expected token) instead of
     // erroring off the server.
-    let src = "pattern H(_input: String) -> String {\n  return request_header(\"X-Telegram-Bot-Api-Secret-Token\")\n}\nflow Main { input: String = \"x\" -> H -> output }";
+    let src = "pattern H(_input: String) -> String {\n  return request_header(\"X-Telegram-Bot-Api-Secret-Token\")\n}\nflow Main { input: String = \"x\" -> H -> output<public, untrusted> }";
     assert_eq!(tw_out(src), "", "TW: no context → empty string");
     assert_eq!(vm_out(src), "", "VM: no context → empty string");
 }
@@ -170,14 +170,14 @@ fn n2_request_header_without_route_context_empty_both_backends() {
 fn n2_request_header_lookup_is_case_insensitive_off_server() {
     // The name normalization is the builtin's own contract: the
     // off-server empty answer is identical whatever the name case.
-    let src = "pattern H(_input: String) -> String {\n  return request_header(\"x-TELEGRAM-bot-API-secret-TOKEN\")\n}\nflow Main { input: String = \"x\" -> H -> output }";
+    let src = "pattern H(_input: String) -> String {\n  return request_header(\"x-TELEGRAM-bot-API-secret-TOKEN\")\n}\nflow Main { input: String = \"x\" -> H -> output<public, untrusted> }";
     assert_eq!(tw_out(src), "", "TW: mixed-case name → empty off server");
     assert_eq!(vm_out(src), "", "VM: mixed-case name → empty off server");
 }
 
 #[test]
 fn n2_request_header_arity_and_type_loud_both_backends() {
-    let no_arg = "pattern H(_input: String) -> String {\n  return request_header()\n}\nflow Main { input: String = \"x\" -> H -> output }";
+    let no_arg = "pattern H(_input: String) -> String {\n  return request_header()\n}\nflow Main { input: String = \"x\" -> H -> output<public, untrusted> }";
     for (lane, out) in [("TW", run_tw(no_arg)), ("VM", run_vm(no_arg))] {
         let err = out.err().unwrap_or_else(|| {
             panic!("{lane}: request_header() with no args must be a loud error")
@@ -187,7 +187,7 @@ fn n2_request_header_arity_and_type_loud_both_backends() {
             "{lane}: the error must name the builtin, got: {err}"
         );
     }
-    let bad_type = "pattern H(_input: String) -> String {\n  return request_header(42)\n}\nflow Main { input: String = \"x\" -> H -> output }";
+    let bad_type = "pattern H(_input: String) -> String {\n  return request_header(42)\n}\nflow Main { input: String = \"x\" -> H -> output<public, untrusted> }";
     for (lane, out) in [("TW", run_tw(bad_type)), ("VM", run_vm(bad_type))] {
         let err = out
             .err()

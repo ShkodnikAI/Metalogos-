@@ -1,0 +1,3 @@
+flow Main {
+    input: String = env("HOME") -> respond -> output
+}

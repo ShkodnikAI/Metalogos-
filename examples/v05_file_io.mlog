@@ -10,5 +10,5 @@ pattern WriteAndRead(content: String) -> String {
 }
 
 flow Main {
-  input: String = "file I/O works!" -> WriteAndRead -> output
+  input: String = "file I/O works!" -> WriteAndRead -> output<public, untrusted>
 }

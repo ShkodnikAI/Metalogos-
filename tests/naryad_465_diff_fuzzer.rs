@@ -664,8 +664,14 @@ fn gen_program(seed: u64) -> String {
     // the RULE-WRITTEN flag (№510): rules execute before the input binding
     // (the p42 contracts), so pfzf's rendering reflects the rule outcome.
     // Both backends run the same wiring.
+    //
+    // №967: the terminator carries the idiom claim — the pipeline renders
+    // computed strings (to_float/to_string artifacts, the try-state
+    // suffixes) whose edge is `public, untrusted`; the annotation is the
+    // TRUE claim (the display is intended), keeping the generated programs
+    // executable so the diff harness stays live (the №621 floor).
     src.push_str(
-        "\nflow Main {\n  input: Float = fzr.flag -> pfzf -> pa -> pb -> pc -> output\n}\n",
+        "\nflow Main {\n  input: Float = fzr.flag -> pfzf -> pa -> pb -> pc -> output<public, untrusted>\n}\n",
     );
     src
 }

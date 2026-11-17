@@ -60,7 +60,7 @@ pattern Tools(x: String) -> String {
 flow Main {
   input: String = "list"
   -> Tools
-  -> output
+  -> output<public, untrusted>
 }
 "#;
 
@@ -73,7 +73,7 @@ pattern CallIt(x: String) -> String {
 flow Main {
   input: String = "call"
   -> CallIt
-  -> output
+  -> output<public, untrusted>
 }
 "#;
 

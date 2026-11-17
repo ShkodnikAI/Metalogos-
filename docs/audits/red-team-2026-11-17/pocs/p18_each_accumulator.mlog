@@ -1,0 +1,11 @@
+pattern Loop(x: String) -> String {
+    let items = html_select(http_get("http://127.0.0.1:9/"), "a")
+    let acc = "start"
+    each item in items {
+        let acc = acc + item
+    }
+    return acc
+}
+flow Main {
+    input: String = "doc" -> Loop -> output
+}

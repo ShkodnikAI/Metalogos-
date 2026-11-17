@@ -1,0 +1,7 @@
+pattern P(x: String) -> String {
+    let q = quarantine_write(env("HOME"))
+    return q
+}
+flow Main {
+    input: String = "doc" -> P -> output
+}

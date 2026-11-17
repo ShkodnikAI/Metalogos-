@@ -1,0 +1,5 @@
+pattern S(x: String) -> String { return x }
+flow Main {
+    input: String = "doc" -> S -> output
+    branch { }
+}

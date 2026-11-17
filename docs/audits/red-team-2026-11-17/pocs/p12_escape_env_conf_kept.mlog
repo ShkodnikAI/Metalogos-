@@ -1,0 +1,6 @@
+pattern Peek(x: String) -> String {
+    return escape_html(env("HOME"))
+}
+flow Main {
+    input: String = "doc" -> Peek -> output
+}

@@ -55,7 +55,7 @@ mod feature_on {
             format!("return {}", src)
         };
         let full = format!(
-            "pattern __eval(input: String) -> String {{ {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
+            "pattern __eval(input: String) -> String {{ {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output<public, untrusted> }}",
             body
         );
         match metalogos::run_program(&full) {
@@ -73,7 +73,7 @@ mod feature_on {
         };
         let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let declarations = metalogos::parser::parse(&format!(
-            "pattern __eval(input: String) -> String {{ {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
+            "pattern __eval(input: String) -> String {{ {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output<public, untrusted> }}",
             body
         ))
         .map_err(|e| format!("parse error: {e}"))?;
@@ -420,7 +420,7 @@ mod feature_on {
 #[test]
 #[cfg(not(feature = "xml"))]
 fn n6_off_feature_refusal_is_loud() {
-    let src = "pattern __eval(input: String) -> String { return feed_parse(\"<rss/>\") }\nflow Main { input: String = \"x\" -> __eval -> output }";
+    let src = "pattern __eval(input: String) -> String { return feed_parse(\"<rss/>\") }\nflow Main { input: String = \"x\" -> __eval -> output<public, untrusted> }";
     let err = metalogos::run_program(src).expect_err("off-feature must refuse LOUD");
     assert!(
         err.contains("requires the `xml` feature"),

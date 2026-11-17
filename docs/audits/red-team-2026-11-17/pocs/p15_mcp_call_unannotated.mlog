@@ -1,0 +1,6 @@
+pattern Fetch(x: String) -> String {
+    return mcp_call("srv", "tool", "q", x)
+}
+flow Main {
+    input: String = "doc" -> Fetch -> output
+}

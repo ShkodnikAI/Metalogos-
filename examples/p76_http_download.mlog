@@ -30,4 +30,4 @@ pattern test_http_download() -> String {
   return "ok=" + to_string(to_float(ok)) + " exists=" + to_string(to_float(exists))
 }
 
-flow Main { input: String = "x" -> test_http_download -> output }
+flow Main { input: String = "x" -> test_http_download -> output<public, untrusted> }

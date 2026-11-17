@@ -4,5 +4,5 @@ pattern AskLLM(question: String) -> String {
 }
 
 flow Main {
-  input: String = "What is Metalogos?" -> AskLLM -> output
+  input: String = "What is Metalogos?" -> AskLLM -> output<public, untrusted>
 }

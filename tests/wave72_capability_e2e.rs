@@ -228,7 +228,7 @@ pattern T(_t: String) -> String {
   let survived = read_file("w72_once.tmp")
   return "first:" + type_of(d1) + "|second:" + type_of(d2) + "|survived:" + survived
 }
-flow Main { input: String = "t" -> T -> output }
+flow Main { input: String = "t" -> T -> output<public, untrusted> }
 "#,
         )
         .unwrap()
@@ -265,7 +265,7 @@ pattern T(_t: String) -> String {
   let d3 = delete_file("w72_quota_c.tmp")
   return "d1:" + type_of(d1) + "|d2:" + type_of(d2) + "|d3:" + type_of(d3)
 }
-flow Main { input: String = "t" -> T -> output }
+flow Main { input: String = "t" -> T -> output<public, untrusted> }
 "#,
         )
         .unwrap()

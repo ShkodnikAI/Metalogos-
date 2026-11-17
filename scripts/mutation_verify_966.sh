@@ -147,16 +147,12 @@ echo "── M5 (№969): the duty re-decide is dropped (the incoming fact unsee
 python3 - <<'EOF'
 p = 'src/semantic.rs'
 s = open(p).read()
-needle = """                                    "duty-materialization" => {
-                                        (duty_materialization_denied
-                                            && seen.conf == crate::labels::Conf::Private)
-                                            .then_some("duty-materialization")
-                                    }"""
-replacement = """                                    "duty-materialization" => {
-                                        (false && duty_materialization_denied
-                                            && seen.conf == crate::labels::Conf::Private)
-                                            .then_some("duty-materialization")
-                                    }"""
+needle = """                                    "duty-materialization" => (duty_materialization_denied
+                                        && seen.conf == crate::labels::Conf::Private)
+                                        .then_some("duty-materialization"),"""
+replacement = """                                    "duty-materialization" => (false && duty_materialization_denied
+                                        && seen.conf == crate::labels::Conf::Private)
+                                        .then_some("duty-materialization"),"""
 assert needle in s, "the landed №969 duty re-decide not found — the tree drifted"
 open(p, 'w').write(s.replace(needle, replacement, 1))
 EOF

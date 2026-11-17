@@ -542,3 +542,82 @@ read or write it.
   verified-class gate site — the coverage is now a checked fact about
   HUMANS, not about strings; the attestation map carries the «actor
   verification» row.
+
+## 0.40.0 → next (the flow output integrity gate, №967 — BREAKING)
+
+**What changed.** A flow whose pipeline ends in model, remote or own-file
+data (`call_llm`, `mcp_call`, the html/xml extraction family,
+`read_file` — the language's primary idiom) now REFUSES `mlog check`
+with `[HTML_INJECTION]` when its `-> output` terminator is NOT
+annotated. The refusal names the form:
+
+```
+[HTML_INJECTION] sink clearance violated: argument 0 of print in flow Main
+carries label 'public, untrusted'; ... — the flow output carries
+'public, untrusted'; declare `-> output<public, untrusted>` if the
+display is intended (ADR-0154 §13.4 form (а))
+```
+
+**The migration is one line** — annotate the terminator where the
+display is intended:
+
+```metalogos
+flow Main { input: String = "doc" -> Summarize -> output<public, untrusted> }
+```
+
+The annotation is a CLAIM, not a silencer (ADR-0154 §13.8 п.2, §12.2):
+
+- the declared conf word must be `public` exactly — the confidentiality
+  half is not declareable: a flow ending in `env(...)`, a `Secret`
+  entity or any private-labeled value refuses with `[PII_EGRESS_OUTPUT]`
+  with or without the annotation;
+- a declared set WEAKER than the computed edge — `-> output<public,
+  trusted>` over an untrusted edge — refuses with
+  `[LABEL_ANNOTATION_MISMATCH]`; declare the label the edge actually
+  carries, or drop the annotation;
+- a dirtier declaration over a cleaner edge covers (honest conservatism
+  passes): `-> output<public, untrusted>` on a `public, trusted` edge is
+  fine;
+- an unparseable annotation (`-> output<bogus>`) is the №322 label
+  error before any clearance question.
+
+**Who must migrate.** The corpus sweep on the landed tree (463 files)
+found exactly 18 idiom files — the §13.2 measurement's 16 (`v05_call_llm`,
+`p100_mcp_echo`, `n5_html_tender`, `n6_feed_parse`, `p76_http_download`,
+`v05_file_io`, four `w385_*`, two `w72_*`, `self-host/lexer.mlog`,
+`self-host/parser.mlog`, `serr_004/005`) plus `reflex_gen_declare` and
+`reflex_gen_from_text` — migrated in the same commit (20 terminators,
+every annotation a TRUE claim). FIVE already-refusing files gained the
+flow-edge detector as an ADDITIONAL finding and keep refusing
+(`l1_injection`, `leak/n33_duty_http_get`, `taint_chain_d3`,
+`taint_chain_d4`, `examples/boundaries/b04_exec_via_pattern`) — two
+independent detectors on one site is a signal, not a duplicate
+(`docs/limitations.md`).
+
+**What did NOT change.** The confidentiality half of the flow edge
+(№965): a private edge refuses exactly as before. The annotation
+grammar is strictly additive — a program without terminator annotations
+parses identically to 0.40.0; only the unannotated idiom flows gained
+the refusal. No transition window: the migration is one line per flow,
+and the §13.4 form (в) (a `profile legacy` key) stays bridge-only by
+decision — if a one-release bridge is ever wanted, it is a separate
+naryad.
+
+### Pinned by
+
+- `tests/naryad_966_flow_integrity.rs` — the landed contract: the
+  unannotated fixture refuses with `[HTML_INJECTION]` and the refusal
+  names the form; the annotated positive passes; the weaker-claim and
+  conf-word negatives refuse with `[LABEL_ANNOTATION_MISMATCH]`; the
+  confidentiality-unwaivable control; the over-declaration; the №322
+  bogus-word parse error; the docs gate (threat-model row B13 = FIXED,
+  ADR-0154 §13.7/§13.8/§13.9 present, limitations.md clean); the
+  agree-test (the `.expected` pin carries `status: LANDED`).
+- `tests/naryad_948_boundary_pins.rs` — B13 flipped into
+  `FLIPPED_967_PINS`: the unannotated fixture refuses with the frozen
+  class and the form text.
+- `scripts/mutation_verify_966.sh` — M1 the integrity arm dropped →
+  the negatives red; M2 the whole gate dropped → the conf controls red;
+  M3 the claim check skipped → the weaker-claim negative reds; M4 the
+  confidentiality half declareable → the annotated control reds. All
+  four RED before the push.

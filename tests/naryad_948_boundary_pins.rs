@@ -60,16 +60,22 @@ const STILL_OPEN_PINS: &[(&str, &str, u32)] = &[
     // receipt blocker closed by №964). The confidentiality half landed;
     // the integrity half became its OWN row — B13 below.
     //
-    // B13 is a DECISION boundary, not a leak gap: the flow output's
-    // integrity half is MEASURED, not gated (№966 — ADR-0154 §13,
-    // Proposed). The owner decision 13–14.11 gated ONE axis on the flow
-    // edge, and this pin fixes the CURRENT behavior (the idiom passes)
-    // so it cannot move silently. It leaves this list when the owner's
-    // chosen §13.4 form lands (a separate commit of №966 or the next
-    // naryad).
+    // B13 left this list with №967 (gh#1954, ADR-0154 §13.8 — form (а),
+    // the owner decision 16.11): the flow output's integrity half is
+    // GATED, and the §3 terminator annotation `-> output<public,
+    // untrusted>` is the checkable idiom claim. The unannotated fixture
+    // below flipped into `FLIPPED_967_PINS` (the HTML_INJECTION
+    // negative); the annotated positive and the §12.2 unsatisfied-claim
+    // negative live in `tests/naryad_967_flow_output_claim.rs`.
     ("b09_error_text_value.mlog", "B9", 955),
-    ("b13_flow_output_integrity_idiom.mlog", "B13", 966),
 ];
+
+/// The row FLIPPED by №967 — the flow output's integrity half (row B13,
+/// ADR-0154 §13.8): an UNANNOTATED untrusted-public flow output refuses
+/// with the frozen print-channel class, and the §3 terminator annotation
+/// is the checkable claim (a weaker claim is the loud mismatch).
+const FLIPPED_967_PINS: &[(&str, &str, &str)] =
+    &[("b13_flow_output_integrity_idiom.mlog", "B13", "HTML_INJECTION")];
 
 /// The row FLIPPED by №965 — the flow edge carries the step-return label
 /// (the confidentiality axis): the pin is a blocking leak-suite negative.
@@ -372,6 +378,50 @@ fn n948_b07_flow_edge_carries_the_return_label() {
             } else {
                 &rendered
             }
+        );
+    }
+}
+
+/// B13 pin — FLIPPED TO THE LEAK-SUITE NEGATIVE by №967 (gh#1954,
+/// ADR-0154 §13.8 — form (а), the owner decision 16.11): the flow
+/// output's integrity half is gated — an UNANNOTATED untrusted-public
+/// flow output refuses with the frozen print-channel class
+/// (HTML_INJECTION), and the refusal names the idiom form (the §13.4
+/// criterion). The annotated positive, the weaker-claim negative and the
+/// confidentiality-unwaivable control live in
+/// `tests/naryad_967_flow_output_claim.rs`.
+#[test]
+fn n948_b13_flow_output_integrity_gated() {
+    for (fixture, row, check_id) in FLIPPED_967_PINS {
+        let src = fs::read_to_string(boundary_dir().join(fixture))
+            .unwrap_or_else(|e| panic!("cannot read {}: {}", fixture, e));
+        let result = metalogos::check_program(&src)
+            .unwrap_or_else(|e| panic!("row {}: parse failed — the pin is broken: {}", row, e));
+        let rendered = result
+            .errors
+            .iter()
+            .map(|e| format!("{:?}", e))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains(check_id),
+            "row {} ({}): the unannotated flow output must refuse with {} (№967 — \
+             the integrity half is gated, the annotation is the claim); got: {}",
+            row,
+            fixture,
+            check_id,
+            if rendered.is_empty() {
+                "<no errors — the B13 gate is back to silence>"
+            } else {
+                &rendered
+            }
+        );
+        assert!(
+            rendered.contains("declare `-> output<public, untrusted>`"),
+            "row {} ({}): the refusal must name the idiom form (ADR-0154 §13.8 п.3); got: {}",
+            row,
+            fixture,
+            &rendered
         );
     }
 }

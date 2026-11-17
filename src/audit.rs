@@ -6121,6 +6121,28 @@ fn check_sink_clearance(
             });
             continue;
         }
+        // ── №967 (gh#1954, ADR-0154 §13.8 п.2 — form (а)): the §12.2
+        // claim discipline on the flow output terminator. A declared set
+        // WEAKER than the computed edge (or a conf word other than
+        // `public`) is the loud mismatch error — the annotation cannot
+        // become a silencer. Its own branch: this is the annotation
+        // discipline, not a sink-clearance class (§12.4's frozen classes
+        // stay on the clearance refusals below).
+        if v.reason == "output-claim-mismatch" {
+            findings.push(AuditFinding {
+                severity: Severity::Error,
+                check_id: "LABEL_ANNOTATION_MISMATCH",
+                line: v.span.start_line as usize,
+                message: format!(
+                    "label annotation '<{}>' on the output terminator of {} claims a weaker label \
+                     than the computed edge '{}' — the annotation cannot silence what the program \
+                     computes (§12.2, №967); declare `-> output<{}>` (the computed one) if the \
+                     display is intended, or drop the annotation",
+                    v.annotation.as_deref().unwrap_or(""), v.container, v.label, v.label,
+                ),
+            });
+            continue;
+        }
         let check_id = sink_check_id(&v.fn_name, v.arg_index, &v.label);
         // ── №728 (gh#1350 Ask 3, the owner verbatim (a2)): the refusal
         // cites the ACTUAL failed rule. For the six ACTION sinks the
@@ -6155,13 +6177,27 @@ fn check_sink_clearance(
                 v.fn_name, class_note
             )
         };
+        // ── №967 (gh#1954, ADR-0154 §13.8 п.3): the flow-output refusal
+        // names the idiom form verbatim (the §13.4 criterion — the
+        // refusal stays readable to an author who did NOT declare the
+        // idiom): the computed label and the one-line declaration that
+        // makes the display intended.
+        let form_note = if v.fn_name == "print" && v.container.starts_with("flow ") {
+            format!(
+                " — the flow output carries '{}'; declare `-> output<{}>` if the display is \
+                 intended (ADR-0154 §13.4 form (а))",
+                v.label, v.label
+            )
+        } else {
+            String::new()
+        };
         findings.push(AuditFinding {
             severity,
             check_id,
             line: v.span.start_line as usize,
             message: format!(
                 "sink clearance violated: argument {} of {} in {} carries label '{}'; \
-                 sinks require public{}{}; failed threshold: {}",
+                 sinks require public{}{}; failed threshold: {}{}",
                 v.arg_index,
                 v.fn_name,
                 v.container,
@@ -6176,7 +6212,8 @@ fn check_sink_clearance(
                     ""
                 },
                 rule_note,
-                v.reason
+                v.reason,
+                form_note
             ),
         });
     }

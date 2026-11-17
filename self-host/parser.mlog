@@ -891,7 +891,7 @@ pattern ParseImportAlias(tokens: List, pos: Float, n: Float) -> List {
   return make_list("", pos)
 }
 
-// flow Name { input: Type = expr -> Step1 -> ... -> output }
+// flow Name { input: Type = expr -> Step1 -> ... -> output<public, untrusted> }
 pattern ParseFlowDecl(tokens: List, pos: Float, n: Float) -> List {
   let mut p = pos + 1.0  // consume "flow"
   let name = PeekVal(tokens, p, n)
@@ -906,7 +906,7 @@ pattern ParseFlowDecl(tokens: List, pos: Float, n: Float) -> List {
   let r = ParseExpr(tokens, p, n)
   let source = get(r, 0)
   p = get(r, 1)
-  // pipeline: -> Step1 -> Step2 -> ... -> output
+  // pipeline: -> Step1 -> Step2 -> ... -> output<public, untrusted>
   // `output` is the terminator (not in the lexer's kws list, so we check
   // by value only — same as PeekKw above).
   // Uses List+join (O(N)) instead of repeated concat (O(N²)).
@@ -1062,5 +1062,5 @@ pattern ShouldKeepToken(t: String) -> Float {
 flow Main {
   input: String = read_file(env("MLOG_PARSE_TARGET"))
   -> Parse
-  -> output
+  -> output<public, untrusted>
 }

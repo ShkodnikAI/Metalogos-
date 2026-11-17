@@ -12,4 +12,4 @@ pattern Probe(_tick: String) -> String {
   }
   return "wrong-code:" + r.error.code
 }
-flow Main { input: String = "tick" -> Probe -> output }
+flow Main { input: String = "tick" -> Probe -> output<public, untrusted> }

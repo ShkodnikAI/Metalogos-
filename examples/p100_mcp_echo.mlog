@@ -5,5 +5,5 @@ pattern EchoIt(x: String) -> String {
 flow Main {
   input: String = "go"
   -> EchoIt
-  -> output
+  -> output<public, untrusted>
 }

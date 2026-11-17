@@ -64,5 +64,5 @@ pattern Tokenize(src: String) -> String {
 flow Main {
   input: String = read_file(env("MLOG_LEXER_TARGET"))
   -> Tokenize
-  -> output
+  -> output<public, untrusted>
 }

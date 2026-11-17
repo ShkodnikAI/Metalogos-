@@ -60,4 +60,4 @@ pattern CapabilityTrace(_tick: String) -> String {
   let survived = read_file("w72_capability_trace.tmp")
   return "use:" + type_of(d1) + "|revoked:" + to_string(rev) + "|deny:" + type_of(d2) + "|survived:" + survived
 }
-flow Main { input: String = "tick" -> CapabilityTrace -> output }
+flow Main { input: String = "tick" -> CapabilityTrace -> output<public, untrusted> }

@@ -3426,6 +3426,21 @@ fn validate_decl_labels(decl: &Declaration, errors: &mut Vec<SpannedError>) {
                 validate_label_ann(ann, &format!("entity '{}'", e.name), errors);
             }
         }
+        Declaration::Flow(f) => {
+            // №967 (gh#1954, ADR-0154 §13.8 п.2): the output terminator
+            // annotation is a grammar position the label system now sees —
+            // the parse validation rides the same №322 pass. The §12.2
+            // CLAIM check (the declared set must cover the computed edge)
+            // lives in the sink-clearance walk where the edge is computed;
+            // here the annotation must merely be a well-formed label.
+            if let Some(ann) = &f.output_ann {
+                validate_label_ann(
+                    ann,
+                    &format!("the output terminator of flow '{}'", f.name),
+                    errors,
+                );
+            }
+        }
         _ => {}
     }
 }
@@ -6039,6 +6054,10 @@ pub struct SinkViolation {
     /// "private-egress", "private-db", "irreversible-content". Consumed
     /// by the deny message (explainable refusal) and by №392 DenyEvent.
     pub reason: &'static str,
+    /// №967 (gh#1954, ADR-0154 §13.8 п.2): the declared annotation raw on
+    /// the flow output terminator — the §12.2 claim whose mismatch is
+    /// refused (`output-claim-mismatch`). None at every other site.
+    pub annotation: Option<String>,
 }
 
 /// Conservative confidentiality markers for string LITERALS (ADR-0161
@@ -6748,6 +6767,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                                 span: expr.span().clone(),
                                 label: label.clone(),
                                 reason,
+                                annotation: None,
                             });
                         }
                     }
@@ -6774,6 +6794,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                                 span: expr.span().clone(),
                                 label: sink_arg_label(arg, env, &origin_labels),
                                 reason: "video-likeness-no-consent",
+                                annotation: None,
                             });
                         }
                     }
@@ -6796,6 +6817,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                         span: expr.span().clone(),
                         label: Label::bottom(),
                         reason: "duty-network-sink",
+                        annotation: None,
                     });
                 }
             }
@@ -6817,6 +6839,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                             span: expr.span().clone(),
                             label: l,
                             reason: "duty-materialization",
+                            annotation: None,
                         });
                     }
                 }
@@ -6841,6 +6864,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                             span: expr.span().clone(),
                             label: l,
                             reason: "untrusted-file-path",
+                            annotation: None,
                         });
                     }
                 }
@@ -6872,6 +6896,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                             span: expr.span().clone(),
                             label: Label::bottom(),
                             reason: "irreversible-content",
+                            annotation: None,
                         });
                         continue;
                     }
@@ -6919,6 +6944,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                                 span: expr.span().clone(),
                                 label,
                                 reason: "poisoned",
+                                annotation: None,
                             });
                             continue;
                         }
@@ -6935,6 +6961,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                                 span: expr.span().clone(),
                                 label,
                                 reason: "private-egress",
+                                annotation: None,
                             });
                         }
                         continue;
@@ -6959,6 +6986,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                             span: expr.span().clone(),
                             label,
                             reason,
+                            annotation: None,
                         });
                     }
                 }
@@ -7688,6 +7716,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                                         span: f.span.clone(),
                                         label: seen,
                                         reason,
+                                        annotation: None,
                                     });
                                 }
                             }
@@ -7695,18 +7724,106 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                         edge = edge.join(&summary.return_internal);
                     }
                 }
-                if edge.conf != crate::labels::Conf::Public {
-                    // The output edge is the print channel (the flow's
-                    // stdout emission) — the frozen class of the print
-                    // sink, no new check_id (ADR-0154 §12.4).
-                    violations.push(SinkViolation {
-                        container: format!("flow {}", f.name),
-                        fn_name: "print".to_string(),
-                        arg_index: 0,
-                        span: f.span.clone(),
-                        reason: "private-egress",
-                        label: edge.clone(),
-                    });
+                // ── №967 (gh#1954, ADR-0154 §13.8 — form (а), the owner
+                // decision 16.11): the flow output is the print channel —
+                // the integrity half (row B13) is now GATED, and the
+                // §3 terminator annotation is the CHECKABLE idiom claim.
+                //
+                // Three layers, each named:
+                // (1) the claim discipline (§12.2): a declared conf word
+                //     other than `public` is the loud mismatch error —
+                //     the annotation declares the INTEGRITY display
+                //     intent and never waives the confidentiality half;
+                // (2) the confidentiality half (№965, landed): a
+                //     non-public edge refuses with the frozen class
+                //     whether or not the terminator is annotated —
+                //     PII_EGRESS_OUTPUT is not declareable away;
+                // (3) the integrity half (row B13, this naryad): an
+                //     UNANNOTATED edge failing the print clearance
+                //     refuses through the SAME clearance_failure the
+                //     real print sink answers to (the frozen classes —
+                //     HTML_INJECTION for untrusted-public,
+                //     PII_EGRESS_OUTPUT for private; §12.4 holds); a
+                //     DECLARED edge passes only when the claim COVERS
+                //     the computed edge — a declared `trusted` over an
+                //     untrusted edge is the silencer attempt, refused
+                //     loudly (the §13.4 criterion: the refusal stays
+                //     readable to an author who did not declare the
+                //     idiom, and the annotation cannot silence what the
+                //     program computes).
+                let declared = f
+                    .output_ann
+                    .as_ref()
+                    .map(|ann| crate::labels::Label::parse(&ann.raw).ok());
+                match (&f.output_ann, declared) {
+                    (Some(ann), Some(Some(decl))) => {
+                        if decl.conf != crate::labels::Conf::Public {
+                            // (1) the claim discipline: the confidentiality
+                            // half is not declareable — only `public` may
+                            // stand on the output terminator.
+                            violations.push(SinkViolation {
+                                container: format!("flow {}", f.name),
+                                fn_name: "print".to_string(),
+                                arg_index: 0,
+                                span: f.span.clone(),
+                                label: edge.clone(),
+                                reason: "output-claim-mismatch",
+                                annotation: Some(ann.raw.clone()),
+                            });
+                        } else if edge.conf != crate::labels::Conf::Public {
+                            // (2) the confidentiality half — unwaived by
+                            // any annotation (№965).
+                            violations.push(SinkViolation {
+                                container: format!("flow {}", f.name),
+                                fn_name: "print".to_string(),
+                                arg_index: 0,
+                                span: f.span.clone(),
+                                label: edge.clone(),
+                                reason: "private-egress",
+                                annotation: None,
+                            });
+                        } else if decl.integrity == crate::labels::Integrity::Trusted
+                            && edge.integrity == crate::labels::Integrity::Untrusted
+                        {
+                            // (3) the §12.2 mismatch: a declared set WEAKER
+                            // than the computed edge — the silencer
+                            // attempt, refused loudly.
+                            violations.push(SinkViolation {
+                                container: format!("flow {}", f.name),
+                                fn_name: "print".to_string(),
+                                arg_index: 0,
+                                span: f.span.clone(),
+                                label: edge.clone(),
+                                reason: "output-claim-mismatch",
+                                annotation: Some(ann.raw.clone()),
+                            });
+                        }
+                        // else: the declared idiom COVERS the computed
+                        // edge — the display is intended and honest.
+                    }
+                    (Some(_), Some(None)) => {
+                        // The terminator annotation does not parse —
+                        // already a loud SpannedError from
+                        // validate_decl_labels; the clearance walk adds
+                        // nothing (the parse error fires first).
+                    }
+                    (Some(_), None) => unreachable!("output_ann is Some ⇒ declared is Some"),
+                    (None, _) => {
+                        // The unannotated edge answers to the REAL print
+                        // sink's clearance — both axes, the frozen
+                        // classes (ADR-0154 §12.4).
+                        if let Some(reason) = clearance_failure("print", &edge) {
+                            violations.push(SinkViolation {
+                                container: format!("flow {}", f.name),
+                                fn_name: "print".to_string(),
+                                arg_index: 0,
+                                span: f.span.clone(),
+                                label: edge.clone(),
+                                reason,
+                                annotation: None,
+                            });
+                        }
+                    }
                 }
             }
             _ => {}

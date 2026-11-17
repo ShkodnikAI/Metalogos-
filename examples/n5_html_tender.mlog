@@ -35,5 +35,5 @@ pattern ExtractTender(page: String) -> String {
 }
 
 flow Main {
-  input: String = "<html><head><title>Закупки</title><style>.h { color: red; }</style><script>var x = \"noise\";</script></head><body><div class=\"lot featured\" id=\"lot-1\" data-deadline=\"2026-11-01\"><h2>Поставка канцелярии</h2><p>Цена: 12 500 BYN</p><a href=\"/lots/1\">Лот 1</a><a href=\"https://tender.example.by/docs/rules.pdf\">Правила</a></div><div class=\"lot\" id=\"lot-2\"><h2>Ремонт фасада</h2><p>Цена: 98 000 BYN</p><a href=\"javascript:bad()\">Зловредная</a><a href=\"//mirror.example.by/lots/2\">Зеркало</a><a href=\"#anchor\">Якорь</a></div></body></html>" -> ExtractTender -> output
+  input: String = "<html><head><title>Закупки</title><style>.h { color: red; }</style><script>var x = \"noise\";</script></head><body><div class=\"lot featured\" id=\"lot-1\" data-deadline=\"2026-11-01\"><h2>Поставка канцелярии</h2><p>Цена: 12 500 BYN</p><a href=\"/lots/1\">Лот 1</a><a href=\"https://tender.example.by/docs/rules.pdf\">Правила</a></div><div class=\"lot\" id=\"lot-2\"><h2>Ремонт фасада</h2><p>Цена: 98 000 BYN</p><a href=\"javascript:bad()\">Зловредная</a><a href=\"//mirror.example.by/lots/2\">Зеркало</a><a href=\"#anchor\">Якорь</a></div></body></html>" -> ExtractTender -> output<public, untrusted>
 }

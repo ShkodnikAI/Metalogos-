@@ -35,6 +35,17 @@
 #        (the declaration would waive №965 — the layer the design keeps
 #        unconditional).
 #
+#   M5 (№969) — the duty re-decide is DROPPED: the incoming-edge duty
+#        fact goes back to the №965 skip (the pre-№969 shape)
+#        -> n969_duty_materialization_on_the_flow_edge_refuses MUST FAIL
+#        (a private edge through a duty-denied materialization step
+#        would go unseen again — the hole the sweep probe found).
+#
+#   M6 (№969) — the untrusted-file-path re-decide is DROPPED
+#        -> n969_untrusted_file_path_on_the_flow_edge_refuses MUST FAIL
+#        (an untrusted edge choosing which bytes enter would go unseen
+#        again — the №455 decision position on the flow edge).
+#
 # Run from the repo root:  bash scripts/mutation_verify_966.sh
 set -u
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -132,7 +143,43 @@ red naryad_966_flow_integrity n966_private_flow_output_annotated_still_refuses \
   || fail "M4: the annotated conf control stayed GREEN — the declaration waived №965 undetected"
 restore
 
+echo "── M5 (№969): the duty re-decide is dropped (the incoming fact unseen again) ──"
+python3 - <<'EOF'
+p = 'src/semantic.rs'
+s = open(p).read()
+needle = """                                    "duty-materialization" => (duty_materialization_denied
+                                        && seen.conf == crate::labels::Conf::Private)
+                                        .then_some("duty-materialization"),"""
+replacement = """                                    "duty-materialization" => (false && duty_materialization_denied
+                                        && seen.conf == crate::labels::Conf::Private)
+                                        .then_some("duty-materialization"),"""
+assert needle in s, "the landed №969 duty re-decide not found — the tree drifted"
+open(p, 'w').write(s.replace(needle, replacement, 1))
+EOF
+red naryad_966_flow_integrity n969_duty_materialization_on_the_flow_edge_refuses \
+  && echo "M5 RED on the duty probe — the pin works" \
+  || fail "M5: the duty probe stayed GREEN — the incoming duty fact went unseen undetected"
+restore
+
+echo "── M6 (№969): the untrusted-file-path re-decide is dropped (the bytes choice unseen) ──"
+python3 - <<'EOF'
+p = 'src/semantic.rs'
+s = open(p).read()
+needle = """                                    "untrusted-file-path" => (seen.integrity
+                                        == crate::labels::Integrity::Untrusted)
+                                        .then_some("untrusted-file-path"),"""
+replacement = """                                    "untrusted-file-path" => (false && seen.integrity
+                                        == crate::labels::Integrity::Untrusted)
+                                        .then_some("untrusted-file-path"),"""
+assert needle in s, "the landed №969 file-path re-decide not found — the tree drifted"
+open(p, 'w').write(s.replace(needle, replacement, 1))
+EOF
+red naryad_966_flow_integrity n969_untrusted_file_path_on_the_flow_edge_refuses \
+  && echo "M6 RED on the file-path probe — the pin works" \
+  || fail "M6: the file-path probe stayed GREEN — the incoming bytes-choice fact went unseen undetected"
+restore
+
 echo "── restoring and re-checking the tree is byte-identical ──"
 restore
 cmp -s src/semantic.rs "$BACKUP" && echo "RESTORE OK" || fail "the restore is not byte-identical"
-echo "MUTATION VERIFY №967: PASS"
+echo "MUTATION VERIFY №967/№969: PASS"

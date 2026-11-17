@@ -328,6 +328,26 @@ fn n966_the_integrity_package_is_measured_in_the_docs() {
         "limitations.md still lists the B13 integrity half as an open gap — the \
          boundary became a rule (№967); the row leaves the not-caught list"
     );
+
+    // №969: the incoming-edge half rides the same record — the ADR
+    // carries the landing record (§13.10) with the sweep numbers, and
+    // the B13 row names the SPLIT's second half as DONE.
+    assert!(
+        adr.contains("### 13.10") && adr.contains("the §13.5 open set is closed"),
+        "ADR-0154 §13.10 (the №969 landing record) is missing — the incoming-edge \
+         half records its landing in the same PR (the №966 §13 form)"
+    );
+    assert!(
+        adr.contains("583 `.mlog` files: marginal refusals 0")
+            && adr.contains("carriers of the new flow findings 0"),
+        "ADR-0154 §13.10 lost the measured numbers — the zero-migration claim \
+         must carry its sweep record (the №956 discipline)"
+    );
+    assert!(
+        tm.contains("landed with №969") && tm.contains("mutations M5/M6"),
+        "the B13 row lost the incoming-edge-half sentence (№969) — the two halves \
+         of one package must agree in the same row (the №966 form)"
+    );
 }
 
 /// The agree-test: the two documents tell one story. B7 says the
@@ -359,5 +379,138 @@ fn n966_the_b7_row_and_the_b13_pin_agree() {
         expected.contains("-> output<public, untrusted>"),
         "the b13 .expected pin must carry the idiom form the migration uses \
          (№967 — form (а))"
+    );
+}
+
+// ── Naryad №969 (gh#1969, ADR-0154 §13.8 п.6 — the SPLIT's second half,
+// the owner directive «сделай сам» 17.11, P1, [security][compiler]): the
+// INCOMING-EDGE half of the flow edge package. ──
+//
+// №967 landed the OUTPUT half (the terminator integrity gate + the
+// checkable annotation); §13.8 п.6 split the INCOMING half — the two
+// non-clearance facts (`duty-materialization`, `untrusted-file-path`)
+// the №965 arm deliberately skipped — into its own measured package.
+// №969 closes the skip: the flow edge re-decides ALL the step's
+// param→sink facts with the ACTUAL incoming edge label, each family by
+// its own rule (the same rule the pattern-call path runs — the №965
+// hook (б) machinery). The measured surface (the №968 dispatch sweep,
+// 583 .mlog, A vs B'): 0 marginal refusals, 0 healed, 0 carriers — no
+// current program changes verdict; the sanity probe proved the hole
+// real (a private edge through a duty-denied step materialized UNSEEN
+// on the landed tree).
+//
+// MUTATION CONTRACT (rides `scripts/mutation_verify_966.sh`):
+//   M5 — the duty re-decide dropped (the skip back) -> the duty pin
+//        FAILS (the materialization goes unseen again);
+//   M6 — the untrusted-file-path re-decide dropped -> the file-path pin
+//        FAILS (the bytes choice goes unseen again).
+
+/// THE DUTY PROBE (the sweep's sanity probe, now a pin): a PRIVATE edge
+/// (`env("SP")` — the №965 b07 shape) entering a flow step whose body
+/// materializes the param into text under
+/// `profile duty { materialization: denied }` — the flow edge re-decides
+/// the step's duty fact with the actual label and refuses with the
+/// FROZEN №349 class naming the flow container. On the landed-before-
+/// №969 tree this fact was SKIPPED on the flow edge (the hole the sweep
+/// probe found); the output conf half still fires beside it (№965).
+#[test]
+fn n969_duty_materialization_on_the_flow_edge_refuses() {
+    let src = "profile duty { materialization: denied }\n\
+               pattern DutyStr(doc: String) -> String {\n\
+                 let text = str(doc)\n\
+                 return text\n\
+               }\n\
+               flow Main { input: String = env(\"SP\") -> DutyStr -> output }";
+    let rendered = rendered_errors(src, "the duty flow probe");
+    assert!(
+        rendered.contains("DUTY_MATERIALIZATION"),
+        "a PRIVATE edge into a duty-denied materialization step must refuse on the \
+         flow edge (№969 — the incoming-half re-decide); got: {}",
+        if rendered.is_empty() {
+            "<no errors — the №965 skip is back>"
+        } else {
+            rendered.as_str()
+        }
+    );
+    assert!(
+        rendered.contains("flow Main"),
+        "the refusal must name the flow container (the explainable-refusal \
+         contract, §12.4); got: {rendered}"
+    );
+}
+
+/// THE PUBLIC-EDGE CONTROL (the false-positive guard, the zero-migration
+/// claim's pin): the same duty-denied step fed a PUBLIC constant — the
+/// duty rule requires a PRIVATE edge, so nothing fires anywhere (the
+/// body's own check sees the public param, the flow edge re-decide sees
+/// a public edge, the output half sees a public, trusted value). This is
+/// the exact shape the 583-file sweep measured 0 marginal refusals with.
+#[test]
+fn n969_duty_public_edge_passes() {
+    let src = "profile duty { materialization: denied }\n\
+               pattern DutyStr(doc: String) -> String {\n\
+                 let text = str(doc)\n\
+                 return text\n\
+               }\n\
+               flow Main { input: String = \"x\" -> DutyStr -> output }";
+    let rendered = rendered_errors(src, "the duty public-edge control");
+    assert!(
+        rendered.is_empty(),
+        "a PUBLIC edge through the same step must stay clean (№969 — the duty \
+         re-decide fires on the private edge only, the zero-migration claim); \
+         got: {rendered}"
+    );
+}
+
+/// THE FILE-PATH PROBE: an UNTRUSTED edge (`call_llm`'s return — public,
+/// untrusted) entering a flow step whose body feeds the param to
+/// `read_file` — the path CHOOSES which bytes enter the program (the
+/// №455 decision-position rule, Category A `UNTRUSTED_FILE_PATH`), and
+/// the flow edge re-decides the step's fact with the actual label. The
+/// terminator carries the TRUE idiom annotation (`-> output<public,
+/// untrusted>`) to prove the incoming half is NOT declareable away —
+/// the annotation covers the DISPLAY intent, never the incoming facts.
+#[test]
+fn n969_untrusted_file_path_on_the_flow_edge_refuses() {
+    let src = "pattern Load(name: String) -> String {\n\
+                 let data = read_file(name)\n\
+                 return data\n\
+               }\n\
+               flow Main { input: String = call_llm(\"gen\", \"doc\") -> Load -> output<public, untrusted> }";
+    let rendered = rendered_errors(src, "the file-path flow probe");
+    assert!(
+        rendered.contains("UNTRUSTED_FILE_PATH"),
+        "an UNTRUSTED edge into a read_file-by-param step must refuse on the flow \
+         edge (№969 — the incoming-half re-decide, the №455 decision position); \
+         got: {}",
+        if rendered.is_empty() {
+            "<no errors — the №965 skip is back>"
+        } else {
+            rendered.as_str()
+        }
+    );
+    assert!(
+        rendered.contains("flow Main"),
+        "the refusal must name the flow container (the explainable-refusal \
+         contract, §12.4); got: {rendered}"
+    );
+}
+
+/// THE TRUSTED-PATH CONTROL: the same step fed a TRUSTED constant path —
+/// the bytes choice is the program's own, nothing fires (the annotation
+/// claim covers the display; the incoming half stays silent on a clean
+/// edge — the zero-migration claim's second half).
+#[test]
+fn n969_trusted_file_path_passes() {
+    let src = "pattern Load(name: String) -> String {\n\
+                 let data = read_file(name)\n\
+                 return data\n\
+               }\n\
+               flow Main { input: String = \"config.txt\" -> Load -> output<public, untrusted> }";
+    let rendered = rendered_errors(src, "the trusted-path control");
+    assert!(
+        rendered.is_empty(),
+        "a TRUSTED path through the same step must stay clean (№969 — the \
+         file-path re-decide fires on the untrusted edge only); got: {rendered}"
     );
 }

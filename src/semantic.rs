@@ -7698,17 +7698,35 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                     if let Some(summary) = interproc_summary_of(step_name) {
                         if let Some(facts) = summary.param_sinks.first() {
                             for (sink, sink_arg, inner_reason, axis) in facts {
-                                // The №965 axis choice: the flow edge
-                                // re-decides CONFIDENTIALITY only; the
-                                // duty/untrusted-file facts belong to the
-                                // №966 integrity package.
-                                if *inner_reason == "duty-materialization"
-                                    || *inner_reason == "untrusted-file-path"
-                                {
-                                    continue;
-                                }
+                                // ── №969 (gh#1969, ADR-0154 §13.8 п.6 — the
+                                // SPLIT's second half): the two non-clearance
+                                // facts re-decide with the ACTUAL incoming
+                                // edge label — the same rule the pattern-call
+                                // path runs (`semantic.rs`, the №965 hook (б)
+                                // re-decide). The №965 skip is gone: the flow
+                                // edge re-decides ALL the step's param→sink
+                                // facts, the three families each with its own
+                                // rule — duty-materialization fires on a
+                                // PRIVATE edge (the duty profile's refusal,
+                                // №349), untrusted-file-path on an UNTRUSTED
+                                // one (the bytes-choice refusal), the
+                                // clearance families through the frozen
+                                // clearance_failure. The §13.5 open set is
+                                // closed; the frozen vocabulary holds (§12.4
+                                // — no new check_id).
                                 let seen = axis.view(&edge);
-                                if let Some(reason) = clearance_failure(sink, &seen) {
+                                let decided: Option<&'static str> = match *inner_reason {
+                                    "duty-materialization" => {
+                                        (duty_materialization_denied
+                                            && seen.conf == crate::labels::Conf::Private)
+                                            .then_some("duty-materialization")
+                                    }
+                                    "untrusted-file-path" => (seen.integrity
+                                        == crate::labels::Integrity::Untrusted)
+                                        .then_some("untrusted-file-path"),
+                                    _ => clearance_failure(sink, &seen),
+                                };
+                                if let Some(reason) = decided {
                                     violations.push(SinkViolation {
                                         container: format!("flow {}", f.name),
                                         fn_name: (*sink).to_string(),

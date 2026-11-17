@@ -63,7 +63,7 @@ pattern Extract(x: String) -> String {
 flow Main {
   input: String = "Extract the user name"
   -> Extract
-  -> output
+  -> output<public, untrusted>
 }
 "#;
 
@@ -117,7 +117,7 @@ pattern Extract(x: String) -> String {{
 flow Main {{
   input: String = "x"
   -> Extract
-  -> output
+  -> output<public, untrusted>
 }}
 "#,
         schema = NESTED_SCHEMA.replace('"', "\\\"")

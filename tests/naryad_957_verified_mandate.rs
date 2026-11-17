@@ -103,7 +103,7 @@ pattern T(_t: String) -> String {
   let r = cron_run(job.id)
   return r.status
 }
-flow Main { input: String = "t" -> T -> output }
+flow Main { input: String = "t" -> T -> output<public, untrusted> }
 "#,
         )
         .unwrap_err();
@@ -143,7 +143,7 @@ pattern T(_t: String) -> String {
   let r = cron_run(job.id)
   return r.status
 }
-flow Main { input: String = "t" -> T -> output }
+flow Main { input: String = "t" -> T -> output<public, untrusted> }
 "#,
         )
         .unwrap()
@@ -175,7 +175,7 @@ pattern T(_t: String) -> String {
   let r = cron_run(job.id)
   return r.status
 }
-flow Main { input: String = "t" -> T -> output }
+flow Main { input: String = "t" -> T -> output<public, untrusted> }
 "#,
         )
         .unwrap()
@@ -202,7 +202,7 @@ pattern T(_t: String) -> String {
   let m = approval_issue("owner", "carrier:cron_run", 60)
   return to_string(m.actor_verified)
 }
-flow Main { input: String = "t" -> T -> output }
+flow Main { input: String = "t" -> T -> output<public, untrusted> }
 "#,
         )
         .unwrap()
@@ -238,7 +238,7 @@ fn n957_the_program_cannot_touch_the_verified_store() {
 pattern T(_t: String) -> String {
   return read_file("/home/someone/.metalogos/mandates.json")
 }
-flow Main { input: String = "t" -> T -> output }
+flow Main { input: String = "t" -> T -> output<public, untrusted> }
 "#,
         )
         .unwrap_err();
@@ -256,7 +256,7 @@ pattern T(_t: String) -> String {
   let p = ".metalogos/" + "mandates.json"
   return read_file(p)
 }
-flow Main { input: String = "t" -> T -> output }
+flow Main { input: String = "t" -> T -> output<public, untrusted> }
 "#,
         )
         .unwrap_err();
@@ -274,7 +274,7 @@ pattern T(_t: String) -> String {
   write_file("mandates.json", "forged")
   return "written"
 }
-flow Main { input: String = "t" -> T -> output }
+flow Main { input: String = "t" -> T -> output<public, untrusted> }
 "#,
         )
         .unwrap_err();

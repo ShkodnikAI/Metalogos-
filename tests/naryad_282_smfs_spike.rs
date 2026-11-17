@@ -495,7 +495,7 @@ pattern Read(_x: String) -> String {
   return rec + "|" + str(len(md))
 }
 
-flow Main { input: String = "x" -> Read -> output }
+flow Main { input: String = "x" -> Read -> output<public, untrusted> }
 "#;
         let cwd = std::env::current_dir().expect("cwd");
         let tw = run_tw(source, &cwd).expect("TW run").unwrap_or_default();

@@ -59,7 +59,7 @@ learnable pattern Tag(text: String) -> String {
   prompt: "classify the caller text"
   context: "session transcript: N879_SECRET_MARKER_ALPHA"
 }
-flow Main { input: String = "tell-me" -> Tag -> output }
+flow Main { input: String = "tell-me" -> Tag -> output<public, untrusted> }
 "#;
 
 /// Compile-and-run the fixture on the bytecode VM (the №454 harness
@@ -200,7 +200,7 @@ fn n879_t4_call_llm_fallback_seam_composes_the_same_way() {
 pattern Ask(question: String) -> String {
   return call_llm("Answer:", question)
 }
-flow Main { input: String = "hi" -> Ask -> output }
+flow Main { input: String = "hi" -> Ask -> output<public, untrusted> }
 "#;
     // №898: Nothing declared → the fallback seam carries the LOUD
     // refusal (the same composition site as the router-less path).

@@ -96,7 +96,7 @@ fn run_vm(source: &str, base_dir: &Path) -> Result<Option<String>, String> {
 
 fn program(body: &str) -> String {
     format!(
-        "pattern T(_input: String) -> String {{\n{}\n}}\nflow Main {{ input: String = \"s\" -> T -> output }}",
+        "pattern T(_input: String) -> String {{\n{}\n}}\nflow Main {{ input: String = \"s\" -> T -> output<public, untrusted> }}",
         body
     )
 }

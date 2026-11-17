@@ -68,7 +68,7 @@ pattern Probe(x: String) -> String {
   let r = try cron_add("not-a-cron", "some_pattern")
   return r.error.code
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#;
     assert_both_backends(src, "CRON_JOB_FAILED");
 }
@@ -80,7 +80,7 @@ pattern Probe(x: String) -> String {
   let r = try remind_recurring("check the ledger", -5.0)
   return r.error.code
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#;
     assert_both_backends(src, "CRON_JOB_FAILED");
 }
@@ -94,7 +94,7 @@ pattern Probe(x: String) -> String {
   let r = try cron_add(123.0, "some_pattern")
   return r.error.code
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#;
     assert_both_backends(src, "CRON_JOB_FAILED");
 }
@@ -108,7 +108,7 @@ pattern Probe(x: String) -> String {
   let r = try cron_add("0 9 * * 1-5", "some_pattern")
   return r.ok
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#;
     assert_both_backends(src, "true");
 }
@@ -130,7 +130,7 @@ pattern Probe(x: String) -> String {
   let r = try mcp_call("/nonexistent/n413-no-such-server", [], "probe_tool", "{}")
   return r.error.code
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#;
     let result = (|| -> Result<(String, String), String> {
         let base = Path::new(MANIFEST);
@@ -165,7 +165,7 @@ pattern Probe(x: String) -> String {
   let r = try mcp_call("/nonexistent/n413-allowlist-probe", [], "probe_tool", "{}")
   return r.error.code
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#;
     let base = Path::new(MANIFEST);
     let tw = run_tw(src, base).expect("TW run").expect("TW output");
@@ -186,7 +186,7 @@ pattern Probe(x: String) -> String {
   let r = try read_file(123.0)
   return r.error.code
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#;
     assert_both_backends(src, "RUNTIME_ERROR");
 }
@@ -213,7 +213,7 @@ pattern Probe(x: String) -> String {
   let r = try mcp_call("python3", ["tests/fixtures/mcp_echo_server.py"], "echo", "{}")
   return r.error.code + "|" + r.error.message
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#;
     let tw = run_tw(src, base).expect("TW run").expect("TW output");
     std::env::remove_var("METALOGOS_ALLOW_EXEC");

@@ -63,7 +63,7 @@ const PROBE: &str = "METALOGOS_N481_PROBE";
 
 fn program(body: &str) -> String {
     format!(
-        "pattern Read(_x: String) -> String {{\n  {}\n}}\nflow Main {{\n  input: String = \"a\" -> Read -> output\n}}\n",
+        "pattern Read(_x: String) -> String {{\n  {}\n}}\nflow Main {{\n  input: String = \"a\" -> Read -> output<public, untrusted>\n}}\n",
         body
     )
 }

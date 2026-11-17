@@ -83,7 +83,7 @@ fn n697_read_file_or_is_string() {
 pattern T(i: String) -> String {{
   return read_file_or("{fp}", "fallback")
 }}
-flow Main {{ input: String = "x" -> T -> output }}
+flow Main {{ input: String = "x" -> T -> output<public, untrusted> }}
 "#
     );
     assert_both(&src, "n697-content");
@@ -94,7 +94,7 @@ flow Main {{ input: String = "x" -> T -> output }}
 pattern T(i: String) -> String {{
   return read_file_or("{dp}/missing-n697.txt", "fallback")
 }}
-flow Main {{ input: String = "x" -> T -> output }}
+flow Main {{ input: String = "x" -> T -> output<public, untrusted> }}
 "#
     );
     assert_both(&src2, "fallback");
@@ -121,7 +121,7 @@ fn n697_list_dir_is_list_of_strings() {
 pattern T(i: String) -> String {{
   return to_string(len(list_dir("{dp}")))
 }}
-flow Main {{ input: String = "x" -> T -> output }}
+flow Main {{ input: String = "x" -> T -> output<public, untrusted> }}
 "#
     );
     assert_both(&src, "2");
@@ -145,7 +145,7 @@ pattern T(i: String) -> String {
   let s = voice_list()
   return s + "!"
 }
-flow Main { input: String = "x" -> T -> output }
+flow Main { input: String = "x" -> T -> output<public, untrusted> }
 "#;
     assert_both(src, "!");
 }
@@ -163,7 +163,7 @@ pattern T(i: String) -> String {
   let blocked = policy_check("vim file.txt")
   return to_string(ok.allowed) + " " + ok.reason + " " + to_string(blocked.allowed) + " " + blocked.reason
 }
-flow Main { input: String = "x" -> T -> output }
+flow Main { input: String = "x" -> T -> output<public, untrusted> }
 "#;
     assert_both(
         src,
@@ -190,7 +190,7 @@ fn n697_http_download_is_bool() {
 pattern T(i: String) -> String {{
   return to_string(http_download("http://127.0.0.1:1/n697-nope", "{dst}"))
 }}
-flow Main {{ input: String = "x" -> T -> output }}
+flow Main {{ input: String = "x" -> T -> output<public, untrusted> }}
 "#,
         dst = dst
     );
@@ -216,7 +216,7 @@ fn n697_mock_ai_builtins_are_strings() {
 pattern T(i: String) -> String {
   return stt_transcribe("n697-audio")
 }
-flow Main { input: String = "x" -> T -> output }
+flow Main { input: String = "x" -> T -> output<public, untrusted> }
 "#;
     let tw = metalogos::run_program(src)
         .expect("stt TW")
@@ -233,7 +233,7 @@ flow Main { input: String = "x" -> T -> output }
 pattern T(i: String) -> String {
   return omni_ask("describe n697")
 }
-flow Main { input: String = "x" -> T -> output }
+flow Main { input: String = "x" -> T -> output<public, untrusted> }
 "#;
     let tw = metalogos::run_program(src)
         .expect("omni TW")
@@ -250,7 +250,7 @@ flow Main { input: String = "x" -> T -> output }
 pattern T(i: String) -> String {
   return ocr_extract("n697-image")
 }
-flow Main { input: String = "x" -> T -> output }
+flow Main { input: String = "x" -> T -> output<public, untrusted> }
 "#;
     let tw = metalogos::run_program(src)
         .expect("ocr TW")
@@ -264,7 +264,7 @@ flow Main { input: String = "x" -> T -> output }
 pattern T(i: String) -> String {
   return vision_understand("n697-image")
 }
-flow Main { input: String = "x" -> T -> output }
+flow Main { input: String = "x" -> T -> output<public, untrusted> }
 "#;
     let tw = metalogos::run_program(src)
         .expect("vision TW")

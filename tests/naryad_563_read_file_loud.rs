@@ -64,10 +64,10 @@ fn run_vm(source: &str) -> Result<Option<String>, String> {
 }
 
 const MISSING_FLOW: &str = r#"
-flow Main { input: String = "n563_definitely_missing.txt" -> read_file -> output }
+flow Main { input: String = "n563_definitely_missing.txt" -> read_file -> output<public, untrusted> }
 "#;
 
-const MISSING_OR_FLOW: &str = "pattern ReadOr563(_x: String) -> String {\n  return read_file_or(\"n563_definitely_missing.txt\", \"fallback-563\")\n}\nflow Main {\n  input: String = \"a\" -> ReadOr563 -> output\n}\n";
+const MISSING_OR_FLOW: &str = "pattern ReadOr563(_x: String) -> String {\n  return read_file_or(\"n563_definitely_missing.txt\", \"fallback-563\")\n}\nflow Main {\n  input: String = \"a\" -> ReadOr563 -> output<public, untrusted>\n}\n";
 
 // ── the loud flip on BOTH backends ───────────────────────────────────
 
@@ -164,7 +164,7 @@ fn n563_debt_counter_reads_zero() {
 
 fn program_of(body: &str) -> String {
     format!(
-        "pattern Read563(_x: String) -> String {{\n{}\n}}\nflow Main {{\n  input: String = \"a\" -> Read563 -> output\n}}\n",
+        "pattern Read563(_x: String) -> String {{\n{}\n}}\nflow Main {{\n  input: String = \"a\" -> Read563 -> output<public, untrusted>\n}}\n",
         body
     )
 }

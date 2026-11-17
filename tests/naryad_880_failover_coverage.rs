@@ -136,7 +136,7 @@ llm {{
 pattern Ask(question: String) -> String {{
   return call_llm("Answer:", question)
 }}
-flow Main {{ input: String = "hi" -> Ask -> output }}
+flow Main {{ input: String = "hi" -> Ask -> output<public, untrusted> }}
 "#
     )
 }

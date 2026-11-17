@@ -141,7 +141,7 @@ pattern Gen(x: String) -> String {
 flow Main {
   input: String = "go"
   -> Gen
-  -> output
+  -> output<public, untrusted>
 }
 "#;
 
@@ -231,7 +231,7 @@ pattern Bad(x: String) -> String {
 flow Main {
   input: String = "go"
   -> Bad
-  -> output
+  -> output<public, untrusted>
 }
 "#;
     let err2 = metalogos::run_program(BAD_PROVIDER).expect_err("V4: unknown provider must fail");
@@ -260,7 +260,7 @@ pattern W(x: String) -> String {
 flow Main {
   input: String = "go"
   -> W
-  -> output
+  -> output<public, untrusted>
 }
 "#;
     // check_program returns an AnalysisResult carrying .errors (Ok(Ok/Err))
@@ -329,7 +329,7 @@ pattern S(x: String) -> String {
 flow Main {
   input: String = "go"
   -> S
-  -> output
+  -> output<public, untrusted>
 }
 "#;
     let err = metalogos::run_program(SEND_PROGRAM);

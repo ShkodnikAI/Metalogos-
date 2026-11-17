@@ -70,7 +70,7 @@ pattern Probe(x: String) -> String {
   let r = try write_file("/etc/metalogos-n385.txt", "nope")
   return r.error.code
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#;
     assert_both_backends(src, "SANDBOX_VIOLATION");
 }
@@ -86,7 +86,7 @@ pattern Probe(x: String) -> String {
   let r = try query("SELECT * FROM no_such_table_n385")
   return r.error.code
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#;
     assert_both_backends(src, "SQL_ERROR");
 }
@@ -100,7 +100,7 @@ pattern Probe(x: String) -> String {
   let r = try read_file(123.0)
   return r.error.code
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#;
     assert_both_backends(src, "RUNTIME_ERROR");
 }
@@ -114,7 +114,7 @@ pattern Frame(x: String) -> String {
   let r = try media_save(img, "target/n385-media/sealed-out.bin")
   return r.error.code
 }
-flow Main { input: String = "x" -> Frame -> output }
+flow Main { input: String = "x" -> Frame -> output<public, untrusted> }
 "#;
     assert_both_backends(src, "MEDIA_SEALED_EGRESS");
 }
@@ -127,7 +127,7 @@ pattern Probe(x: String) -> String {
   let r = try call_llm("hello", "world")
   return r.error.code
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#
 }
 
@@ -137,7 +137,7 @@ pattern Probe(x: String) -> String {
   let r = try call_llm("hello", "world")
   return r.error.message
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#
 }
 
@@ -266,7 +266,7 @@ pattern Probe(x: String) -> String {
   let r = try write_file("/etc/metalogos-n385.txt", "nope")
   return r.error.code
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#;
     run_tw(src, Path::new(MANIFEST))
         .expect("TW")
@@ -282,7 +282,7 @@ pattern Probe(x: String) -> String {
   let r = try query("SELECT * FROM no_such_table_n385")
   return r.error.code
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#;
     run_tw(src, Path::new(MANIFEST))
         .expect("TW")
@@ -297,7 +297,7 @@ pattern Probe(x: String) -> String {
   let r = try read_file(123.0)
   return r.error.code
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#;
     run_tw(src, Path::new(MANIFEST))
         .expect("TW")
@@ -314,7 +314,7 @@ pattern Frame(x: String) -> String {
   let r = try media_save(img, "target/n385-media/sealed-out.bin")
   return r.error.code
 }
-flow Main { input: String = "x" -> Frame -> output }
+flow Main { input: String = "x" -> Frame -> output<public, untrusted> }
 "#;
     run_tw(src, Path::new(MANIFEST))
         .expect("TW")
@@ -335,7 +335,7 @@ pattern Probe(x: String) -> String {
   let v = write_file("/etc/metalogos-n385.txt", "nope")
   return v
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#;
     let err = run_tw(uncaught, base).expect_err("uncaught sandbox violation aborts");
     assert!(
@@ -348,7 +348,7 @@ pattern Probe(x: String) -> String {
   let r = try write_file("/etc/metalogos-n385.txt", "nope")
   return r.error.code
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#;
     let code = run_tw(caught, base).expect("TW").expect("output");
     assert_eq!(code.trim(), "SANDBOX_VIOLATION");
@@ -370,7 +370,7 @@ pattern Probe(x: String) -> String {
   }
   return sel.error.code
 }
-flow Main { input: String = "x" -> Probe -> output }
+flow Main { input: String = "x" -> Probe -> output<public, untrusted> }
 "#;
     assert_both_backends(src, "BACKEND_DEGRADED");
 }

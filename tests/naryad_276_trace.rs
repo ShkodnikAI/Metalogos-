@@ -345,7 +345,7 @@ pattern Call(x: String) -> String {
 flow Main {
   input: String = "hi"
   -> Call
-  -> output
+  -> output<public, untrusted>
 }
 "#;
 

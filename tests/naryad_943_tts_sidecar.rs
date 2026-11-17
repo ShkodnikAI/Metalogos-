@@ -149,7 +149,7 @@ pattern Gen(x: String) -> String {
 flow Main {
   input: String = "go"
   -> Gen
-  -> output
+  -> output<public, untrusted>
 }
 "#;
 
@@ -161,7 +161,7 @@ pattern Gen(x: String) -> String {
 flow Main {
   input: String = "go"
   -> Gen
-  -> output
+  -> output<public, untrusted>
 }
 "#;
 
@@ -309,7 +309,7 @@ pattern P(_t: String) -> String {{
   }}
   return "compat-broken"
 }}
-flow Main {{ input: String = "t" -> P -> output }}
+flow Main {{ input: String = "t" -> P -> output<public, untrusted> }}
 "#,
         sidecar = sidecar_name,
         hash = sha256_hex(&disk)

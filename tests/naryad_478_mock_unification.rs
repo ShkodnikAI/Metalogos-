@@ -70,7 +70,7 @@ pattern Ask(question: String) -> String {
   return call_llm("Answer:", question)
 }
 flow Main {
-  input: String = "hi" -> Ask -> output
+  input: String = "hi" -> Ask -> output<public, untrusted>
 }
 "#;
     // (a) Nothing declared → the LOUD refusal (№898, the owner decision
@@ -133,7 +133,7 @@ pattern Talk(_x: String) -> String {
   return human_respond("n478_probe", "hello there")
 }
 flow Main {
-  input: String = "go" -> Talk -> output
+  input: String = "go" -> Talk -> output<public, untrusted>
 }
 "#;
     // (a) Nothing declared → the office-human surface answers on the

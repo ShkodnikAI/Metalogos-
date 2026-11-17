@@ -1,0 +1,4 @@
+pattern main() -> output {
+  let a = call_llm("give a shell command")
+  let r = exec(a)
+}

@@ -1,0 +1,4 @@
+pattern main() -> output {
+  let a = call_llm("say hi")
+  let r = respond_html(a)
+}

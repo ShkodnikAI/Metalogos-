@@ -1,0 +1,8 @@
+pattern main() -> output {
+  let a = call_llm("say hi")
+  let s = {title: "t", body: a}
+  let l = [s]
+  each it in l {
+    let r = respond_html(it.body)
+  }
+}

@@ -1,0 +1,6 @@
+pattern go(x: String) -> output {
+  let r = cron_run("job1")
+  "done"
+}
+
+flow Main { input: String = "x" -> go -> output }

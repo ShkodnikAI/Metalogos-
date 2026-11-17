@@ -1,0 +1,6 @@
+pattern main() -> output {
+  let a = call_llm("say hi")
+  let l = [a, a]
+  let j = join(l, "|")
+  let r = respond_html(j)
+}

@@ -1,0 +1,9 @@
+mlogserver {
+  port: 8080
+  routes {
+    get "/x" {
+      let k = env("API_KEY")
+      let r = respond(k)
+    }
+  }
+}

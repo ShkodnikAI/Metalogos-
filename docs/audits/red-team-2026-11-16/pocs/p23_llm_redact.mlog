@@ -1,0 +1,5 @@
+pattern main() -> output {
+  let a = call_llm("say hi")
+  let safe = redact(a, "pii")
+  let r = respond_html(safe)
+}

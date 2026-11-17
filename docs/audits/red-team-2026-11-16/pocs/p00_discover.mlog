@@ -1,0 +1,4 @@
+pattern main() -> output {
+  x = env("HOME")
+  print(x)
+}

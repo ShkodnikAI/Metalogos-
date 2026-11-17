@@ -1,0 +1,4 @@
+pattern main() -> output {
+  let c = read_file("/etc/hostname")
+  let r = respond_html(c)
+}

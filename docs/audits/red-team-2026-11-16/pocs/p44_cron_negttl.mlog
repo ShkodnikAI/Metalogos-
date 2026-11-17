@@ -1,0 +1,7 @@
+pattern go(x: String) -> output {
+  let a = approval_issue("alice", "carrier:cron_run", -1)
+  let r = cron_run("job1")
+  "done"
+}
+
+flow Main { input: String = "x" -> go -> output }

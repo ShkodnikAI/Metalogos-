@@ -1,0 +1,5 @@
+pattern main() -> output {
+  let q = query_param("q")
+  let g = grant_issue("db", "write")
+  let r = db_execute_with_grant("SELECT * FROM users WHERE name = '" + q + "'", g)
+}

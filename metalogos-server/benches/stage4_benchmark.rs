@@ -441,6 +441,14 @@ mod stage4 {
         // Same-process determinism env for children (inherited).
         std::env::set_var("METALOGOS_MOCK_LLM", "true");
         std::env::set_var("METALOGOS_LLM_MOCK", "true");
+        // №806 (B1): the workload's kv fingerprints are keyed — the child
+        // inherits the process-scoped REDACT key (the same anchor discipline
+        // as the №381 parity window, which carries "stage4-parity-key").
+        // Without it the keyed fingerprint refuses fail-closed and the
+        // harness loud-fails at the first keyed route (issue #1967: the
+        // №381 test got its anchor, the bench harness did not — the lane
+        // went red on every keyed workload since №952 landed the fixture).
+        std::env::set_var("METALOGOS_REDACT_KEY", "stage4-parity-key");
 
         let self_exe = std::env::current_exe().expect("current_exe");
         let mut results = Vec::new();

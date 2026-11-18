@@ -48,8 +48,16 @@ const SCRIPT: &str = include_str!("../scripts/ci/merge_ci_audit.py");
 /// issue #1592 — the live-protection read of 2026-10-28, 23 contexts,
 /// the pillar four dropped by the owner's №1593 toggle;
 /// `release-train-gate (blocking)` joined by №899, issue #1793 — the
-/// live-protection read of 2026-11-05, 24 contexts.)
-const REQUIRED_SET: [&str; 24] = [
+/// live-protection read of 2026-11-05, 24 contexts;
+/// `Red-team gate (blocking on the security class — №961)` joined by
+/// №971, issue #1976 — the live-protection read of 2026-11-18,
+/// 25 contexts. The context was ALREADY ENFORCED by the owner's
+/// protection toggle between the №961 landing (17.11) and the №969
+/// merge — the gate's success run on the №969 merge SHA `e3a02bee`
+/// (`2026-11-17T20:11:03Z`) is the first verifiable enforcement point;
+/// №971 only syncs the detective records to the live rule — the
+/// №824 named-divergence class, resolved.)
+const REQUIRED_SET: [&str; 25] = [
     "test-lib (blocking)",
     "test-integration (blocking)",
     "crosscheck (blocking)",
@@ -74,6 +82,7 @@ const REQUIRED_SET: [&str; 24] = [
     "vscode-extension (blocking)",
     "xml-tests (blocking)",
     "release-train-gate (blocking)",
+    "Red-team gate (blocking on the security class — №961)",
 ];
 
 #[test]
@@ -193,7 +202,7 @@ fn merge_ci_audit_tripwire_is_green_on_live_workflows() {
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.contains("TRIPWIRE OK: all 24"),
-        "the tripwire must cover all 24 required contexts, got: {stdout}"
+        stdout.contains("TRIPWIRE OK: all 25"),
+        "the tripwire must cover all 25 required contexts, got: {stdout}"
     );
 }

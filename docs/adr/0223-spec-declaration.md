@@ -1,8 +1,9 @@
 # ADR-0223: The `spec` declaration — the code-level form of the attestation spec
 
-**Status:** Proposed
+**Status:** Accepted (2026-11-18)
 **Date:** 2026-11-11
 **Naryad:** №946 (issue #1910, Волна 97 — W-AA, №AA1)
+**Acceptance record (№974, gh#1980, the ADR-0182 §6 form):** the owner's decisions 1–6 for the provable-lowering line accepted verbatim on 2026-10-27 (gh#1599) + the dispatch В98 by the owner's directive of 2026-11-18 («заводи следующую волну»); the sister implementation №947 (PR #1914, merge `750e8119`) verified against main `3b470627` — the code↔ADR §2 line-by-line check rides the acceptance PR.
 **Depends on:** ADR-0200 (the reflex attestation certificate — the `spec_hash` consumer; W1), №826 / ADR-0216 (the metric registry, the `mutate_rollback` compare clause — the grammar twin), №181 / ADR-0117 (the distill-field vocabulary the declaration mirrors: `distill_after` / `fallback_if` / `distill_min_accuracy` / `distill_margin`), №490 (the order-free fixed field set — each field at most once, the loud parse error naming the field), №493 (the multi-form overload posture — the declaration ADDS a form, the existing surfaces untouched)
 **Blocks:** план v2 §13.12 W3 («проверяемое понижение яруса» — the owner's decision 27.10, decisions 1–6 accepted verbatim, gh#1599; the roadmap `naryads/W1_reflex_attestation_and_roadmap_v2.md`)
 
@@ -67,4 +68,4 @@ The declaration carries exactly the `AttestSpecInput` fields; `SpecSer`'s field 
 - No second hash: no new canonical form over the spec, no serde-visible schema change, no `SpecSer` field added.
 - The certificate is provenance/consistency, not quality (the W1 rule).
 
-**Status:** Proposed (2026-11-11 — issued by волна 97 before the code, N1; the implementation is the sister naryad №947 and executes this document verbatim; the status pass — a separate slot of the following wave, the ADR-0182 §6 form).
+**Status history:** Proposed (2026-11-11 — issued by волна 97 before the code, N1; the implementation is the sister naryad №947 and executes this document verbatim) → Accepted (2026-11-18, the №974 acceptance pass — the authorization record in the header).

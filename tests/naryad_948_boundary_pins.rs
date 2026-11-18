@@ -86,11 +86,8 @@ const FLIPPED_967_PINS: &[(&str, &str, &str)] = &[(
 /// pipeline step is the builtin `exec` carrier refuses with the frozen
 /// print-channel class unless the §3 terminator annotation declares the
 /// display intent.
-const FLIPPED_970_PINS: &[(&str, &str, &str)] = &[(
-    "b14_exec_stdout_display.mlog",
-    "B14",
-    "HTML_INJECTION",
-)];
+const FLIPPED_970_PINS: &[(&str, &str, &str)] =
+    &[("b14_exec_stdout_display.mlog", "B14", "HTML_INJECTION")];
 
 /// The row FLIPPED by №965 — the flow edge carries the step-return label
 /// (the confidentiality axis): the pin is a blocking leak-suite negative.

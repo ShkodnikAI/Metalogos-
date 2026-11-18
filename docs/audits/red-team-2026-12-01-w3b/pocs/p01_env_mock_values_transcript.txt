@@ -1,0 +1,25 @@
+# env axis — same spec program, METALOGOS_MOCK_LLM in {(unset),0,1,true,TRUE,garbage}
+== METALOGOS_MOCK_LLM=UNSET ==
+error: Compilation error (Naryad #523): semantic findings block execution:
+spec 'k': learnable pattern 'p' not found (line 4)
+EXIT=0
+== METALOGOS_MOCK_LLM=0 ==
+error: Compilation error (Naryad #523): semantic findings block execution:
+spec 'k': learnable pattern 'p' not found (line 4)
+EXIT=0
+== METALOGOS_MOCK_LLM=1 ==
+error: Compilation error (Naryad #523): semantic findings block execution:
+spec 'k': learnable pattern 'p' not found (line 4)
+EXIT=0
+== METALOGOS_MOCK_LLM=true ==
+error: Compilation error (Naryad #523): semantic findings block execution:
+spec 'k': learnable pattern 'p' not found (line 4)
+EXIT=0
+== METALOGOS_MOCK_LLM=TRUE ==
+error: Compilation error (Naryad #523): semantic findings block execution:
+spec 'k': learnable pattern 'p' not found (line 4)
+EXIT=0
+== METALOGOS_MOCK_LLM=garbage ==
+error: Compilation error (Naryad #523): semantic findings block execution:
+spec 'k': learnable pattern 'p' not found (line 4)
+EXIT=0

@@ -1,0 +1,8 @@
+$ ./candidate-mlog run p04_spec_learnable_hunt.mlog
+error: Compilation error (Naryad #523): semantic findings block execution:
+spec 'k': learnable pattern 'p' not found (line 9)
+EXIT=1
+$ (mock lane)
+error: Compilation error (Naryad #523): semantic findings block execution:
+spec 'k': learnable pattern 'p' not found (line 9)
+EXIT=1

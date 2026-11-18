@@ -97,6 +97,14 @@ pub const CODE_UNSIGNED: &str = "[ATTESTATION_UNSIGNED]";
 /// №832 (H-3): the certificate's anchor diverges from the ledger record
 /// it points at — positive tamper evidence, a loud refusal.
 pub const CODE_ANCHOR_MISMATCH: &str = "[ATTESTATION_ANCHOR_MISMATCH]";
+/// №975 (ADR-0200 W3b): the certificate's `teacher{...}` block disagrees
+/// with the teacher registry (an unknown class word, an unknown backend,
+/// or a class/flag that differs from the record) — the provenance story
+/// is forged, a loud refusal. An HONEST non-permissive teacher is NOT a
+/// mismatch: the block agrees with the registry and the reason line
+/// reports it loudly (provenance consistency holds; the W6 enablement
+/// gate is the policy enforcer — decision 5's boundary).
+pub const CODE_TEACHER_MISMATCH: &str = "[ATTESTATION_TEACHER_MISMATCH]";
 /// №832 (H-3): the reason word when the anchor record cannot be located
 /// (the process-local ledger does not carry `ledger_seq` — the honest
 /// cross-process shape per ADR-0167).
@@ -405,6 +413,192 @@ fn cert_level_word(ledger_seq: Option<i64>) -> (&'static str, bool) {
     }
 }
 
+/// №975: the teacher facts for the certificate — Some(the §4 block JSON)
+/// when the model carries a distill lineage AND the process's actual
+/// teacher has a registry record; None otherwise (the caller writes
+/// `null` + the sibling reason — never invented).
+fn certificate_teacher_facts(pattern_name: &Option<String>) -> Option<serde_json::Value> {
+    if pattern_name.is_none() {
+        return None; // direct reflex_train — no teacher in the lineage
+    }
+    let backend = crate::llm::current_teacher_backend();
+    let t = crate::backends::teacher_record(backend)?;
+    Some(serde_json::json!({
+        "backend": t.backend,
+        "weights_id": t.weights_id,
+        "license_class": t.license_class.as_str(),
+        "training_on_output_allowed": t.training_on_output_allowed,
+    }))
+}
+
+/// №975: the machine-true reason for a `null` teacher block (the §7.3
+/// encoding — the reason key carries WHY, never a placeholder).
+fn certificate_teacher_null_reason(pattern_name: &Option<String>) -> String {
+    if pattern_name.is_none() {
+        "direct reflex_train — no distill lineage, no teacher (the pattern_reason \
+         sibling names the same fact)"
+            .to_string()
+    } else {
+        format!(
+            "the resolved teacher backend '{}' has no teacher-registry record — \
+             the teacher facts are not invented (the DISTILL_TEACHER_UNLICENSED \
+             gate refuses distillation from it)",
+            crate::llm::current_teacher_backend()
+        )
+    }
+}
+
+/// №975: the teacher-block check over a stored certificate (the verify
+/// side). Ok(None) — no teacher block (the pre-W3b / no-teacher form,
+/// the reason key must be present beside it, which the save side
+/// guarantees) OR a permissive teacher (the block itself is the record
+/// — silent); Ok(Some(line)) — the block agrees with the registry but
+/// the teacher is honestly non-permissive (the loud reason-append);
+/// Err(msg) — the FORGED story: an unknown class word, an unknown
+/// backend, or a class/flag that differs from the registry record
+/// (`[ATTESTATION_TEACHER_MISMATCH]`).
+pub fn check_teacher_block(cert_json: &str) -> Result<Option<String>, String> {
+    let v: serde_json::Value = serde_json::from_str(cert_json).map_err(|e| {
+        format!(
+            "{} certificate JSON does not parse: {}",
+            CODE_TEACHER_MISMATCH, e
+        )
+    })?;
+    // The red-team phase-2 hardening (№975): a certificate with a distill
+    // lineage (the pattern present) MUST carry the teacher facts — the
+    // block, or the §7.3 null + the machine-true reason. A block simply
+    // DELETED, or nulled WITHOUT the reason, is the forged story.
+    let has_lineage = v.get("pattern").map(|p| !p.is_null()).unwrap_or(false);
+    let Some(t) = v.get("teacher") else {
+        if has_lineage {
+            return Err(format!(
+                "{} the certificate carries a distill lineage (pattern present) but the \
+                 teacher block is MISSING — the provenance story was stripped",
+                CODE_TEACHER_MISMATCH
+            ));
+        }
+        return Ok(None);
+    };
+    if t.is_null() {
+        if has_lineage {
+            let reason = v.get("teacher_reason").and_then(|r| r.as_str());
+            return match reason {
+                Some(r) if !r.is_empty() => Ok(None),
+                _ => Err(format!(
+                    "{} the certificate nulls the teacher for a distill lineage WITHOUT \
+                     the teacher_reason sibling — the §7.3 form is teacher facts or the \
+                     machine-true reason, never a silent null",
+                    CODE_TEACHER_MISMATCH
+                )),
+            };
+        }
+        return Ok(None);
+    }
+    let obj = t.as_object().ok_or_else(|| {
+        format!(
+            "{} the teacher block is not an object (the §4 form: \
+             backend, weights_id, license_class, training_on_output_allowed)",
+            CODE_TEACHER_MISMATCH
+        )
+    })?;
+    let class = obj
+        .get("license_class")
+        .and_then(|c| c.as_str())
+        .ok_or_else(|| {
+            format!(
+                "{} the teacher block carries no license_class word",
+                CODE_TEACHER_MISMATCH
+            )
+        })?;
+    let allowed = ["osi", "non-osi", "restrictive"];
+    if !allowed.contains(&class) {
+        return Err(format!(
+            "{} teacher license_class '{}' is not the ADR-0163 vocabulary (osi | non-osi | restrictive)",
+            CODE_TEACHER_MISMATCH, class
+        ));
+    }
+    let backend = obj.get("backend").and_then(|b| b.as_str()).ok_or_else(|| {
+        format!(
+            "{} the teacher block carries no backend identifier",
+            CODE_TEACHER_MISMATCH
+        )
+    })?;
+    let record = crate::backends::teacher_record(backend).ok_or_else(|| {
+        format!(
+            "{} teacher backend '{}' has no teacher-registry record — the certificate \
+             names a teacher the machine does not know",
+            CODE_TEACHER_MISMATCH, backend
+        )
+    })?;
+    // The red-team phase-2 hardening (№975): the weights_id is a CHECKED
+    // claim too — a forged block pairing the permissive backend's name
+    // with foreign weights refuses here.
+    let cert_weights = obj
+        .get("weights_id")
+        .and_then(|w| w.as_str())
+        .ok_or_else(|| {
+            format!(
+                "{} the teacher block carries no weights_id",
+                CODE_TEACHER_MISMATCH
+            )
+        })?;
+    if record.weights_id != cert_weights {
+        return Err(format!(
+            "{} teacher '{}' certificate claims weights_id '{}', the registry record \
+             carries '{}' — the provenance story disagrees with the machine",
+            CODE_TEACHER_MISMATCH, backend, cert_weights, record.weights_id
+        ));
+    }
+    if record.license_class.as_str() != class {
+        return Err(format!(
+            "{} teacher '{}' certificate claims license class '{}', the registry record \
+             carries '{}' — the provenance story disagrees with the machine",
+            CODE_TEACHER_MISMATCH,
+            backend,
+            class,
+            record.license_class.as_str()
+        ));
+    }
+    let flag = obj
+        .get("training_on_output_allowed")
+        .and_then(|f| f.as_bool())
+        .ok_or_else(|| {
+            format!(
+                "{} the teacher block carries no honest training_on_output_allowed flag",
+                CODE_TEACHER_MISMATCH
+            )
+        })?;
+    if record.training_on_output_allowed != flag {
+        return Err(format!(
+            "{} teacher '{}' certificate claims training_on_output_allowed = {}, the \
+             registry record carries {} — the provenance story disagrees with the machine",
+            CODE_TEACHER_MISMATCH, backend, flag, record.training_on_output_allowed
+        ));
+    }
+    if record.license_class != crate::backends::LicenseClass::Osi
+        || !record.training_on_output_allowed
+    {
+        // The honest non-permissive teacher: the provenance story is
+        // CONSISTENT (ok stays true — decision 5's boundary), but the
+        // reason line names the teacher loudly so `ok: true` can never
+        // be read as "the teacher was fine" — the W6 enablement gate is
+        // the policy enforcer.
+        return Ok(Some(format!(
+            "teacher '{}' carries license class '{}' (training_on_output_allowed = {}) — \
+             owner decision 3 refuses distillation from it; the weights predate the W3b \
+             gate or were saved by an older build (provenance consistency holds, the \
+             policy gate is W6)",
+            backend,
+            record.license_class.as_str(),
+            record.training_on_output_allowed
+        )));
+    }
+    // The permissive teacher the decision names: the block itself is the
+    // record — no reason-append (silent), the mismatch refusal above is
+    // the loud half of the check.
+    Ok(None)
+}
+
 /// Build the canonical certificate JSON (keys sorted — a serde_json Map
 /// is a BTreeMap by default, so insertion order does not matter).
 /// Unknown facts are `null` WITH a sibling `*_reason` key — never
@@ -446,16 +640,26 @@ pub fn build_certificate(
         serde_json::json!(model.feature_signature),
     );
     cert.insert("weights_sha256".into(), serde_json::json!(weights_sha));
-    // Teacher facts land with the teacher registry (W3b) — null with the
-    // reason; decision 3 (open models with a permissive license) becomes
-    // machine-checkable there.
-    cert.insert("teacher".into(), serde_json::Value::Null);
-    cert.insert(
-        "teacher_reason".into(),
-        serde_json::json!(
-            "the teacher registry (W3b) does not exist yet; decision 3 applies from W3b"
-        ),
-    );
+    // №975 (ADR-0200 W3b): the teacher block FILLS when the model
+    // carries a distill lineage (a learnable pattern distilled into it)
+    // and the process's actual teacher — the same resolution the
+    // DISTILL_TEACHER_UNLICENSED gate performs (backends.rs) — has a
+    // teacher-registry record. The no-teacher and no-record cases stay
+    // `null` WITH the sibling reason key — never invented (§7.3). The
+    // §4 key set is verbatim: backend, weights_id, license_class,
+    // training_on_output_allowed (four keys, no more).
+    match certificate_teacher_facts(&spec.pattern_name) {
+        Some(block) => {
+            cert.insert("teacher".into(), block);
+        }
+        None => {
+            cert.insert("teacher".into(), serde_json::Value::Null);
+            cert.insert(
+                "teacher_reason".into(),
+                serde_json::json!(certificate_teacher_null_reason(&spec.pattern_name)),
+            );
+        }
+    }
     // Dataset: filter is "none" until W4 (verbatim ADR-0200 §4).
     let provenance: Vec<String> = if manifest.provenance == "none" {
         vec![]
@@ -976,6 +1180,31 @@ pub fn verify_attestation(
         );
     }
 
+    // 4.5 №975 (ADR-0200 W3b): the teacher block — a forged story (an
+    // unknown class word, an unknown backend, a class/flag that differs
+    // from the teacher registry) is the loud refusal; an honest teacher
+    // (permissive or not) reports on the reason line (decision 5: ok
+    // means provenance consistency, never quality).
+    match check_teacher_block(&stored.cert_json) {
+        Err(mismatch) => {
+            return Ok(AttestVerdict {
+                ok: false,
+                level: level_for_output(false),
+                spec_hash: current_s_hash.to_string(),
+                reason: mismatch,
+                cert_json: stored.cert_json.clone(),
+            });
+        }
+        Ok(Some(line)) => {
+            if reason.is_empty() {
+                reason = line;
+            } else {
+                reason = format!("{}; {}", reason, line);
+            }
+        }
+        Ok(None) => {}
+    }
+
     // 5. All three hashes agree — provenance consistency holds. The W1
     //    dataset filter is "none" by construction (the cert's own word
     //    is authoritative when present).
@@ -1187,6 +1416,28 @@ pub fn verify_from_db_only(
             reason = anchor_reason.clone();
         } else {
             reason = format!("{}; {}", anchor_reason, reason);
+        }
+    }
+    // №975 (ADR-0200 W3b): the teacher block on the CLI report too — a
+    // forged story refuses the report, an honest teacher appends the
+    // loud line (the same check the builtin path runs).
+    let teacher_line = match check_teacher_block(&stored.cert_json) {
+        Err(mismatch) => {
+            return Ok(CliVerifyReport {
+                ok: false,
+                level,
+                spec_hash: s_hash.to_string(),
+                reason: mismatch,
+                model: model_name.to_string(),
+            });
+        }
+        Ok(line) => line,
+    };
+    if let Some(line) = teacher_line {
+        if reason.is_empty() {
+            reason = line;
+        } else {
+            reason = format!("{}; {}", reason, line);
         }
     }
     Ok(CliVerifyReport {

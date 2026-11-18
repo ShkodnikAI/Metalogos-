@@ -1,0 +1,5 @@
+// p03 — promise 1/6 reachability: the flow body (flow_pipeline) grammar
+// could not be started black-box. This file holds the closest accepted
+// head; every body-starter tried refused "expected flow_pipeline".
+flow t {
+}

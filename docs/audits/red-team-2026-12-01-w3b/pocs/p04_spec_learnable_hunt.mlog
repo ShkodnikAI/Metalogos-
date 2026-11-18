@@ -1,0 +1,12 @@
+// p04 — promise 6 reachability: spec block references a learnable pattern;
+// black-box attempts to DECLARE one (tool with pattern method etc.) all
+// fail the Naryad #523 semantic check. Closest accepted file below.
+tool p {
+  pattern() -> string {
+    return "x"
+  }
+}
+spec k {
+  pattern: p,
+  prompt: "rev"
+}

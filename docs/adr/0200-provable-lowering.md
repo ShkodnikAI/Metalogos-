@@ -267,3 +267,64 @@ configured at save AND the anchor record verified at load» — never
 merely «a key existed at save». The `level_for_output` data dominance
 (decision 5: `unfiltered` while W1 datasets are unfiltered) is
 unchanged; the anchor state rides the reason line and the strict gate.
+
+## §9. The implementation record — W3b, the teacher registry (№975, 2026-11-18)
+
+The W3b slot landed (the dispatch В98, №AB2); this section records the
+machine facts (deviations are named, never silent):
+
+1. **The registry form.** `TEACHER_REGISTRY` (src/backends.rs) — a
+   static config-in-code overlay on the ADR-0163 taxonomy: records
+   `TeacherEntry { backend, weights_id, license_class,
+   training_on_output_allowed, note }`, the license-class vocabulary
+   RE-USED (Osi | NonOsi | Restrictive — no new words), the §4 sketch's
+   four certificate keys realized verbatim. No BACKEND_REGISTRY row was
+   added; every class re-states the claim the tree already carries for
+   that backend. Seed set: the in-tree mock lane (osi — the embodied-sim
+   precedent), qwen25-vl-7b (osi — the tree's Apache-2.0 claim), and the
+   three LLM provider defaults (claude/gpt-4o restrictive, llama3
+   non-osi). There is NO permissive real-provider teacher in the seed —
+   decision 3 is honored by default-deny until the owner adds one (a
+   one-line edit, loudly diffable).
+2. **The rule at the train boundary.** `DISTILL_TEACHER_UNLICENSED`
+   (backends.rs, the SSOT gate fn) refuses the distill training BEFORE
+   it executes, naming the teacher and the class, on three axes: no
+   record (default-deny), a non-permissive class (decision 3's word:
+   Osi), or `training_on_output_allowed = false`. One gate fn, THREE
+   runtime sites — the TW distill trigger (`spawn_distill_training`),
+   the VM trigger (`try_train_distilled_model`), the hub worker
+   (`train_one`) — the №973 sink-parity form. The `#[cfg(test)]` unit
+   seam (№489) is deliberately NOT gated: it is the honest test seam,
+   not a distill run against a teacher. The refusal is audited and
+   ledger-recorded (`distill.teacher-refused`).
+3. **The teacher identity is the process's actual backend.**
+   `current_teacher_backend()` resolves through the SAME predicates
+   `create_llm_backend()` consults (the explicit mock lane → the
+   in-tree mock; otherwise `Provider::default_model()` — exactly the
+   three BACKEND_REGISTRY Llm names). The runtime does not know a finer
+   model name at the call site today (the trace's `model: None` is the
+   machine fact); the registry is keyed on what the machine can
+   honestly name. A finer identity (the resolved model string per call)
+   is future work — it must ride the llm surface, not an assumption.
+4. **The certificate fills; the §4 key set is verbatim.** For a distill
+   lineage (a pattern distilled into the model) with a recorded teacher
+   the block carries the four keys; the no-teacher (direct
+   reflex_train) and no-record cases stay `null` WITH the sibling
+   `teacher_reason` (§7.3 — never invented). The canonical spec/hash
+   SSOT is untouched (the teacher is NOT hashed into `spec_hash` — it
+   is provenance, not spec).
+5. **The verify check.** `check_teacher_block` (attest.rs, both the
+   builtin and the CLI report routes): the class word must be the
+   ADR-0163 vocabulary, the backend must resolve in the registry, and
+   the class/flag must AGREE with the record — a disagreement is the
+   loud `[ATTESTATION_TEACHER_MISMATCH]` refusal (a forged provenance
+   story). An HONEST non-permissive teacher is NOT a mismatch: the
+   story is consistent, `ok` stays true (decision 5's boundary —
+   provenance, not policy), and the reason line names the teacher
+   loudly so `ok: true` can never be read as "the teacher was fine".
+   The policy enforcement of pre-W3b weights is W6's enablement gate.
+6. **The honest boundary.** The registry is a DECLARATION, not a
+   license fact-check — the machine cannot read license texts; the
+   records are claims with named bases (the limitations.md №975-b row
+   carries this verbatim). The cut-order record holds: the rule's
+   check_id is kept first when the line is trimmed (§5).

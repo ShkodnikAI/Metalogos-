@@ -12,6 +12,7 @@ pub(crate) mod execution;
 pub(crate) mod flow;
 pub(crate) mod hooks;
 pub(crate) mod learnable;
+pub use learnable::distill_teacher_gate;
 pub(crate) mod memory;
 pub(crate) mod modules;
 // Наряд №179b: &self wrappers for reflex_train / reflex_predict (Mutex<ReflexRegistry>)

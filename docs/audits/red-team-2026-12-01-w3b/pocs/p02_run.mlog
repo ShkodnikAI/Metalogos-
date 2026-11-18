@@ -1,0 +1,6 @@
+// p02 driver (same calls, top-level tool) — single-file probe
+tool p {
+  m() -> string {
+    return teacher_list()
+  }
+}

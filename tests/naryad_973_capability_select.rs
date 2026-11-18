@@ -127,10 +127,8 @@ flow Main { input: String = "tick" -> Degrade -> output }
 #[test]
 fn capability_unsatisfied_degrades_typed_on_both_backends() {
     with_mock(|| {
-        let want = format!(
-            "degraded/backend ladder exhausted: every rung for class \
-'vision-understanding' accepting 'audio' is unavailable (2 attempt(s) audited)"
-        );
+        let want = "degraded/backend ladder exhausted: every rung for class \
+'vision-understanding' accepting 'audio' is unavailable (2 attempt(s) audited)";
         let out = run_tw(UNSATISFIED).expect("tw runs");
         assert_eq!(out.as_deref().unwrap_or_default().trim_end(), want);
         let out_vm = run_vm(UNSATISFIED).expect("vm runs");

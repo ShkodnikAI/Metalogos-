@@ -31,7 +31,7 @@ assert_eq|2|2
 attest_verify|1|1
 authenticate|2|2
 backend_list|0|*
-backend_select|2|2
+backend_select|2|3
 base64_decode|1|1
 base64_encode|1|1
 bounds_attach|2|2

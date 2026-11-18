@@ -29,20 +29,64 @@ use crate::builtins_classification::{classify, Role};
 /// here must be `Role::Sink` with a scalar declared return — a typo
 /// would otherwise disable the rule silently, the №951 lesson).
 ///
-/// The reason per name, from the registry's own rationale:
-///   `quarantine_write` — returns the quarantine ENTRY ID (the case above);
-///   `write_file`, `append_file` — return the PATH written, which the
-///       caller already holds as a literal or a built path;
-///   `delete_file` — returns the path destroyed;
-///   `db_insert` — returns the affected-row count (`Float`);
-///   `approval_revoke` — returns the count of revoked mandates (`Float`);
-///   `kv_set`, `mem_set`, `memorize`, `session_set` — return the KEY the
-///       value was stored under, never the value;
-///   `kv_delete`, `mem_delete` — return the key destroyed;
-///   `cal_create`/`cal_update`/`cal_delete`,
-///   `card_create`/`card_update`/`card_delete` — return the EXTERNAL
-///       object id;
-///   `remind`, `remind_recurring`, `cancel_remind` — return the schedule id.
+/// The reason per name, each VERIFIED against the actual return read in
+/// the bounds of the handler body (№977, issue #1986 — the finding B of
+/// the consolidated audit 18.11: the old wording claimed «the key» for
+/// three builtins that in fact return THE VALUE; the method is reading
+/// the whole function body, never a fixed-size window, which bleeds into
+/// the next function):
+///   `quarantine_write` — returns the audit text `«[QUARANTINE_EGRESS]
+///       … (reason: …)»`, which EMBEDS args[1] (the caller-supplied
+///       reason) — `src/builtins/consent.rs`, the `builtin_quarantine_write`
+///       body; the old «entry id» wording was false. The receipt claim
+///       for this name rests on the №335 POLICY (the quarantine is THE
+///       sanctioned egress with an audit event), not on the mechanics of
+///       the return, and the echo means a value passed AS THE REASON
+///       launders out — kept in the table by scope (removing it re-breaks
+///       the motivating false positive and is a design call over
+///       №325/№335), escalated to the owner in the №977 report;
+///   `write_file`, `append_file` — return the constant status `"ok"` on
+///       success and `""` on soft-failure (`src/builtins/io.rs`, the
+///       handler bodies) — NOT the path the old wording claimed; a
+///       constant carries no payload, so the claim holds;
+///   `delete_file` — the same constant `"ok"` / `""` status
+///       (`src/builtins/io.rs`);
+///   `db_insert` — returns `Float(last_insert_rowid)` on the real lane
+///       (`src/db_ops.rs::db_insert`, dispatched ahead of the registry on
+///       the TW `src/interpreter/execution.rs` and the VM `src/vm.rs`),
+///       while the registered fallback (`src/builtins/server.rs`, the
+///       №820 no-db contract) only ever errs — a store-allocated rowid
+///       echoes no argument (the old «affected-row count» wording was
+///       wrong about the value);
+///   `approval_revoke` — returns the count of revoked mandates (`Float`,
+///       `src/builtins/approval.rs`);
+///   `kv_set`, `kv_delete` — return `Unit` (`src/builtins/memory.rs`);
+///       `memorize` returns `Unit` too, sharing the `builtin_kv_set`
+///       handler (`src/builtins/registry.rs`) — a Unit cannot carry a
+///       payload, so the claim holds whatever the old «returns the key»
+///       wording said;
+///   `cal_create`, `card_create` — return the EXTERNAL object uid
+///       (`src/builtins/calendar.rs`, `src/builtins/contacts.rs`);
+///   `cal_update`, `cal_delete` — return the constant `"ok"` status;
+///       `card_update`, `card_delete` — the constant `{"ok":true}`
+///       status (the handler bodies);
+///   `remind`, `remind_recurring` — return the schedule id;
+///       `cancel_remind` — the constant `"ok"` / `"not_found"` status
+///       (`src/builtins/cron.rs`).
+///
+/// REMOVED BY №977 (they were in this table until the finding B):
+/// `mem_set` returned args[1] — THE VALUE stored, `session_set` returned
+/// args[2] — THE VALUE stored, `mem_delete` returned the value removed
+/// FROM THE STORE (`src/builtins/memory.rs`, the handler bodies; the
+/// store content is statically unknowable, so the echo is the only
+/// sound approximation). Each is an echo sink — exactly the laundering
+/// path the blanket-rule warning below describes — and on a non-maskable
+/// probe (`query_param`: untrusted, not a secret) the `HTML_INJECTION`
+/// refusal that fires on the bare control vanished on all three paths
+/// (`mem_delete(k) → respond` did not refuse at all). The names are out;
+/// the argument join covers their returns again
+/// (`tests/naryad_977_echo_receipts.rs` pins the control and all three
+/// paths).
 ///
 /// NOT in this table, deliberately: `print`, `http_post`, `respond`,
 /// `smtp_send`, `exec`, `git_push`, `tts_send`, `human_respond` and the
@@ -59,10 +103,7 @@ pub const SINK_RECEIPT_NAMES: &[&str] = &[
     "approval_revoke",
     "kv_set",
     "kv_delete",
-    "mem_set",
-    "mem_delete",
     "memorize",
-    "session_set",
     "cal_create",
     "cal_update",
     "cal_delete",

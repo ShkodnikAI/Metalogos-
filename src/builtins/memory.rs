@@ -1185,3 +1185,70 @@ mod n706_recall_fallback_tests {
         assert!(matches!(v, Value::String(ref s) if s == "[]"));
     }
 }
+
+// ── №977 (issue #1986, the consolidated audit 18.11 — finding B): the
+// ACTUAL returns of the kv/memory family, pinned without parsing. The
+// receipt table (`sink_receipt.rs`) states what each handler returns;
+// the three echo facts below are why `mem_set`/`session_set`/`mem_delete`
+// are NOT receipts — each returns the stored VALUE (or the value removed
+// from the store), and a docstring or a table that claims otherwise must
+// break THIS test loudly before it can launder a label again.
+#[cfg(test)]
+mod n977_actual_returns {
+    use super::*;
+
+    #[test]
+    fn n977_mem_set_returns_the_value_not_the_key() {
+        let v = builtin_mem_set(&[
+            Value::String("k977a".into()),
+            Value::String("val977a".into()),
+        ])
+        .expect("mem_set succeeds on a string pair");
+        assert!(
+            matches!(v, Value::String(ref s) if s == "val977a"),
+            "mem_set returns args[1] — THE VALUE stored; the receipt-table \
+             wording must never call it «the key» again — got {v:?}"
+        );
+    }
+
+    #[test]
+    fn n977_session_set_returns_the_value_not_the_key() {
+        let v = builtin_session_set(&[
+            Value::String("s977".into()),
+            Value::String("k977".into()),
+            Value::String("val977b".into()),
+        ])
+        .expect("session_set succeeds on a string triple");
+        assert!(
+            matches!(v, Value::String(ref s) if s == "val977b"),
+            "session_set returns args[2] — THE VALUE stored — got {v:?}"
+        );
+    }
+
+    #[test]
+    fn n977_mem_delete_returns_the_removed_store_value() {
+        builtin_mem_set(&[
+            Value::String("k977c".into()),
+            Value::String("payload977".into()),
+        ])
+        .expect("mem_set seeds the store");
+        let v = builtin_mem_delete(&[Value::String("k977c".into())])
+            .expect("mem_delete succeeds on a live key");
+        assert!(
+            matches!(v, Value::String(ref s) if s == "payload977"),
+            "mem_delete returns the value removed FROM THE STORE — store \
+             content is statically unknowable, so an echo, not a receipt — \
+             got {v:?}"
+        );
+    }
+
+    #[test]
+    fn n977_kv_set_returns_unit() {
+        let v = builtin_kv_set(&[Value::String("k977d".into()), Value::String("x".into())])
+            .expect("kv_set succeeds on a string pair");
+        assert!(
+            matches!(v, Value::Unit),
+            "kv_set returns Unit — the receipt claim holds — got {v:?}"
+        );
+    }
+}

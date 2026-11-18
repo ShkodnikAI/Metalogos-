@@ -621,3 +621,66 @@ naryad.
   M3 the claim check skipped → the weaker-claim negative reds; M4 the
   confidentiality half declareable → the annotated control reds. All
   four RED before the push.
+
+## 0.40.0 → next (№977 — the receipt table's echo names, BREAKING)
+
+> **The version line:** the row lands after the 0.40.0 stable cut; the
+> section number follows the release-train numbering at publication.
+
+The sink-receipt table (`src/sink_receipt.rs`) claimed that
+`mem_set`, `session_set` and `mem_delete` return «the key the value
+was stored under, never the value». The claim was false — the handlers
+return THE VALUE (`args[1]`, `args[2]`) and the value removed FROM THE
+STORE respectively — so the receipt rule was a laundering path: a
+program could store untrusted data with `mem_set`, read the return
+back, and push it to a public channel past the integrity gate. On the
+non-maskable probe (`query_param` — untrusted, not a secret) the
+`HTML_INJECTION` refusal that fires on the bare
+`query_param → respond` control vanished on all three paths; a
+`mem_delete` with a literal key did not refuse at all.
+
+### What changed and where it bites
+
+| Since | Rule | The refusal | The paths |
+|---|---|---|---|
+| the №977 merge (the `mem_set`/`session_set`/`mem_delete` retraction) | the receipt exemption is RETRACTED — the return label is the join of the call's arguments again | the same classes the bare control gets: `HTML_INJECTION` (untrusted → public channel), on top of any class the call itself already carries (`TAINT_PERSISTENCE`, `UNTRUSTED_EGRESS_NETWORK`) | `mem_set(k, v) → …`, `session_set(s, k, v) → …`, `mem_delete(k) → …` where the RETURN reaches a sink |
+
+**A program that passed `mlog check` on ≤ 0.40.0 while reading the
+return of one of the three builtins into a public channel now
+REFUSES — this is the fix, not a regression.** Programs that never
+reuse the returns (the common shape: call for the effect, ignore the
+value) change nothing, and the corpus sweep on the landing tree found
+zero verdict changes across all `.mlog` files of the repository.
+
+### The migration
+
+1. **Do not echo the returns into a sink.** The return of a store
+   builtin is store content — treat it like any other value: if it
+   must reach a public channel, sanitize it first
+   (`redact(v, "all")` for a value that must not carry its origin, or
+   `render`/`escape_html` for a display context — the same recipe the
+   bare `query_param → respond` control has always required).
+2. **If the stored value is meant to be public**, label it at the
+   store boundary, not at the read: store already-sanitized data
+   (`mem_set("k", redact(x, "all"))`), and the return joins the
+   sanitized label honestly.
+3. **`kv_set` is unaffected** — it returns `Unit`, and its call-side
+   persistence gate (`TAINT_PERSISTENCE`) is unchanged. The rest of
+   the receipt table is re-verified against the handler bodies and
+   stands (see the №977 PR description for the 21-name table).
+
+### Pinned by
+
+- `tests/naryad_977_echo_receipts.rs` — the control + the three echo
+  paths on the non-maskable probe (`HTML_INJECTION` PRESENT on each),
+  the `kv_set` correct-verdict control, the structural mutation guard
+  (the three names out of the table AND still `Role::Sink`), the
+  rest-of-the-table guard, the two-lane agreement.
+- `src/builtins/memory.rs` `mod n977_actual_returns` — the four
+  no-parsing return pins (mem_set → args[1], session_set → args[2],
+  mem_delete → the removed store value, kv_set → Unit); the
+  receipt-table docstring cannot drift from the handlers without
+  breaking them.
+- The mutation: re-adding any of the three names to
+  `SINK_RECEIPT_NAMES` reds the suite (verified before the push — the
+  pin answers with the pre-№977 verdict `["TAINT_PERSISTENCE"]`).

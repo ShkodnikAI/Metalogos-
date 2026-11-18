@@ -1,0 +1,6 @@
+// p09 — Promise attacked: Core Idea 2 — labels end to end through lists (joined list of secrets into sink)
+pattern Send() -> String {
+  let tokens = [env("MLOG_LEAK_SUITE_TOKEN"), "safe"]
+  let _ = respond("200 OK", join(tokens, ","))
+  return "sent"
+}

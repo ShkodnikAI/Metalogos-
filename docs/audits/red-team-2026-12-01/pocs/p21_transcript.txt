@@ -1,0 +1,46 @@
+=== TRANSCRIPT: p21_serve_env_allowlist.mlog ===
+binary: /home/z/my-project/metalogos-work/repo/target/release/mlog
+sha256: f4a665bdfa6fecd2542c07f68fd7c9e6bd12cec688d2a96432d49c6108d30859
+run date (real): 2026-11-18 10:26:44Z
+
+--- CMD: mlog check p21_serve_env_allowlist.mlog
+error: parse error:  --> 4:3
+  |
+4 |   route "/leak" -> LeakRoute
+  |   ^---
+  |
+  = expected mlogserver_port, mlogserver_host, mlogserver_middleware, mlogserver_rate_limit, mlogserver_redact_mode, route_decl, or RBRACE
+EXIT=1
+
+--- CMD: mlog check --reference p21_serve_env_allowlist.mlog
+error: parse error:  --> 4:3
+  |
+4 |   route "/leak" -> LeakRoute
+  |   ^---
+  |
+  = expected mlogserver_port, mlogserver_host, mlogserver_middleware, mlogserver_rate_limit, mlogserver_redact_mode, route_decl, or RBRACE
+EXIT=1
+
+--- CMD: mlog audit p21_serve_env_allowlist.mlog
+error: parse error:  --> 4:3
+  |
+4 |   route "/leak" -> LeakRoute
+  |   ^---
+  |
+  = expected mlogserver_port, mlogserver_host, mlogserver_middleware, mlogserver_rate_limit, mlogserver_redact_mode, route_decl, or RBRACE
+EXIT=1
+
+--- CMD: timeout 8 mlog serve p21_serve_env_allowlist.mlog
+[serve] exec context: strict-by-default (Naryad #457) — unmarked threads are serve-route; top-level registration keeps the process context
+[mlog serve] tokio runtime: 4 worker thread(s)
+[serve] route exec: denied (set METALOGOS_SERVE_ALLOW_EXEC=1 to allow exec() in route bodies)
+[serve] route env: denied (set METALOGOS_SERVE_ALLOW_ENV=1 to allow all env() reads in route bodies, or METALOGOS_ENV_ALLOWLIST="NAME1,NAME2" for specific variables)
+[serve] LLM UNCONFIGURED — every LLM call will refuse at the first call (№898). Configure one of: METALOGOS_LLM_PROVIDER (+ METALOGOS_API_KEY), METALOGOS_OPENAI_BASE_URL, an llm { providers: [...] } block in the program — or opt in explicitly to the deterministic offline mock with METALOGOS_MOCK_LLM=1. The /health x-llm-mode header carries: unconfigured
+error: parse error:  --> 4:3
+  |
+4 |   route "/leak" -> LeakRoute
+  |   ^---
+  |
+  = expected mlogserver_port, mlogserver_host, mlogserver_middleware, mlogserver_rate_limit, mlogserver_redact_mode, route_decl, or RBRACE
+EXIT=1
+

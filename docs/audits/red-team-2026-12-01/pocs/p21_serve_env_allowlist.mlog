@@ -1,0 +1,9 @@
+// p21 — Promise attacked: Core Idea 1 — in mlog serve, env() is denied without an allowlist (serve-route context)
+mlogserver {
+  port: 8080
+  route "/leak" -> LeakRoute
+}
+pattern LeakRoute() -> String {
+  let _ = respond("200 OK", env("MLOG_SERVE_TOKEN"))
+  return "sent"
+}

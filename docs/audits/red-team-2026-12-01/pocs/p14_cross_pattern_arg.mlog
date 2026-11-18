@@ -1,0 +1,9 @@
+// p14 — Promise attacked: №950 boundary closure — each argument is checked against the clearance the callee's parameter requires
+pattern SinkParam(x: String) -> String {
+  let _ = respond("200 OK", x)
+  return "sent"
+}
+pattern Caller() -> String {
+  let _ = SinkParam(env("MLOG_LEAK_SUITE_TOKEN"))
+  return "ok"
+}

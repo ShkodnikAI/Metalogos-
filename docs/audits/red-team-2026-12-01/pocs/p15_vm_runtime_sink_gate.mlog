@@ -1,0 +1,4 @@
+// p15 — Promise attacked: Core Idea 2 — sinks check clearance IN THE VM (runtime), not only at compile time
+test "t-vm-sink" {
+  let _ = respond("200 OK", env("MLOG_LEAK_SUITE_TOKEN"))
+}

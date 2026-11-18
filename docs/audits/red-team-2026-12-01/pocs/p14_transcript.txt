@@ -1,0 +1,25 @@
+=== TRANSCRIPT: p14_cross_pattern_arg.mlog ===
+binary: /home/z/my-project/metalogos-work/repo/target/release/mlog
+sha256: f4a665bdfa6fecd2542c07f68fd7c9e6bd12cec688d2a96432d49c6108d30859
+run date (real): 2026-11-18 10:26:44Z
+
+--- CMD: mlog check p14_cross_pattern_arg.mlog
+1 error:
+  1: [PII_EGRESS_OUTPUT] sink clearance violated: argument 1 of respond in pattern Caller → SinkParam(…) → respond (parameter 0 reaches the sink) carries label 'private, trusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+EXIT=1
+
+--- CMD: mlog check --reference p14_cross_pattern_arg.mlog
+1 error:
+  1: [PII_EGRESS_OUTPUT] sink clearance violated: argument 1 of respond in pattern Caller → SinkParam(…) → respond (parameter 0 reaches the sink) carries label 'private, trusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+EXIT=1
+
+--- CMD: mlog audit p14_cross_pattern_arg.mlog
+[ERROR] line 0: sink clearance violated: argument 1 of respond in pattern Caller → SinkParam(…) → respond (parameter 0 reaches the sink) carries label 'private, trusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+Summary: 1 error
+EXIT=1
+
+--- CMD: mlog run p14_cross_pattern_arg.mlog
+error: Category A security invariant violated:
+[PII_EGRESS_OUTPUT] sink clearance violated: argument 1 of respond in pattern Caller → SinkParam(…) → respond (parameter 0 reaches the sink) carries label 'private, trusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+EXIT=1
+

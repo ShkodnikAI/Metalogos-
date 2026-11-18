@@ -1,0 +1,6 @@
+// p08 — Promise attacked: Core Idea 2 — labels end to end through composite values (struct field into sink)
+pattern Send() -> String {
+  let payload = { token: env("MLOG_LEAK_SUITE_TOKEN"), name: "ok" }
+  let _ = respond("200 OK", payload.token)
+  return "sent"
+}

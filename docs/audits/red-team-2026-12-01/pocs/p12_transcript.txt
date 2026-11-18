@@ -1,0 +1,35 @@
+=== TRANSCRIPT: p12_degradation_ladder.mlog ===
+binary: /home/z/my-project/metalogos-work/repo/target/release/mlog
+sha256: f4a665bdfa6fecd2542c07f68fd7c9e6bd12cec688d2a96432d49c6108d30859
+run date (real): 2026-11-18 10:26:44Z
+
+--- CMD: mlog check p12_degradation_ladder.mlog
+OK: no issues found.
+EXIT=0
+
+--- CMD: mlog check --reference p12_degradation_ladder.mlog
+OK: no issues found.
+EXIT=0
+
+--- CMD: mlog audit p12_degradation_ladder.mlog
+Summary: clean
+EXIT=0
+
+--- CMD: mlog run p12_degradation_ladder.mlog
+
+EXIT=0
+
+--- CMD: env -u METALOGOS_MOCK_LLM mlog test p12_degradation_ladder.mlog
+❌ t-ladder: [LLM_PROVIDER_UNAVAILABLE] All LLM providers failed. Last error: nonexistent_provider_xyz request failed: error sending request for url (https://nonexistent_provider_xyz/v1/chat/completions)
+
+0/1 tests passed
+EXIT=1
+
+--- CMD (stdout only): METALOGOS_MOCK_LLM=1 mlog test p12_degradation_ladder.mlog
+❌ t-ladder: [LLM_PROVIDER_UNAVAILABLE] All LLM providers failed. Last error: nonexistent_provider_xyz request failed: error sending request for url (https://nonexistent_provider_xyz/v1/chat/completions)
+EXIT=1
+--- CMD (stderr only): METALOGOS_MOCK_LLM=1 mlog test p12_degradation_ladder.mlog
+
+0/1 tests passed
+EXIT=1
+

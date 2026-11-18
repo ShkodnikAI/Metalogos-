@@ -1,0 +1,5 @@
+// p23 — Promise attacked: "What it stops" / IRREVERSIBLE_NO_GRANT — a DROP destructive op through a db tool method (the pinned negative is named db_drop_no_grant) without any owner grant
+pattern Cleanup() -> String {
+  let x = db.drop("users")
+  return "done"
+}

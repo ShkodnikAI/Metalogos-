@@ -1,0 +1,7 @@
+// p17 — CREATIVE — Promise attacked: Core Idea 2 (label union on concat) — a redacted value re-tainted by concatenation with env()
+pattern Send() -> String {
+  let clean = redact(env("MLOG_LEAK_SUITE_TOKEN"), "secrets")
+  let mixed = clean + env("MLOG_LEAK_SUITE_TOKEN")
+  let _ = respond("200 OK", mixed)
+  return "sent"
+}

@@ -1,0 +1,29 @@
+=== TRANSCRIPT: p18_branch_join_secret.mlog ===
+binary: /home/z/my-project/metalogos-work/repo/target/release/mlog
+sha256: f4a665bdfa6fecd2542c07f68fd7c9e6bd12cec688d2a96432d49c6108d30859
+run date (real): 2026-11-18 10:26:44Z
+
+--- CMD: mlog check p18_branch_join_secret.mlog
+2 errors:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed to respond()
+  2: [PII_EGRESS_OUTPUT] sink clearance violated: argument 1 of respond in pattern Send carries label 'private, trusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+EXIT=1
+
+--- CMD: mlog check --reference p18_branch_join_secret.mlog
+2 errors:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed to respond()
+  2: [PII_EGRESS_OUTPUT] sink clearance violated: argument 1 of respond in pattern Send carries label 'private, trusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+EXIT=1
+
+--- CMD: mlog audit p18_branch_join_secret.mlog
+[ERROR] line 0: sink clearance violated: argument 1 of respond in pattern Send carries label 'private, trusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+[ERROR] line 7: secret may be leaked — env() value passed to respond()
+Summary: 2 errors
+EXIT=1
+
+--- CMD: mlog run p18_branch_join_secret.mlog
+error: Category A security invariant violated:
+[SECRET_LEAK] secret may be leaked — env() value passed to respond()
+[PII_EGRESS_OUTPUT] sink clearance violated: argument 1 of respond in pattern Send carries label 'private, trusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+EXIT=1
+

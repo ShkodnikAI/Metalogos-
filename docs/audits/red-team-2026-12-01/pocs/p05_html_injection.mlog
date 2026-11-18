@@ -1,0 +1,6 @@
+// p05 — Promise attacked: "What it stops" / HTML_INJECTION — unsanitized request/network output into HTML
+pattern Page() -> String {
+  let frag = http_get("http://example.com/fragment")
+  let _ = respond("200 OK", "<div>" + frag + "</div>")
+  return "ok"
+}

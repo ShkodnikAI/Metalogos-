@@ -1,0 +1,36 @@
+=== TRANSCRIPT: p11_mock_unset_loud_refusal.mlog ===
+binary: /home/z/my-project/metalogos-work/repo/target/release/mlog
+sha256: f4a665bdfa6fecd2542c07f68fd7c9e6bd12cec688d2a96432d49c6108d30859
+run date (real): 2026-11-18 10:26:44Z
+
+--- CMD: mlog check p11_mock_unset_loud_refusal.mlog
+OK: no issues found.
+EXIT=0
+
+--- CMD: mlog check --reference p11_mock_unset_loud_refusal.mlog
+OK: no issues found.
+EXIT=0
+
+--- CMD: mlog audit p11_mock_unset_loud_refusal.mlog
+Summary: clean
+EXIT=0
+
+--- CMD: mlog run p11_mock_unset_loud_refusal.mlog
+
+EXIT=0
+
+--- CMD: env -u METALOGOS_MOCK_LLM mlog test p11_mock_unset_loud_refusal.mlog
+❌ t-llm: LLM is not configured — `call_llm` refuses (№898: no LLM env var and no `llm {}` declaration is set, and the silent mock default is rolled back). Configure ONE of: `METALOGOS_LLM_PROVIDER` (+ `METALOGOS_API_KEY` for anthropic/openai), `METALOGOS_OPENAI_BASE_URL`, an `llm { providers: [...] }` block in the program — or opt in EXPLICITLY to the deterministic offline mock with `METALOGOS_MOCK_LLM=1` (or the in-program local rung `llm { providers: [{ alias: "mock", provider: "local" }] }`).
+
+0/1 tests passed
+EXIT=1
+
+--- CMD (stdout only): METALOGOS_MOCK_LLM=1 mlog test p11_mock_unset_loud_refusal.mlog
+✅ t-llm
+EXIT=0
+--- CMD (stderr only): METALOGOS_MOCK_LLM=1 mlog test p11_mock_unset_loud_refusal.mlog
+[print] [mock-llm:7aaf94f0]
+
+1/1 tests passed
+EXIT=0
+

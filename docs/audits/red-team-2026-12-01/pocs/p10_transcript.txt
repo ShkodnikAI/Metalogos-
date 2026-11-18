@@ -1,0 +1,49 @@
+=== TRANSCRIPT: p10_llm_taint_sink.mlog ===
+binary: /home/z/my-project/metalogos-work/repo/target/release/mlog
+sha256: f4a665bdfa6fecd2542c07f68fd7c9e6bd12cec688d2a96432d49c6108d30859
+run date (real): 2026-11-18 10:26:44Z
+
+--- CMD: mlog check p10_llm_taint_sink.mlog
+3 errors:
+  1: строка 1: [HTML_INJECTION] LLM output passed to respond() — use template/render for XSS safety
+  2: строка 1: [TAINT_INTERP] LLM output reaches respond() through merged control-flow state (match arms / loop boundary / memory) — use render()/escape_html() for XSS safety
+  3: [HTML_INJECTION] sink clearance violated: argument 1 of respond in pattern Answer carries label 'public, untrusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+EXIT=1
+
+--- CMD: mlog check --reference p10_llm_taint_sink.mlog
+3 errors:
+  1: строка 1: [HTML_INJECTION] LLM output passed to respond() — use template/render for XSS safety
+  2: строка 1: [TAINT_INTERP] LLM output reaches respond() through merged control-flow state (match arms / loop boundary / memory) — use render()/escape_html() for XSS safety
+  3: [HTML_INJECTION] sink clearance violated: argument 1 of respond in pattern Answer carries label 'public, untrusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+EXIT=1
+
+--- CMD: mlog audit p10_llm_taint_sink.mlog
+[ERROR] line 0: sink clearance violated: argument 1 of respond in pattern Answer carries label 'public, untrusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+[WARN] line 4: LLM output passed to respond() — use template/render for XSS safety
+[ERROR] line 4: LLM output reaches respond() through merged control-flow state (match arms / loop boundary / memory) — use render()/escape_html() for XSS safety
+Summary: 2 errors, 1 warning
+EXIT=1
+
+--- CMD: mlog run p10_llm_taint_sink.mlog
+error: Category A security invariant violated:
+[HTML_INJECTION] LLM output passed to respond() — use template/render for XSS safety
+[TAINT_INTERP] LLM output reaches respond() through merged control-flow state (match arms / loop boundary / memory) — use render()/escape_html() for XSS safety
+[HTML_INJECTION] sink clearance violated: argument 1 of respond in pattern Answer carries label 'public, untrusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+EXIT=1
+
+--- CMD: env -u METALOGOS_MOCK_LLM mlog test p10_llm_taint_sink.mlog
+error: Category A security invariant violated:
+[HTML_INJECTION] LLM output passed to respond() — use template/render for XSS safety
+[TAINT_INTERP] LLM output reaches respond() through merged control-flow state (match arms / loop boundary / memory) — use render()/escape_html() for XSS safety
+[HTML_INJECTION] sink clearance violated: argument 1 of respond in pattern Answer carries label 'public, untrusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+EXIT=1
+
+--- CMD (stdout only): METALOGOS_MOCK_LLM=1 mlog test p10_llm_taint_sink.mlog
+EXIT=1
+--- CMD (stderr only): METALOGOS_MOCK_LLM=1 mlog test p10_llm_taint_sink.mlog
+error: Category A security invariant violated:
+[HTML_INJECTION] LLM output passed to respond() — use template/render for XSS safety
+[TAINT_INTERP] LLM output reaches respond() through merged control-flow state (match arms / loop boundary / memory) — use render()/escape_html() for XSS safety
+[HTML_INJECTION] sink clearance violated: argument 1 of respond in pattern Answer carries label 'public, untrusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+EXIT=1
+

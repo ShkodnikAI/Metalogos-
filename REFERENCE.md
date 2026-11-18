@@ -713,7 +713,7 @@ All built-in functions are registered in a single registry, `BUILTIN_REGISTRY` (
 | `char_at(s, index)` | `String, Float -> String` | String | Returns the character at an index. An empty string on out-of-bounds |
 | `starts_with(s, prefix)` | `String, String -> Bool` | Bool | Checks whether the string starts with a prefix |
 | `ends_with(s, suffix)` | `String, String -> Bool` | Bool | Checks whether the string ends with a suffix |
-| `contains(s, needle)` | `String, String -> Float` | Float | Returns `1.0` if it contains it, `0.0` otherwise |
+| `contains(s, needle)` | `String, String -> Bool` | Bool | Returns `true` if it contains it, `false` otherwise |
 | `reverse(s)` | `String -> String` | String | Reverses the string (per character) |
 | `length(s)` | `String -> Float` | Float | Length of the string in characters (Unicode-aware). Equivalent to `len()` |
 | `len(s)` | `String\|List -> Float` | Float | Length of a string (characters) or a list (elements) |
@@ -2681,7 +2681,7 @@ is in [docs/limitations.md](docs/limitations.md#the-phase-8-capability-slots--ke
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
 | `backend_list(...)` | variadic | — | `backend_list()` — the static backend registry as `List[Struct { name, class, weights_id, pin, license, license_note }]`. | stable |
-| `backend_select(...)` | 2 | — | `backend_select(class, ladder)` — the backend try-chain (Наряд №336, ADR-0165). Walks the ladder in priority order over the №333 registry SSOT; every rung attempt is an audit event (stderr line + the program-visible `attempts` list, №326 posture). | stable |
+| `backend_select(...)` | 2..3 | — | `backend_select(class, ladder, input?)` — the backend try-chain (Наряд №336, ADR-0165; the capability axis №973, ADR-0182 §3.2). Walks the ladder in priority order over the №333 registry SSOT; every rung attempt is an audit event (stderr line + the program-visible `attempts` list, №326 posture). The optional third argument names the media input the call needs (`image` \| `audio` \| `video_frame` \| `video_segment`): a rung whose registry entry does not DECLARE the capability is unavailable — the ladder descends, it never steps sideways into an unsatisfied capability (fail-closed, §3.2); exhaustion is the typed `Degraded` with the capability named in the message; an unknown capability word is a loud Err. | stable |
 
 #### `security` — 18 builtin(s)
 

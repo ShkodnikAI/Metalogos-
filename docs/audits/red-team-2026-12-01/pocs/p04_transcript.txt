@@ -1,0 +1,29 @@
+=== TRANSCRIPT: p04_sql_dynamic.mlog ===
+binary: /home/z/my-project/metalogos-work/repo/target/release/mlog
+sha256: f4a665bdfa6fecd2542c07f68fd7c9e6bd12cec688d2a96432d49c6108d30859
+run date (real): 2026-11-18 10:26:44Z
+
+--- CMD: mlog check p04_sql_dynamic.mlog
+2 errors:
+  1: строка 1: [SQL_DYNAMIC] SQL injection risk — query() with non-literal SQL at argument 0 (q1)
+  2: строка 1: [SQL_DYNAMIC] SQL injection risk — query() with non-literal SQL at argument 0 (q2)
+EXIT=1
+
+--- CMD: mlog check --reference p04_sql_dynamic.mlog
+2 errors:
+  1: строка 1: [SQL_DYNAMIC] SQL injection risk — query() with non-literal SQL at argument 0 (q1)
+  2: строка 1: [SQL_DYNAMIC] SQL injection risk — query() with non-literal SQL at argument 0 (q2)
+EXIT=1
+
+--- CMD: mlog audit p04_sql_dynamic.mlog
+[ERROR] line 3: SQL injection risk — query() with non-literal SQL at argument 0 (q1)
+[ERROR] line 6: SQL injection risk — query() with non-literal SQL at argument 0 (q2)
+Summary: 2 errors
+EXIT=1
+
+--- CMD: mlog run p04_sql_dynamic.mlog
+error: Category A security invariant violated:
+[SQL_DYNAMIC] SQL injection risk — query() with non-literal SQL at argument 0 (q1)
+[SQL_DYNAMIC] SQL injection risk — query() with non-literal SQL at argument 0 (q2)
+EXIT=1
+

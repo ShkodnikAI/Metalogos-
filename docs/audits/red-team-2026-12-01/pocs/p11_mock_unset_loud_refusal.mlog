@@ -1,0 +1,9 @@
+// p11 — Promise attacked: Core Idea 3 (loud, never silent) — AI call with no backend configured must refuse loudly
+learnable pattern L(q: String) -> String {
+  prompt: "answer the question"
+  model: "unavailable-model-xyz"
+}
+test "t-llm" {
+  let r = L("what is 2+2")
+  print(r)
+}

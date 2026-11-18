@@ -1,0 +1,9 @@
+// p04 — Promise attacked: "What it stops" / SQL_DYNAMIC — request parameter and network data concatenated into SQL
+pattern Handle(req: String) -> String {
+  let q1 = "SELECT * FROM users WHERE name = '" + req + "'"
+  let _ = query(q1)
+  let out = http_get("http://example.com/api/user")
+  let q2 = "SELECT * FROM users WHERE name = '" + out + "'"
+  let _ = query(q2)
+  return "ok"
+}

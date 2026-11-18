@@ -192,9 +192,7 @@ Two more directions ride the same detective since №824 (issue #1592):
   the protection ENFORCES but the detective never verifies is the M-1
   blind class and is a named divergence. An unreadable protection
   (no token, 403, 404, 5xx) is exit 2 fail-closed — an unreadable
-  state is not a pass (№525). The other direction (a list row not on
-  the live rule) stays the `branch-protection-audit` RED lane — the
-  two detectives do not duplicate each other.
+  state is not a pass (№525).
 - **The №809-class tripwire** — every required context must have a
   producing job in a `pull_request`-triggered workflow (a stdlib
   scanner over `.github/workflows/*.yml`; `pull_request_target` does
@@ -203,6 +201,44 @@ Two more directions ride the same detective since №824 (issue #1592):
   PR unmergeable forever, the exact №809 episode shape. The offline
   `--tripwire-check` mode also runs on every CI test lane via the
   driver test, so the class cannot reintroduce silently.
+
+№972 (issue #1971, the reaction to #1961) adds four lanes to the same
+detective:
+
+- **The required−protection direction ("и наоборот" of №824)** — a
+  required-set row the live protection does NOT enforce is a loud
+  `unenforced` divergence: the detective keeps verifying a check the
+  rule no longer demands, and the M-1 class returns through exactly
+  this door. The records follow the rule (№971's form: sync AFTER the
+  live read confirms the toggle), so at rest this is empty; the
+  `branch-protection-audit` job remains the weekly whole-surface fact
+  job — the two lanes do not conflict, one names the required-set
+  mismatch, the other audits the protection as a whole.
+- **The association lane covers tail-less squash merges** — a main
+  commit with no trailing `(#N)` resolves through `commits/<sha>/pulls`
+  the determinate way (exactly one merged PR → the merge IS verified
+  against that PR's head runs, and a message-convention divergence is
+  filed; zero/ambiguous → the commit stays `no-pr`). The fact that
+  forced the lane: №967/№968/№969 (PRs #1966/#1968/#1970, 2026-11-17)
+  are PR merges whose squash messages lost the tail — the №960 form
+  misreported them `no-pr` while #1966's head carried ZERO check-runs
+  (the real class hidden behind a message defect). `no-pr` now means
+  only genuine non-PR commits, which is what makes the trend below
+  honest.
+- **The dispatcher heartbeat at merge time is machine-visible** — one
+  `heartbeat:` line per merge in the report (and the issue body for the
+  divergent merges), stating live / silent <gap> before, resumed +<r> /
+  no-timeline. Every `no-ci-silent` merge is grouped into an
+  INFRASTRUCTURE EVENTS section — the №551 "When CI is down" escalation
+  form: an infrastructure event, not a process miss; the cause reads
+  ONLY from the audit log (owner access), the detective states the
+  shape and stops there.
+- **The trend line** — new merge divergences since the PREVIOUS audit
+  issue (the newest earlier `merge↔CI audit:` issue is the watermark;
+  its creation instant needs no parsing of old reports), per class,
+  with the standing goal: **zero new `no-pr` records from №972's merge
+  onward** — a `no-pr` after this lane means a genuine direct push and
+  needs a verdict naming who and why.
 
 Honest limitation (recorded): the tripwire checks that the trigger
 EXISTS, not its filter semantics (a path- or types-filtered producer

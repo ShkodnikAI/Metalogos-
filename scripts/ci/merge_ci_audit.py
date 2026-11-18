@@ -39,6 +39,35 @@ Modes:
   python3 scripts/ci/merge_ci_audit.py --self-test      # embedded fixtures
   python3 scripts/ci/merge_ci_audit.py --tripwire-check # offline: every
         # required context has a PR-producing workflow job (the №809 class)
+
+№972 (issue #1971, the reaction to #1961) adds four lanes to the №960/№824
+machine:
+
+  1. The association lane now also covers tail-less squash merges: a main
+     commit with NO trailing `(#N)` is resolved through
+     `commits/<sha>/pulls` the same determinate way (exactly one merged
+     PR → the merge IS verified against that PR's head runs, and a
+     message-convention divergence is filed; zero/ambiguous → the commit
+     stays `no-pr`). Fact that forced the lane: №967/№968/№969 (PRs
+     #1966/#1968/#1970) landed on 2026-11-17 as PR merges whose squash
+     messages lost the tail — the №960 form misreported them `no-pr`
+     while #1966's head had ZERO check-runs (the real class, hidden).
+  2. The required−protection direction ("и наоборот", №824's other
+     half): a REQUIRED_CHECKS row the live protection does NOT enforce
+     is a loud `unenforced` divergence — the detective verifying a check
+     the rule no longer demands is exactly how the M-1 class returns.
+  3. The dispatcher heartbeat at merge time is machine-visible for every
+     merge in the report (the №960 `dispatcher_silence` fact, previously
+     riding only as an annotation on NO RUN lines), and every
+     `no-ci-silent` merge is grouped into an INFRASTRUCTURE EVENTS
+     section (the №551 "When CI is down" escalation form — an
+     infrastructure event, not a process miss; the cause stays
+     owner-audit-log-only).
+  4. The trend line: new merge divergences since the PREVIOUS audit
+     issue (the newest earlier `merge↔CI audit:` issue is the watermark;
+     its creation instant needs no parsing of old reports), per class,
+     with the №972 goal stated: zero new `no-pr` records from this
+     naryad's merge onward.
 """
 
 import json
@@ -181,6 +210,63 @@ def protection_drift(protection_contexts, required):
     return sorted(c for c in protection_contexts if c not in required_set)
 
 
+def unenforced_required(protection_contexts, required):
+    """№972: REQUIRED_CHECKS − protection ("и наоборот" of №824).
+
+    A required-set row the live protection does NOT enforce is a loud
+    divergence: the detective keeps verifying a check the branch rule
+    no longer demands, and the M-1 class returns through exactly this
+    door. The records follow the rule (№971's form: sync AFTER the live
+    read confirms the toggle), so at rest this is empty; a non-empty
+    result means the protection dropped a context without the records
+    PR — a human verdict, never a silent pass.
+    """
+    enforced = set(protection_contexts or [])
+    return sorted(c for c in required if c not in enforced)
+
+
+def heartbeat_fact(sha7, merged_at, silence):
+    """№972: the machine-visible dispatcher state at a merge instant.
+
+    One line per merge, stable format:
+      `heartbeat: <sha7> merged <merged_at> dispatcher <state>`
+    where state is `live`, `silent <gap> before, resumed +<resume>` or
+    `no-timeline` (the №960 discipline: an unusable timeline is stated,
+    never guessed around).
+    """
+    state = "no-timeline"
+    if silence:
+        if silence.get("silent"):
+            state = (f"silent {human_gap(silence['gap_s'])} before the merge, "
+                     f"resumed +{human_gap(silence['resume_s'])}"
+                     if silence.get("resume_s") is not None else
+                     f"silent {human_gap(silence['gap_s'])} before the merge, no run followed")
+        else:
+            state = "live"
+    return f"heartbeat: {sha7} merged {merged_at or 'unknown-instant'} dispatcher {state}"
+
+
+def filter_new_divergences(timestamped, watermark_iso):
+    """№972: the trend — divergences whose merge instant is AFTER the
+    watermark (the previous audit issue's creation instant).
+
+    `timestamped` carries (merged_at | None, line) pairs; lines without
+    a merge instant (protection/tripwire/unenforced state lines) are
+    never counted as trend entries — they are state, not history. An
+    absent watermark (the first audit issue not yet filed) yields an
+    empty trend with the baseline note.
+    """
+    mark = _parse_iso(watermark_iso)
+    if mark is None:
+        return []
+    out = []
+    for ts, line in timestamped:
+        when = _parse_iso(ts)
+        if when is not None and when > mark:
+            out.append(line)
+    return out
+
+
 def classify_divergence(line):
     """№960: which CLASS a divergence line belongs to.
 
@@ -210,9 +296,16 @@ def classify_divergence(line):
       `unverified` — the PR or check data was UNAVAILABLE (fail-closed);
       `blind`      — the live protection enforces a context the audit does
                      not verify, or a required context has no PR producer.
+      `unenforced` — №972: the audit's required set carries a context the
+                     live protection does NOT enforce (the "и наоборот"
+                     half of №824 — the door the M-1 class returns through).
     """
     if "NOT a PR" in line:
         return "convention"
+    if "carries NO trailing PR ref" in line:
+        return "convention"
+    if "is NOT enforced by the live protection" in line:
+        return "unenforced"
     if "not a squash-merge of a PR" in line:
         return "no-pr"
     if "UNAVAILABLE" in line:
@@ -424,7 +517,11 @@ def resolve_associated_pr(assoc):
 def decide(commit, pr_map, run_times=None):
     """The per-commit verdict — `pr_map` carries the API answers.
 
-    commit: {"first_line": str, "sha": str, "merged_at": str | None}
+    commit: {"first_line": str, "sha": str, "merged_at": str | None,
+             "assoc_pr": int | None} — `assoc_pr` is set by the caller
+    when the association lane resolved the commit to exactly one merged
+    PR (№972: the lane covers tail-less squash merges too; the resolved
+    PR's head data must be under pr_map[assoc_pr]).
     pr_map: {pr_number: {"head_sha": str, "check_runs": [...]}} — a
     missing key means the PR fetch failed (fail-closed: unknown is a
     divergence, never a pass).
@@ -434,6 +531,8 @@ def decide(commit, pr_map, run_times=None):
     against it. An absent `merged_at` keeps the full set — fail-closed.
     """
     pr = parse_pr_number(commit.get("first_line", ""))
+    if pr is None:
+        pr = commit.get("assoc_pr")
     if pr is None:
         return (False, ["not a squash-merge of a PR (no trailing '(#N)')"])
     if pr not in pr_map:
@@ -751,10 +850,112 @@ def self_test():
         print(f"SELF-TEST FAIL human_gap: {human_gap(3.0)} {human_gap(127)} {human_gap(7620)}")
         failures += 1
 
+    # ── №972: the required−protection direction ("и наоборот") ──
+    unenforced_cases = [
+        (["a (blocking)", "b (blocking)"], ["a (blocking)", "b (blocking)"], []),
+        (["a (blocking)"], ["a (blocking)", "b (blocking)"], ["b (blocking)"]),
+        ([], ["a (blocking)", "b (blocking)"],
+         ["a (blocking)", "b (blocking)"]),
+    ]
+    for i, (prot, req, want) in enumerate(unenforced_cases):
+        got = unenforced_required(prot, req)
+        if got != want:
+            print(f"SELF-TEST FAIL unenforced case {i}: got={got} want={want}")
+            failures += 1
+
+    # ── №972: the association lane covers tail-less squash merges ──
+    # A tail-less commit with a determinate association verifies against
+    # the resolved PR's head; without one it stays no-pr.
+    green_runs_a = [{"name": n, "conclusion": "success"} for n in
+                    ("test-lib (blocking)", "fmt (blocking)")]
+    assoc_decide_cases = [
+        ({"first_line": "Naryad №x: the work", "sha": "a" * 7,
+          "assoc_pr": 1966},
+         {1966: {"head_sha": "b" * 40, "check_runs": green_runs_a}},
+         True, None, "resolved tail-less merge verifies the assoc head"),
+        ({"first_line": "Naryad №x: the work", "sha": "c" * 7,
+          "assoc_pr": 1966},
+         {1966: {"head_sha": "b" * 40, "check_runs": []}},
+         False, "NO RUN", "resolved tail-less merge charges a red head"),
+        ({"first_line": "Naryad №x: the work", "sha": "d" * 7},
+         {}, False, "not a squash-merge",
+         "an unresolved tail-less commit stays no-pr"),
+    ]
+    saved_checks = REQUIRED_CHECKS[:]
+    try:
+        REQUIRED_CHECKS[:] = ["test-lib (blocking)", "fmt (blocking)"]
+        for i, (commit, pr_map_c, want_ok, fragment, label) in enumerate(
+                assoc_decide_cases):
+            ok, problems = decide(commit, pr_map_c)
+            if ok != want_ok or (fragment and not any(
+                    fragment in p for p in problems)):
+                print(f"SELF-TEST FAIL assoc-decide [{label}]: ok={ok} "
+                      f"problems={problems}")
+                failures += 1
+    finally:
+        REQUIRED_CHECKS[:] = saved_checks
+
+    # ── №972: the new divergence shapes classify correctly ──
+    new_class_cases = [
+        ("- `64e43bf`: the merge carries NO trailing PR ref — resolved "
+         "via the association lane to PR #1966 (the message-convention "
+         "violation: the squash-merge tail must carry the PR number)",
+         "convention"),
+        ("- the required context `clippy (blocking)` is NOT enforced by "
+         "the live protection — the №972 unenforced class",
+         "unenforced"),
+    ]
+    for line, want in new_class_cases:
+        got = classify_divergence(line)
+        if got != want:
+            print(f"SELF-TEST FAIL classify-new: {line[:48]!r} got={got} "
+                  f"want={want}")
+            failures += 1
+
+    # ── №972: the trend filter — only merge instants after the watermark ──
+    trend_cases = [
+        ("2026-11-16T13:21:33Z",
+         [("2026-11-15T00:00:00Z", "old"), ("2026-11-17T10:00:00Z", "new"),
+          (None, "state-line")],
+         ["new"],
+         "a state line (no instant) never enters the trend"),
+        ("2026-11-16T13:21:33Z",
+         [("2026-11-16T13:21:33Z", "same-instant")],
+         [],
+         "the watermark instant itself is not new (> strict)"),
+        (None, [("2026-11-20T00:00:00Z", "anything")],
+         [],
+         "no watermark (the first audit issue) — an empty trend"),
+    ]
+    for i, (mark, pairs, want, label) in enumerate(trend_cases):
+        got = [l for l in filter_new_divergences(pairs, mark)]
+        if got != want:
+            print(f"SELF-TEST FAIL trend [{label}]: got={got} want={want}")
+            failures += 1
+
+    # ── №972: the machine-visible heartbeat line ──
+    hb_cases = [
+        ("64e43bf", "2026-11-17T16:19:47Z",
+         {"gap_s": 21847.0, "resume_s": 4.0, "silent": True},
+         "heartbeat: 64e43bf merged 2026-11-17T16:19:47Z dispatcher "
+         "silent 6h04m before the merge, resumed +4s"),
+        ("090831e", "2026-11-15T09:00:00Z",
+         {"gap_s": 61.0, "resume_s": 3.0, "silent": False},
+         "heartbeat: 090831e merged 2026-11-15T09:00:00Z dispatcher live"),
+        ("492a340", "2026-11-14T22:00:00Z", None,
+         "heartbeat: 492a340 merged 2026-11-14T22:00:00Z dispatcher "
+         "no-timeline"),
+    ]
+    for sha7, ts, sil, want in hb_cases:
+        got = heartbeat_fact(sha7, ts, sil)
+        if got != want:
+            print(f"SELF-TEST FAIL heartbeat: got={got!r} want={want!r}")
+            failures += 1
+
     if failures:
         print(f"SELF-TEST FAILED: {failures} case(s)")
         return 1
-    print(f"SELF-TEST OK: {len(cases) + len(assoc_cases) + len(drift_cases) + 6 + len(required_cases) + 2 + len(class_cases) + 1 + len(silence_cases) + 5} "
+    print(f"SELF-TEST OK: {len(cases) + len(assoc_cases) + len(drift_cases) + 6 + len(required_cases) + 2 + len(class_cases) + 1 + len(silence_cases) + 5 + len(unenforced_cases) + len(assoc_decide_cases) + len(new_class_cases) + len(trend_cases) + len(hb_cases)} "
           f"assertions "
           f"(green, no-runs, skipped, failed, no-PR, unavailable, "
           f"assoc-resolved, assoc-unmerged, assoc-empty, assoc-ambiguous, "
@@ -764,7 +965,11 @@ def self_test():
           f"required-as-of x{len(required_cases)}, decide-before-birth, "
           f"decide-after-birth, classify x{len(class_cases)}, summarize, "
           f"silence x{len(silence_cases)}, silence-empty, silence-no-merged-at, "
-          f"annotate-silence, annotate-none, human-gap)")
+          f"annotate-silence, annotate-none, human-gap, "
+          f"unenforced x{len(unenforced_cases)}, "
+          f"assoc-decide x{len(assoc_decide_cases)}, "
+          f"classify-new x{len(new_class_cases)}, "
+          f"trend x{len(trend_cases)}, heartbeat x{len(hb_cases)})")
     return 0
 
 
@@ -875,6 +1080,46 @@ def main():
               "(fail-closed)", file=sys.stderr)
         sys.exit(2)
 
+    # №972: the association lane covers TAIL-LESS squash merges too —
+    # the fact that forced it: №967/№968/№969 (PRs #1966/#1968/#1970,
+    # 2026-11-17) are PR merges whose squash messages lost the `(#N)`
+    # tail; the №960 form misreported them `no-pr` while #1966's head
+    # carried ZERO check-runs (the real class hidden behind a message
+    # defect). A tail-less commit resolves through `commits/<sha>/pulls`
+    # the same determinate way: exactly ONE merged PR → the merge IS
+    # verified against that PR's head runs (and the message-convention
+    # divergence is filed); zero/ambiguous/unreadable → the commit stays
+    # `no-pr` (fail-closed — a failed read is a divergence, never a pass).
+    tailless = []           # (sha, sha7, resolved_pr | None)
+    tailless_resolved = {}  # sha -> resolved PR number (verified below)
+    for c in commits:
+        first = (c.get("commit", {}).get("message") or "").splitlines()[0:1]
+        first = first[0] if first else ""
+        if parse_pr_number(first) is not None:
+            continue  # a trailing ref — the 404 lane above owns it
+        sha = c.get("sha", "")
+        try:
+            assoc = api_get(
+                f"https://api.github.com/repos/{repo}/commits/{sha}/pulls",
+                token)
+        except Exception as e:
+            print(f"merge-ci-audit: the association lane is UNAVAILABLE for "
+                  f"{sha[:7]}: {e} (fail-closed — the commit stays no-pr)",
+                  file=sys.stderr)
+            tailless.append((sha, sha[:7], None))
+            continue
+        real = resolve_associated_pr(assoc)
+        tailless.append((sha, sha[:7], real))
+        if real is None:
+            continue
+        tailless_resolved[sha] = real
+        # Fetch the resolved PR's head + runs (overwrite-safe: a resolved
+        # PR cannot also be a trailing-ref PR of a different commit).
+        data = api_get(f"https://api.github.com/repos/{repo}/pulls/{real}", token)
+        head_sha = data.get("head", {}).get("sha")
+        runs = all_check_runs(repo, head_sha, token) if head_sha else []
+        pr_map[real] = {"head_sha": head_sha, "check_runs": runs}
+
     # №960: the repo-wide Actions timeline over the SAME window — the
     # dispatcher state at each merge (`dispatcher_silence`). A failure
     # here is NOT fail-closed: the timeline only REFINES a `no-ci` line
@@ -900,27 +1145,57 @@ def main():
         run_times = []
 
     divergences = []
+    div_ts = []             # №972: the merge instant per divergence line
+    merged_at_by_sha = {}   # sha → merged_at (the trend + the heartbeat)
+    for c in commits:
+        merged_at = ((c.get("commit") or {}).get("committer") or {}).get("date") \
+            or ((c.get("commit") or {}).get("author") or {}).get("date")
+        merged_at_by_sha[c.get("sha", "")] = merged_at
+
     for sha7, trailing, real in convention_breaks:
         divergences.append(
             f"- `{sha7}`: the trailing ref `#{trailing}` is NOT a PR — the "
             f"message-convention violation (the squash-merge tail must carry "
             f"the PR number); resolved via the association lane to PR #{real}")
+        div_ts.append(merged_at_by_sha.get(sha7))
     for sha7, trailing in unresolvable:
         divergences.append(
             f"- `{sha7}`: the trailing ref `#{trailing}` is NOT a PR and the "
             f"association lane resolved no merged PR — the merge stays "
             f"unverified (fail-closed)")
+        div_ts.append(merged_at_by_sha.get(sha7))
+    # №972: tail-less merges resolved by the association lane — the merge
+    # IS a PR merge, the message lost the tail; the line is loud, the head
+    # is verified below through decide() with `assoc_pr`.
+    for sha, sha7, real in tailless:
+        if real is not None:
+            divergences.append(
+                f"- `{sha7}`: the merge carries NO trailing PR ref — resolved "
+                f"via the association lane to PR #{real} (the message-"
+                f"convention violation: the squash-merge tail must carry the "
+                f"PR number)")
+            div_ts.append(merged_at_by_sha.get(sha))
+    infra_events = []       # №972: (sha7, merged_at, never_reported_count)
+    heartbeats_by_sha = {}  # sha → the machine-visible heartbeat line
     for c in commits:
         first = (c.get("commit", {}).get("message") or "").splitlines()[0:1]
         first = first[0] if first else ""
-        merged_at = ((c.get("commit") or {}).get("committer") or {}).get("date") \
-            or ((c.get("commit") or {}).get("author") or {}).get("date")
+        sha = c.get("sha", "")
+        merged_at = merged_at_by_sha.get(sha)
+        silence = dispatcher_silence(merged_at, run_times)
+        heartbeats_by_sha[sha] = heartbeat_fact(sha[:7], merged_at, silence)
         ok, problems = decide(
-            {"first_line": first, "sha": c.get("sha", ""), "merged_at": merged_at},
+            {"first_line": first, "sha": sha, "merged_at": merged_at,
+             "assoc_pr": tailless_resolved.get(sha)},
             pr_map, run_times)
         if not ok:
             divergences.append(
-                f"- `{c.get('sha', '')[:7]}` {first}\n  - " + "\n  - ".join(problems))
+                f"- `{sha[:7]}` {first}\n  - " + "\n  - ".join(problems))
+            div_ts.append(merged_at)
+            if any("dispatcher silent" in p for p in problems):
+                infra_events.append(
+                    (sha[:7], merged_at,
+                     sum(1 for p in problems if "NO RUN" in p)))
 
     # ── №824: the reverse direction — the LIVE protection vs the set ──
     bp_token = os.environ.get(BP_TOKEN_ENV)
@@ -940,6 +1215,19 @@ def main():
             f"- the LIVE protection enforces `{c}` which has NO row in "
             f"REQUIRED_CHECKS — the M-1 blind class (№824): the detective "
             f"never verifies this check on the merged heads")
+        div_ts.append(None)
+
+    # ── №972: the required−protection direction ("и наоборот" of №824) —
+    # a required-set row the live protection does NOT enforce is the door
+    # the M-1 class returns through: the detective keeps verifying a check
+    # the rule no longer demands. Loud, own class, human verdict. ──
+    for c in unenforced_required(protection, REQUIRED_CHECKS):
+        divergences.append(
+            f"- the required context `{c}` is NOT enforced by the live "
+            f"protection — the №972 unenforced class: the records follow "
+            f"the rule (№971's form), so this means the rule dropped a "
+            f"context without the records PR — sync the rule and the set")
+        div_ts.append(None)
 
     # ── №824: the tripwire — every enforced/audited context must have a
     # pull_request producer (the №809 class: a required context without
@@ -951,15 +1239,71 @@ def main():
             f"- the required context `{c}` has NO producing job in any "
             f"pull_request workflow — the №809 class (a PR can never turn "
             f"it green)")
+        div_ts.append(None)
 
     print(f"merge-ci-audit: {len(commits)} merge(s) on main in the last "
           f"{days} day(s); required checks: {len(REQUIRED_CHECKS)}; "
           f"live protection: {len(protection)} context(s)")
+
+    # ── №972: the dispatcher heartbeat is machine-visible per merge (the
+    # №960 fact, previously riding only as an annotation on NO RUN lines) ──
+    if commits:
+        print("DISPATCHER HEARTBEAT AT MERGE (№972 — per merge, chronological):")
+        for sha in sorted(merged_at_by_sha,
+                          key=lambda s: merged_at_by_sha.get(s) or ""):
+            print("  " + heartbeats_by_sha.get(
+                sha, heartbeat_fact(sha[:7], merged_at_by_sha.get(sha), None)))
+
+    # ── №972: the trend — new merge divergences since the previous audit
+    # issue (its creation instant is the watermark; no parsing of old
+    # reports; fail-soft: the trend refines, the list stands alone) ──
+    prev_issue = None
+    try:
+        issues = api_get(
+            f"https://api.github.com/repos/{repo}/issues"
+            f"?labels=audit&state=all&sort=created&direction=desc&per_page=30",
+            token)
+        for it in issues:
+            if (it.get("title") or "").startswith("merge↔CI audit:"):
+                prev_issue = it
+                break
+    except Exception as e:
+        print(f"merge-ci-audit: the audit-issue series is unavailable ({e}) — "
+              f"the trend line is not reported this run (fail-soft)",
+              file=sys.stderr)
+    watermark = prev_issue.get("created_at") if prev_issue else None
+    new_lines = filter_new_divergences(list(zip(div_ts, divergences)), watermark)
+    new_summary = summarize_divergences(new_lines)
+    trend_line = (
+        f"TREND (№972): new merge divergences since the previous audit issue "
+        f"#{prev_issue.get('number')} ({watermark}): "
+        + (", ".join(f"{k}={v}" for k, v in sorted(new_summary.items()))
+           or "none")
+        + f"; no-pr new = {new_summary.get('no-pr', 0)} (the №972 goal: 0 "
+          f"from this naryad's merge)"
+        if prev_issue else
+        "TREND (№972): no previous audit issue found — the baseline starts "
+        "with this run")
+    print(trend_line)
+
     if divergences:
         print(f"DIVERGENCES: {len(divergences)} (every line needs a human verdict)")
         print("BY CLASS (№960 — a single count cannot be acted on): "
               + ", ".join(f"{k}={v}"
                           for k, v in sorted(summarize_divergences(divergences).items())))
+        # ── №972: the no-ci-silent merges as the №551 escalation form —
+        # an infrastructure event, not a process miss (the gh#1892 shape) ──
+        if infra_events:
+            print(f"INFRASTRUCTURE EVENTS (no-ci-silent — escalate per "
+                  f"docs/maintainers.md 'When CI is down', №551): "
+                  f"{len(infra_events)} merge(s) where required checks never "
+                  f"reported AND the dispatcher was silent at merge time:")
+            for sha7, ts, cnt in infra_events:
+                print(f"  - `{sha7}` merged {ts or 'unknown-instant'}: {cnt} "
+                      f"required check(s) never reported; the dispatcher "
+                      f"resumed on the merge's own push — the gh#1892 shape; "
+                      f"the cause reads ONLY from the audit log (owner "
+                      f"access): an infrastructure event, not a process miss")
         print("NOTE: a check ABSENT from the head SHA's workflow set (a job "
               "born after the merge) is still flagged — it cannot be proven "
               "retroactively; close the audit issue with the verdict if the "
@@ -971,8 +1315,29 @@ def main():
             classes_line = ", ".join(
                 f"{k}={v}"
                 for k, v in sorted(summarize_divergences(divergences).items()))
+            # №972: the divergent merges' heartbeats ride the issue body
+            divergent_sha7s = set()
+            for d in divergences:
+                m = re.match(r"- `([0-9a-f]{7})`", d)
+                if m:
+                    divergent_sha7s.add(m.group(1))
+            hb_for_issue = [heartbeats_by_sha[s] for s in heartbeats_by_sha
+                            if s[:7] in divergent_sha7s]
+            infra_body = ""
+            if infra_events:
+                infra_body = ("\n\nINFRASTRUCTURE EVENTS (no-ci-silent — "
+                              "escalate per docs/maintainers.md 'When CI is "
+                              "down', №551 — an infrastructure event, not a "
+                              "process miss; the cause reads ONLY from the "
+                              "audit log, owner access):\n"
+                              + "\n".join(
+                                  f"- `{sha7}` merged {ts or 'unknown-instant'}: "
+                                  f"{cnt} required check(s) never reported, the "
+                                  f"dispatcher resumed on the merge's own push "
+                                  f"(the gh#1892 shape)"
+                                  for sha7, ts, cnt in infra_events))
             body = (f"BY CLASS: {classes_line}\n"
-                    "(\u2116960: `no-ci-silent` = the check never reported AND "
+                    "(№960: `no-ci-silent` = the check never reported AND "
                     "the Actions dispatcher was silent at merge time \u2014 an "
                     "infrastructure event to escalate, not a merge performed "
                     "in disregard of a verdict (the gh#1892 shape: no run "
@@ -985,20 +1350,32 @@ def main():
                     "merge itself IS verified; `no-pr` = not a squash merge "
                     "of a PR; `unverified` = the data was unavailable; "
                     "`blind` = the audit does not verify a context the "
-                    "protection enforces.)\n\n"
-                    "The weekly merge↔CI audit (№551 + №824) found divergence(s)\n"
+                    "protection enforces; `unenforced` = №972: the required "
+                    "set carries a context the live protection does NOT "
+                    "enforce.)\n\n"
+                    "The weekly merge↔CI audit (№551 + №824 + №972) found "
+                    "divergence(s)\n"
                     "— merges without a green run of the required checks (the\n"
                     "M-1 class), protection contexts the detective never\n"
-                    "verifies (the reverse direction), or required contexts\n"
-                    "with no pull_request producer (the №809 class):\n\n"
+                    "verifies (the reverse direction), required contexts\n"
+                    "with no pull_request producer (the №809 class), or\n"
+                    "required-set rows the rule no longer enforces (№972):\n\n"
                     + "\n".join(divergences)
                     + "\n\nEvery line is a main merge whose PR head SHA lacked "
                       "a `success` run of the required set (a skipped check "
                       "is not green; a check absent from the head SHA's "
                       "workflow set — a job born after the merge — is still "
                       "flagged and needs a human verdict), or a protection/"
-                      "tripwire line (№824) that needs the checklist sync. "
-                      "Investigate, then close the issue with the verdict.")
+                      "tripwire/unenforced line (№824/№972) that needs the "
+                      "checklist sync.\n\n"
+                    + trend_line + "\n\n"
+                    + "DISPATCHER HEARTBEAT AT MERGE (№972) for the divergent "
+                      "merges:\n"
+                    + ("\n".join(hb_for_issue) if hb_for_issue
+                       else "(the merge-class divergences carry their own "
+                            "annotations)")
+                    + infra_body
+                    + "\n\nInvestigate, then close the issue with the verdict.")
             data = json.dumps({
                 "title": f"merge↔CI audit: {len(divergences)} merge(s) without green required checks",
                 "body": body,

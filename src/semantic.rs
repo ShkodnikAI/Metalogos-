@@ -7695,6 +7695,24 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                 let env = seed.clone();
                 let mut edge = expr_label(&f.source, &env);
                 for step_name in &f.pipeline {
+                    // ── №970 (issue #1974 — the B14 line, the red-team
+                    // finding F2, p38_exec_step_stdout_display; form
+                    // (ii), the owner decision 18.11): the builtin exec
+                    // carrier as a pipeline step — the command's stdout
+                    // is the textbook untrusted channel displayed on the
+                    // flow edge. The join rides the SAME №967 gate
+                    // below: the unannotated terminator refuses with the
+                    // frozen class, `-> output<public, untrusted>` is
+                    // the honest idiom claim, a weaker claim is the
+                    // §12.2 mismatch. Zero corpus migration (measured:
+                    // 0 exec-step carriers — the naryad's record).
+                    if step_name == "exec" {
+                        edge = edge.join(&crate::labels::Label {
+                            conf: crate::labels::Conf::Public,
+                            integrity: crate::labels::Integrity::Untrusted,
+                            consent: crate::labels::ConsentScope::default(),
+                        });
+                    }
                     if let Some(summary) = interproc_summary_of(step_name) {
                         if let Some(facts) = summary.param_sinks.first() {
                             for (sink, sink_arg, inner_reason, axis) in facts {

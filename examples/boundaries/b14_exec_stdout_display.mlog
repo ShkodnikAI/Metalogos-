@@ -1,0 +1,24 @@
+// №970 boundary pin B14 — the GATED NEGATIVE (flipped by №970, issue
+// #1974 — form (ii), the owner decision 18.11): the flow's pipeline
+// step is the builtin `exec` carrier — the command's stdout is the
+// textbook untrusted channel displayed on the flow edge — UNANNOTATED,
+// and that refuses.
+//
+// The lineage: the independent red-team audit 17.11 (finding F2,
+// `pocs/p38_exec_step_stdout_display.mlog`) — the PoC passed `mlog
+// check` with no annotation on the published tree, because `exec` is
+// not among P1's enumerated sources (no promise broken — the
+// P1/P10-adjacent gap, INCONCLUSIVE F2). The owner chose the
+// display-rule form (ii): the exec step joins `Integrity::Untrusted`
+// into the flow edge and the №967 gate answers — the refusal names the
+// idiom form («declare `-> output<public, untrusted>` if the display
+// is intended»), the annotated claim passes, a weaker claim is the
+// §12.2 mismatch. The gate is STATIC — no capability grant and no env
+// var are needed for the check refusal (the runtime gates stay
+// fail-closed and untouched).
+//
+// Zero corpus migration: 0 exec-step carriers measured (the naryad's
+// record) — no existing program changes meaning.
+flow Main {
+    input: String = "echo SECRET_MARKER_XYZ" -> exec -> output
+}

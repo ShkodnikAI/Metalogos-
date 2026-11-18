@@ -1,0 +1,33 @@
+// p06b — gate probe: working teacher via in-program llm{} rung (NOT the
+// METALOGOS_MOCK_LLM=1 lane). If this teacher has no permissive registry
+// record, promise 1 demands DISTILL_TEACHER_UNLICENSED before training.
+llm { providers: [{ alias: mock, provider: local }] }
+
+reflex DecideHead {
+  input: embedding(4)
+  layers: [dense(4, "relu"), dense(2, "softmax")]
+  labels: ["yes", "no"]
+  seed: 42
+}
+
+learnable pattern Decide(question: String) -> String {
+  prompt: "yes"
+  distill_to: DecideHead
+  distill_after: 1
+}
+
+pattern DriveDistill(_x: String) -> String {
+  let r1 = Decide("q1")
+  let r2 = Decide("q2")
+  let r3 = Decide("q3")
+  let r4 = Decide("q4")
+  let r5 = Decide("q5")
+  let r6 = Decide("q6")
+  let r7 = Decide("q7")
+  let r8 = Decide("q8")
+  let r9 = Decide("q9")
+  let r10 = Decide("q10")
+  return r1 + "|" + r10
+}
+
+flow Main { input: String = "x" -> DriveDistill -> output }

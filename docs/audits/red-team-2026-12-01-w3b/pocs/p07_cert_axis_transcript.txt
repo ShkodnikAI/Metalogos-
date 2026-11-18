@@ -1,0 +1,70 @@
+p07 — certificate axis (promises 4, 5; session 2026-12-01, phase 2)
+Binary: candidate-mlog SHA256 3c8dfa13498a7f7839b5bf06e9bed0e98a2ba62f0822c3c3d0333d50907f56dc [MATCHES candidate.sha256]
+Program: pocs/p07_cert_axis.mlog (= granted reference + `memory { persist: "cert.db" }` + reflex_save("DecideHead") after the 10 teach calls)
+Second vehicle: scratch/p07b_builtin_verify.mlog (in-program attest_verify("DecideHead") through a flow)
+Host tamper tooling: scratch/inspect_db.py, scratch/tamper_axis.py (python3 -I, sqlite3 module — attestation axis only)
+
+== (1) save-surface discovery (arity probes through a flow, mock lane) ==
+reflex_save()            -> Compilation error (Naryad #523): function 'reflex_save' expects 1 argument(s), got 0
+reflex_save("m.db")      -> error: reflex_save: model 'm.db' not declared   (arg = MODEL NAME, not path)
+reflex_save("h","m.db")  -> Naryad #523: expects 1 argument(s), got 2
+reflex_train()           -> Naryad #523: expects 5 argument(s), got 0
+reflex_save("h") without memory block -> error: reflex_save: persistence not configured. Add `memory { persist: "path.db" }` before calling reflex_save.
+reflex_save("h") with memory{persist:"model.db"} -> saved; scratch/model.db materializes (table reflex_models, NO attestation columns for a plain model — the no-lineage case)
+
+== (2) the distilled model saves WITH a certificate ==
+$ cd scratch && rm -f cert.db && METALOGOS_MOCK_LLM=1 ../candidate-mlog run ../pocs/p07_cert_axis.mlog
+[mock-llm:7981b790]|[mock-llm:7981b790]
+EXIT=0
+scratch/cert.db: 20480 bytes, tables reflex_models + reflex_attestation (row model='DecideHead'):
+  spec_hash 4a34246f..., weights_sha256 ab773738..., embed_signature tfidf-hash-v1, level "unsigned", ledger_seq 0
+  cert_json teacher block (VERBATIM): {"backend":"mock","license_class":"osi","training_on_output_allowed":true,"weights_id":"in-tree-mock-teacher"}
+  cert_json dataset block (VERBATIM): {"filter":"none","provenance":["runtime-teaching"],"rows":10}
+  spec_json: pattern Decide, prompt "yes", distill_after 1, min_accuracy 0.85, margin 0.05, labels ["yes","no"], seed 42
+  -> promise 4's exact four teacher fields present; promise 6 end-to-end teach PROVEN (10 runtime-teaching rows + trained weights).
+
+== (3) baseline verify (honest permissive cert) ==
+$ cd scratch && ../candidate-mlog attest verify ../pocs/p07_cert_axis.mlog --model DecideHead
+model: DecideHead
+ok: true
+level: unsigned
+reason: anchor not found — no ledger record at seq 0 (the process-local ledger does not carry it: a cross-process verify against an in-memory ledger, ADR-0167; the exported chain rides `ledger verify`); [ATTESTATION_DATA_CHANGED] the training-set manifest changed since save (informational, not a refusal)
+EXIT=0
+(no teacher-related reason appended — permissive verifies SILENTLY on the teacher axis, promise 5 shape)
+
+== (4) TAMPER AXIS (cert_json patched via python3 sqlite3 in copies; verify from scratch/tamper) ==
+(a) license_class "proprietary"  -> ok:false  EXIT=1
+    reason: [ATTESTATION_TEACHER_MISMATCH] teacher license_class 'proprietary' is not the ADR-0163 vocabulary (osi | non-osi | restrictive)
+(b) backend "skynet"             -> ok:false  EXIT=1
+    reason: [ATTESTATION_TEACHER_MISMATCH] teacher backend 'skynet' has no teacher-registry record — the certificate names a teacher the machine does not know
+(c) weights_id "restrictive-teacher-x" (class osi kept) -> ok:true  EXIT=0, NO teacher reason — SILENT
+    DEVIATION: the certificate's weights_id is NOT cross-checked against anything; a forged
+    teacher identity rides through verify silently on the honest mock class/flag.
+(d) training_on_output_allowed false -> ok:false  EXIT=1
+    reason: [ATTESTATION_TEACHER_MISMATCH] teacher 'mock' certificate claims training_on_output_allowed = false, the registry record carries true — the provenance story disagrees with the machine
+(e) honest-restrictive approximation (backend anthropic/proprietary/false) -> ok:false  EXIT=1 (vocabulary refusal, as in (a))
+    e2: class "restrictive" on mock -> ok:false  EXIT=1
+        reason: [ATTESTATION_TEACHER_MISMATCH] teacher 'mock' certificate claims license class 'restrictive', the registry record carries 'osi' — the provenance story disagrees with the machine
+    e3: class "non-osi" on mock    -> ok:false  EXIT=1 (same form, class 'non-osi')
+    TRUE honest-restrictive case (a teacher whose REAL registry record is restrictive) unreachable:
+    the only registry record observable offline is the mock (osi/true). INCONCLUSIVE sub-item.
+(f) honest permissive (verbatim mock record) -> ok:true  EXIT=0, silent on teacher (matches baseline)
+(g1) teacher block DELETED entirely  -> ok:true  EXIT=0, NO teacher reason — SILENT
+    DEVIATION: a distilled model's certificate stripped of its teacher block verifies ok:true
+    with no missing-field complaint — the "null WITH sibling teacher_reason" form is not enforced.
+(g2) teacher null + teacher_reason "no registry record for the serving teacher" -> ok:true  EXIT=0 (accepted, as the sheet's null-with-reason form predicts)
+
+== (5) in-program builtin parity + strict mode ==
+$ METALOGOS_MOCK_LLM=1 ../candidate-mlog run p07b_builtin_verify.mlog   (attest_verify("DecideHead") in a pattern)
+[reflex] warning: model 'DecideHead' attestation anchor not found — no ledger record at seq 0 (...) — loading with the level claim demoted to unsigned (METALOGOS_ATTEST_STRICT=1 refuses)
+[reflex] warning: model 'DecideHead' carries an UNSIGNED certificate (no configured ledger key at save) — loud warning, owner decision 4 (transitional; METALOGOS_ATTEST_STRICT=1 refuses unanchored certificates)
+verified
+EXIT=0
+$ METALOGOS_MOCK_LLM=1 METALOGOS_ATTEST_STRICT=1 same program -> "verified", EXIT=0, NO warnings, NO refusal
+  (the strict refusal advertised in the warning text did NOT fire in-program; unobserved, recorded as-is)
+
+== (6) sink-parity on the verify route (promise 2, partial) ==
+$ ../candidate-mlog attest verify --reference ../pocs/p07_cert_axis.mlog --model DecideHead  -> ok:true EXIT=0 (identical reason)
+$ cd tamper && cp d_flag_false.db cert.db && ../../candidate-mlog attest verify --reference ... -> ok:false EXIT=1, IDENTICAL [ATTESTATION_TEACHER_MISMATCH] text
+$ ../candidate-mlog --reference run ../pocs/p07_cert_axis.mlog (TW) -> banner + [memory]/[kv_store] lines + same flow output, EXIT=0
+(gate parity itself unobservable — the gate never fires in any reachable lane, see p06)

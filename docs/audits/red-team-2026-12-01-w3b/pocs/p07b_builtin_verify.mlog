@@ -1,0 +1,17 @@
+memory { persist: "cert.db" }
+reflex DecideHead {
+  input: embedding(4)
+  layers: [dense(4, "relu"), dense(2, "softmax")]
+  labels: ["yes", "no"]
+  seed: 42
+}
+learnable pattern Decide(question: String) -> String {
+  prompt: "yes"
+  distill_to: DecideHead
+  distill_after: 1
+}
+pattern DriveDistill(_x: String) -> String {
+  attest_verify("DecideHead")
+  return "verified"
+}
+flow Main { input: String = "x" -> DriveDistill -> output }

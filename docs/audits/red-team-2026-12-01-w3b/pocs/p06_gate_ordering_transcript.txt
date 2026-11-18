@@ -1,0 +1,49 @@
+p06 — gate ordering + positive lane (promises 1, 6; session 2026-12-01, phase 2)
+Binary: candidate-mlog SHA256 3c8dfa13498a7f7839b5bf06e9bed0e98a2ba62f0822c3c3d0333d50907f56dc [MATCHES candidate.sha256]
+Program: pocs/p06_gate_ordering.mlog (orchestrator-granted reference: reflex DecideHead + learnable pattern Decide(distill_after:1) + 10-call DriveDistill + flow Main)
+Scratch vehicle copies: scratch/p06b_llm_rung.mlog (in-program llm{} rung), scratch/p06c.mlog (pattern-side model: field), scratch/tllm4.mlog (llm block + default_model)
+
+$ sha256sum candidate-mlog
+3c8dfa13498a7f7839b5bf06e9bed0e98a2ba62f0822c3c3d0333d50907f56dc  candidate-mlog
+
+== (a) POSITIVE LANE: METALOGOS_MOCK_LLM=1 ==
+$ cd scratch && METALOGOS_MOCK_LLM=1 ../candidate-mlog run ../pocs/p06_gate_ordering.mlog
+[mock-llm:7981b790]|[mock-llm:7981b790]
+EXIT=0
+$ (repeated 3x — identical output, identical EXIT=0; NO audit/ledger/distill lines on stdout; NO state files materialized: find over lab+/tmp for *.db/*.sqlite*/ledger/*.json newer than session start = empty)
+Evidence the teach actually executed (see p07 transcript): the saved certificate carries
+"dataset":{"filter":"none","provenance":["runtime-teaching"],"rows":10} and a trained RFLX v2 weights blob.
+
+== (b) GATE ORDERING: METALOGOS_MOCK_LLM UNSET ==
+$ cd scratch && env -u METALOGOS_MOCK_LLM ../candidate-mlog run ../pocs/p06_gate_ordering.mlog
+error: LLM is not configured — `call_llm` refuses (№898: no LLM env var and no `llm {}` declaration is set, and the silent mock default is rolled back). Configure ONE of: `METALOGOS_LLM_PROVIDER` (+ `METALOGOS_API_KEY` for anthropic/openai), `METALOGOS_OPENAI_BASE_URL`, an `llm { providers: [...] }` block in the program — or opt in EXPLICITLY to the deterministic offline mock with `METALOGOS_MOCK_LLM=1` (or the in-program local rung `llm { providers: [{ alias: "mock", provider: "local" }] }`).
+EXIT=1
+
+FINDING: the FIRST refusal on the unset lane is the №898 LLM-configuration refusal,
+not a gate refusal. `DISTILL_TEACHER_UNLICENSED` did NOT appear in this run or in any
+other run of the session. The LLM-call refusal precedes the distill trigger.
+
+== (b2) attempts to reach the gate with a WORKING but non-mock-lane teacher ==
+$ llm { providers: [{ alias: "mock", provider: "local" }] } ...  (the №898 text's own snippet)
+error: parse error:  --> 4:28
+  = expected IDENT
+(NOTE: the machine's own refusal text suggests syntax the parser REJECTS; only the
+ unquoted-ident form `llm { providers: [{ alias: mock, provider: local }] }` parses — check OK)
+$ llm { providers: [{ alias: mock, provider: local }] } + teach program, env unset
+error: LLM is not configured — `call_llm` refuses (№898: ...)   [same text as (b)]
+EXIT=1
+$ same + `default_model: mock` → still №898, EXIT=1
+$ pattern-side `model: mock` field on Decide → still №898, EXIT=1
+$ env -u METALOGOS_MOCK_LLM METALOGOS_LLM_PROVIDER=local (no API key), teach program
+error: LLM call failed after 3 retries: Anthropic requires METALOGOS_API_KEY. Set it or use METALOGOS_MOCK_LLM=true for testing.
+EXIT=1 (first attempt EXIT printed 0 through `head`; re-run recorded EXIT=1 semantics — refusal, no output)
+(NOTE: provider word `local`/`mock` both fall through to the Anthropic default driver)
+$ METALOGOS_MOCK_LLM=1 + llm{} block + default_model (tllm4.mlog)
+[mock-llm:7981b790]|[mock-llm:7981b790]
+EXIT=0
+
+CONCLUSION (promise 1): in EVERY reachable lane either the LLM layer refuses first
+(№898 / API-key-after-3-retries) or the teacher is the permissive in-tree mock —
+the DISTILL_TEACHER_UNLICENSED refusal text is UNREACHABLE offline, black-box.
+The gate ordering evidence is: LLM-config refusal fires before any gate check;
+no lane reached training with a teacher that lacked a permissive record.

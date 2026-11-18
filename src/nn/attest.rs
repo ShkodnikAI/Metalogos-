@@ -464,10 +464,34 @@ pub fn check_teacher_block(cert_json: &str) -> Result<Option<String>, String> {
             CODE_TEACHER_MISMATCH, e
         )
     })?;
+    // The red-team phase-2 hardening (№975): a certificate with a distill
+    // lineage (the pattern present) MUST carry the teacher facts — the
+    // block, or the §7.3 null + the machine-true reason. A block simply
+    // DELETED, or nulled WITHOUT the reason, is the forged story.
+    let has_lineage = v.get("pattern").map(|p| !p.is_null()).unwrap_or(false);
     let Some(t) = v.get("teacher") else {
+        if has_lineage {
+            return Err(format!(
+                "{} the certificate carries a distill lineage (pattern present) but the \
+                 teacher block is MISSING — the provenance story was stripped",
+                CODE_TEACHER_MISMATCH
+            ));
+        }
         return Ok(None);
     };
     if t.is_null() {
+        if has_lineage {
+            let reason = v.get("teacher_reason").and_then(|r| r.as_str());
+            return match reason {
+                Some(r) if !r.is_empty() => Ok(None),
+                _ => Err(format!(
+                    "{} the certificate nulls the teacher for a distill lineage WITHOUT \
+                     the teacher_reason sibling — the §7.3 form is teacher facts or the \
+                     machine-true reason, never a silent null",
+                    CODE_TEACHER_MISMATCH
+                )),
+            };
+        }
         return Ok(None);
     }
     let obj = t.as_object().ok_or_else(|| {
@@ -506,6 +530,25 @@ pub fn check_teacher_block(cert_json: &str) -> Result<Option<String>, String> {
             CODE_TEACHER_MISMATCH, backend
         )
     })?;
+    // The red-team phase-2 hardening (№975): the weights_id is a CHECKED
+    // claim too — a forged block pairing the permissive backend's name
+    // with foreign weights refuses here.
+    let cert_weights = obj
+        .get("weights_id")
+        .and_then(|w| w.as_str())
+        .ok_or_else(|| {
+            format!(
+                "{} the teacher block carries no weights_id",
+                CODE_TEACHER_MISMATCH
+            )
+        })?;
+    if record.weights_id != cert_weights {
+        return Err(format!(
+            "{} teacher '{}' certificate claims weights_id '{}', the registry record \
+             carries '{}' — the provenance story disagrees with the machine",
+            CODE_TEACHER_MISMATCH, backend, cert_weights, record.weights_id
+        ));
+    }
     if record.license_class.as_str() != class {
         return Err(format!(
             "{} teacher '{}' certificate claims license class '{}', the registry record \

@@ -228,11 +228,31 @@ fn certificate_null_teacher_never_invents_a_record() {
 // ── the verify side ─────────────────────────────────────────────────────
 
 fn cert_json_with_teacher(teacher: serde_json::Value) -> String {
+    cert_json_with(teacher, None)
+}
+
+fn cert_json_with(teacher: serde_json::Value, pattern: Option<&str>) -> String {
     let mut m = HashMap::new();
     m.insert("model", serde_json::json!("SomeHead"));
     m.insert("spec_hash", serde_json::json!("h"));
-    m.insert("teacher", teacher);
+    if let Some(p) = pattern {
+        m.insert("pattern", serde_json::json!(p));
+    }
+    if !teacher.is_null() {
+        m.insert("teacher", teacher);
+    } else {
+        m.insert("teacher", serde_json::Value::Null);
+    }
     serde_json::to_string(&m).unwrap()
+}
+
+fn mock_record() -> serde_json::Value {
+    serde_json::json!({
+        "backend": "mock",
+        "weights_id": "in-tree-mock-teacher",
+        "license_class": "osi",
+        "training_on_output_allowed": true,
+    })
 }
 
 #[test]
@@ -308,14 +328,71 @@ fn verify_reports_honest_nonpermissive_teacher_without_a_code() {
 
 #[test]
 fn verify_is_silent_on_the_permissive_teacher() {
-    let cert = cert_json_with_teacher(serde_json::json!({
-        "backend": "mock",
-        "weights_id": "in-tree-mock-teacher",
-        "license_class": "osi",
-        "training_on_output_allowed": true,
-    }));
+    let cert = cert_json_with_teacher(mock_record());
     let line = check_teacher_block(&cert).expect("the permissive record agrees");
     assert!(line.is_none(), "the block itself is the record: {:?}", line);
+}
+
+#[test]
+fn verify_refuses_a_weights_id_the_registry_disagrees_with() {
+    // The red-team phase-2 bypass axis 1: a forged block pairing the
+    // permissive backend's NAME with foreign weights_id — refused.
+    let cert = cert_json_with(
+        serde_json::json!({
+            "backend": "mock",
+            "weights_id": "forged-foreign-weights",
+            "license_class": "osi",
+            "training_on_output_allowed": true,
+        }),
+        Some("Classify"),
+    );
+    let err = check_teacher_block(&cert).expect_err("the forged weights_id");
+    assert!(err.contains(CODE_TEACHER_MISMATCH), "{}", err);
+    assert!(err.contains("forged-foreign-weights"), "{}", err);
+}
+
+#[test]
+fn verify_refuses_a_deleted_teacher_block_on_a_lineage_cert() {
+    // The red-team phase-2 bypass axis 2: the block simply DELETED from a
+    // distill-lineage certificate — the stripped story refuses.
+    let mut m: HashMap<String, serde_json::Value> = HashMap::new();
+    m.insert("model".into(), serde_json::json!("SomeHead"));
+    m.insert("pattern".into(), serde_json::json!("Classify"));
+    // NO teacher key at all.
+    let cert = serde_json::to_string(&m).unwrap();
+    let err = check_teacher_block(&cert).expect_err("the stripped block");
+    assert!(err.contains(CODE_TEACHER_MISMATCH), "{}", err);
+    assert!(err.contains("MISSING"), "{}", err);
+    let _ = cert_json_with; // the fixture stays referenced
+}
+
+#[test]
+fn verify_refuses_a_silent_null_on_a_lineage_cert() {
+    // teacher nulled WITHOUT the machine-true reason — never invented,
+    // never silent.
+    let mut m: HashMap<String, serde_json::Value> = HashMap::new();
+    m.insert("model".into(), serde_json::json!("SomeHead"));
+    m.insert("pattern".into(), serde_json::json!("Classify"));
+    m.insert("teacher".into(), serde_json::Value::Null);
+    let cert = serde_json::to_string(&m).unwrap();
+    let err = check_teacher_block(&cert).expect_err("the silent null");
+    assert!(err.contains(CODE_TEACHER_MISMATCH), "{}", err);
+}
+
+#[test]
+fn verify_accepts_the_pre_w3b_null_with_reason_form() {
+    // The honest pre-W3b form: lineage + null + the machine-true reason.
+    let mut m: HashMap<String, serde_json::Value> = HashMap::new();
+    m.insert("model".into(), serde_json::json!("SomeHead"));
+    m.insert("pattern".into(), serde_json::json!("Classify"));
+    m.insert("teacher".into(), serde_json::Value::Null);
+    m.insert(
+        "teacher_reason".into(),
+        serde_json::json!("the teacher registry (W3b) does not exist yet"),
+    );
+    let cert = serde_json::to_string(&m).unwrap();
+    let line = check_teacher_block(&cert).expect("the pre-W3b form is honest");
+    assert!(line.is_none());
 }
 
 #[test]

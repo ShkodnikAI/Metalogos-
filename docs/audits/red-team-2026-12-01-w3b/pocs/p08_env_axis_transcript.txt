@@ -1,0 +1,43 @@
+p08 — env axis: METALOGOS_MOCK_LLM value handling (promise 6 + promise-1-adjacent gate selection; session 2026-12-01, phase 2)
+Binary: candidate-mlog SHA256 3c8dfa13498a7f7839b5bf06e9bed0e98a2ba62f0822c3c3d0333d50907f56dc [MATCHES candidate.sha256]
+Program: pocs/p08_env_axis.mlog (= the p06 granted teach program; identical bytes modulo the header comment)
+
+Nine values through `mlog run` (VM lane, cwd scratch):
+
+== METALOGOS_MOCK_LLM=1 ==
+[mock-llm:7981b790]|[mock-llm:7981b790]
+EXIT=0                                    -> mock ENGAGED
+
+== METALOGOS_MOCK_LLM=true ==
+[mock-llm:7981b790]|[mock-llm:7981b790]
+EXIT=0                                    -> mock ENGAGED
+
+== METALOGOS_MOCK_LLM=TRUE ==
+[mock-llm:7981b790]|[mock-llm:7981b790]
+EXIT=0                                    -> mock ENGAGED (case-insensitive truthy word)
+
+== METALOGOS_MOCK_LLM=(unset) ==
+error: LLM is not configured — `call_llm` refuses (№898: no LLM env var and no `llm {}` declaration is set, and the silent mock default is rolled back). Configure ONE of: `METALOGOS_LLM_PROVIDER` (+ `METALOGOS_API_KEY` for anthropic/openai), `METALOGOS_OPENAI_BASE_URL`, an `llm { providers: [...] }` block in the program — or opt in EXPLICITLY to the deterministic offline mock with `METALOGOS_MOCK_LLM=1` (or the in-program local rung `llm { providers: [{ alias: "mock", provider: "local" }] }`).
+EXIT=1                                    -> LOUD refusal
+
+== METALOGOS_MOCK_LLM=0 ==
+(same №898 refusal text, EXIT=1)          -> LOUD refusal, NOT a silent fall-through
+
+== METALOGOS_MOCK_LLM=False ==
+(same №898 refusal text, EXIT=1)          -> LOUD refusal
+
+== METALOGOS_MOCK_LLM=garbage ==
+(same №898 refusal text, EXIT=1)          -> LOUD refusal
+
+== METALOGOS_MOCK_LLM=" " (single space) ==
+(same №898 refusal text, EXIT=1)          -> LOUD refusal
+
+== METALOGOS_MOCK_LLM=00 ==
+(same №898 refusal text, EXIT=1)          -> LOUD refusal
+
+FINDINGS: exactly three truthy words engage the mock (1, true, TRUE — same mock tag
+mock-llm:7981b790 for all). Every non-truthy value (0, False, garbage, blank, 00, unset)
+refuses LOUDLY with the identical №898 text — nothing fails silently on this axis, and no
+value other than the mock lane ever reaches the teach. Adjacent observation (p06 transcript):
+METALOGOS_LLM_PROVIDER=local|mock WITHOUT a key falls through to the Anthropic driver and
+fails after 3 retries with an API-key refusal — also loud, EXIT=1.

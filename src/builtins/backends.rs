@@ -48,9 +48,10 @@ pub fn builtin_backend_list(args: &[Value]) -> Result<Value, String> {
     Ok(Value::List(items))
 }
 
-/// `backend_select(class, ladder)` — the backend try-chain (Наряд №336,
-/// ADR-0165). Walks the ladder in priority order over the №333 registry
-/// SSOT; every rung attempt is an audit event (stderr line + the
+/// `backend_select(class, ladder, input?)` — the backend try-chain
+/// (Наряд №336, ADR-0165; the capability axis №973, ADR-0182 §3.2).
+/// Walks the ladder in priority order over the №333 registry SSOT;
+/// every rung attempt is an audit event (stderr line + the
 /// program-visible `attempts` list, №326 posture).
 ///
 /// - Success → `Struct { type_name: "BackendSelected", ok: true, backend,
@@ -60,12 +61,20 @@ pub fn builtin_backend_list(args: &[Value]) -> Result<Value, String> {
 ///   "BACKEND_DEGRADED", message } }` — a typed result, never a panic,
 ///   never a silent mock substitution (ADR-0165 §2.2).
 /// - Shape errors (unknown class word, empty ladder, duplicate rungs,
-///   non-String rungs) are loud Errs — catchable by `try` (ADR-0142).
+///   non-String rungs, unknown capability word) are loud Errs —
+///   catchable by `try` (ADR-0142).
+/// - **The capability axis (№973, ADR-0182 §3.2):** the OPTIONAL third
+///   argument names the media input the call needs (`image` | `audio` |
+///   `video_frame` | `video_segment`). A rung whose registry entry does
+///   not DECLARE the capability is unavailable — the ladder descends,
+///   it never steps sideways into an unsatisfied capability (the
+///   fail-closed selection rule); exhaustion is the typed `Degraded`,
+///   with the capability named in the message.
 pub(crate) fn builtin_backend_select(args: &[Value]) -> Result<Value, String> {
     const FN: &str = "backend_select";
-    if args.len() != 2 {
+    if args.len() < 2 || args.len() > 3 {
         return Err(format!(
-            "{}: expects 2 arguments (class, ladder), got {}",
+            "{}: expects 2..3 arguments (class, ladder, input capability?), got {}",
             FN,
             args.len()
         ));
@@ -127,6 +136,27 @@ pub(crate) fn builtin_backend_select(args: &[Value]) -> Result<Value, String> {
             }
         }
     }
+    // №973 (ADR-0182 §3.2): the OPTIONAL capability word — parsed LOUD
+    // (an unknown word is an Err, never a silent no-filter; the words
+    // are the MediaKind slugs, the same vocabulary media_store_*/media_meta
+    // speak).
+    let capability = match args.get(2) {
+        None => None,
+        Some(Value::String(s)) => Some(crate::media::MediaKind::from_slug(s).map_err(|_| {
+            format!(
+                "{}: input capability must be one of image | audio | \
+                 video_frame | video_segment, got '{}'",
+                FN, s
+            )
+        })?),
+        Some(other) => {
+            return Err(format!(
+                "{}: input capability must be String, got {}",
+                FN,
+                other.type_name()
+            ))
+        }
+    };
     let real = !crate::voice::backend::mock_mode();
     // The attempt record: one audit surface per rung (the attempts list
     // is program-visible data; the stderr line is the op-log half).
@@ -171,6 +201,32 @@ pub(crate) fn builtin_backend_select(args: &[Value]) -> Result<Value, String> {
                 &mut attempts,
             );
             continue;
+        }
+        // №973 (ADR-0182 §3.2): the capability axis — a rung that does not
+        // DECLARE the requested media input is unavailable; the ladder
+        // descends, it never steps sideways into an unsatisfied capability
+        // (the fail-closed selection rule of §3.2).
+        if let Some(cap) = capability {
+            if !entry.inputs.contains(&cap) {
+                push_attempt(
+                    name,
+                    "unavailable",
+                    &format!(
+                        "capability mismatch: '{}' accepts [{}], the selection \
+                         names '{}' (the №973 capability axis, ADR-0182 §3.2)",
+                        name,
+                        entry
+                            .inputs
+                            .iter()
+                            .map(|k| k.slug())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        cap.slug(),
+                    ),
+                    &mut attempts,
+                );
+                continue;
+            }
         }
         if real {
             // №334 contract: real mode requires the weights fetched and
@@ -239,9 +295,12 @@ pub(crate) fn builtin_backend_select(args: &[Value]) -> Result<Value, String> {
     err.insert(
         "message".to_string(),
         Value::String(format!(
-            "backend ladder exhausted: every rung for class '{}' is \
+            "backend ladder exhausted: every rung for class '{}'{} is \
              unavailable ({} attempt(s) audited)",
             class.as_str(),
+            capability
+                .map(|c| format!(" accepting '{}'", c.slug()))
+                .unwrap_or_default(),
             attempts.len()
         )),
     );

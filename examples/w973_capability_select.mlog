@@ -1,0 +1,21 @@
+// Наряд №973 (ADR-0182 §3.2, gh#1972): capability-ось `backend_select` —
+// опциональный третий аргумент называет медиа-вход вызова (image | audio |
+// video_frame | video_segment). Рунг, чья запись реестра НЕ декларирует
+// запрошенную capability, недоступен — лестница спускается, но никогда не
+// шагает вбок в неудовлетворённую capability (fail-closed, §3.2).
+// molmoact2 (vision-understanding) декларирует [Image] (№599), поэтому
+// выбор с "image" удовлетворяет рунгу; режим мока виден в результате
+// (№334), ответы детерминированы.
+pattern Sel(_tick: String) -> String {
+  let words = ["molmoact2"]
+  let sel = backend_select("vision-understanding", words, "image")
+  if sel.ok {
+    if sel.backend == "molmoact2" {
+      if sel.mode == "mock" {
+        return "capability-ok"
+      }
+    }
+  }
+  return "capability-broken"
+}
+flow Main { input: String = "tick" -> Sel -> output }

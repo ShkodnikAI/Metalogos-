@@ -971,7 +971,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Priority ladder over the №333 registry SSOT; exhaustion →
     // Degraded(t), the typed degradation result (never a panic, never a
     // silent mock). Registry 439→440; category "registry".
-    spec!("backend_select", 2, "registry"; builtin_backend_select, "stable"), // №717 re-refusal: the HETEROGENEOUS Ok union — the selected arm Struct "BackendSelected" (backends.rs:225) vs the exhaustion arm Struct "Degraded" (backends.rs:262); no single return spelling exists (the №543 send_message form); the typed Degraded error record is the semantics lane, OUTSIDE the types movement
+    spec!("backend_select", 2, 3, "registry"; builtin_backend_select, "stable"), // №973 (ADR-0182 §3.2): the OPTIONAL third argument — the input capability word (image | audio | video_frame | video_segment); a rung whose registry entry does not declare the capability is unavailable (the ladder descends, never steps sideways), an unknown word is a loud Err. №717 re-refusal: the HETEROGENEOUS Ok union — the selected arm Struct "BackendSelected" (backends.rs:225) vs the exhaustion arm Struct "Degraded" (backends.rs:262); no single return spelling exists (the №543 send_message form); the typed Degraded error record is the semantics lane, OUTSIDE the types movement
     // ── Наряд №337 (ADR-0166): the C2PA contour of media handles ──
     // media_manifest is STATE-CARRYING (store read) — intercepted by
     // interpreter/VM before the generic fallback; media_manifest_read is

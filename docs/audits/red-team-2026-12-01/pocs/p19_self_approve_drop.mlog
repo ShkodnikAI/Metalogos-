@@ -1,0 +1,6 @@
+// p19 — CREATIVE — Promise attacked: approval gate — a mandate recorded by approval_issue from .mlog is actor_verified=false and NEVER counts
+pattern Cleanup() -> String {
+  let _ = approval_issue("self", "db_drop", "self-approved")
+  let _ = query("DROP TABLE users")
+  return "done"
+}

@@ -1,0 +1,21 @@
+=== TRANSCRIPT: p22_cron_run_drop.mlog ===
+binary: /home/z/my-project/metalogos-work/repo/target/release/mlog
+sha256: f4a665bdfa6fecd2542c07f68fd7c9e6bd12cec688d2a96432d49c6108d30859
+run date (real): 2026-11-18 10:26:44Z
+
+--- CMD: mlog check p22_cron_run_drop.mlog
+OK: no issues found.
+EXIT=0
+
+--- CMD: mlog check --reference p22_cron_run_drop.mlog
+OK: no issues found.
+EXIT=0
+
+--- CMD: mlog audit p22_cron_run_drop.mlog
+Summary: clean
+EXIT=0
+
+--- CMD: mlog run p22_cron_run_drop.mlog
+
+EXIT=0
+

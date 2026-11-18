@@ -1,0 +1,5 @@
+// p22 — Promise attacked: "What it stops" / IRREVERSIBLE_NO_GRANT — destructive op carried by the cron_run carrier (the human-oversight roster target per `mlog approve`) without any owner grant
+pattern Cleanup() -> String {
+  let _ = cron_run("DROP TABLE users")
+  return "done"
+}

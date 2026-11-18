@@ -1,0 +1,25 @@
+=== TRANSCRIPT: p03_secret_to_exec.mlog ===
+binary: /home/z/my-project/metalogos-work/repo/target/release/mlog
+sha256: f4a665bdfa6fecd2542c07f68fd7c9e6bd12cec688d2a96432d49c6108d30859
+run date (real): 2026-11-18 10:26:44Z
+
+--- CMD: mlog check p03_secret_to_exec.mlog
+1 error:
+  1: [SECRET_TO_EXEC] sink clearance violated: argument 0 of exec in pattern RunJob carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of exec must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: secret-exec
+EXIT=1
+
+--- CMD: mlog check --reference p03_secret_to_exec.mlog
+1 error:
+  1: [SECRET_TO_EXEC] sink clearance violated: argument 0 of exec in pattern RunJob carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of exec must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: secret-exec
+EXIT=1
+
+--- CMD: mlog audit p03_secret_to_exec.mlog
+[ERROR] line 0: sink clearance violated: argument 0 of exec in pattern RunJob carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of exec must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: secret-exec
+Summary: 1 error
+EXIT=1
+
+--- CMD: mlog run p03_secret_to_exec.mlog
+error: Category A security invariant violated:
+[SECRET_TO_EXEC] sink clearance violated: argument 0 of exec in pattern RunJob carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of exec must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: secret-exec
+EXIT=1
+

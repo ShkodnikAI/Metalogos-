@@ -1,0 +1,27 @@
+=== TRANSCRIPT: p20_exec_redacted_secret.mlog ===
+binary: /home/z/my-project/metalogos-work/repo/target/release/mlog
+sha256: f4a665bdfa6fecd2542c07f68fd7c9e6bd12cec688d2a96432d49c6108d30859
+run date (real): 2026-11-18 10:26:44Z
+
+--- CMD: mlog check p20_exec_redacted_secret.mlog
+[REDACT][audit-event] redact applied in pattern Deploy — policy 'secrets', target conf 'public'
+OK: no issues found.
+EXIT=0
+
+--- CMD: mlog check --reference p20_exec_redacted_secret.mlog
+[REDACT][audit-event] redact applied in pattern Deploy — policy 'secrets', target conf 'public'
+OK: no issues found.
+EXIT=0
+
+--- CMD: mlog audit p20_exec_redacted_secret.mlog
+[REDACT][audit-event] redact applied in pattern Deploy — policy 'secrets', target conf 'public'
+[INFO] line 1: redact applied in pattern Deploy — policy 'secrets', target conf 'public'
+Summary: 1 passed
+EXIT=0
+
+--- CMD: mlog run p20_exec_redacted_secret.mlog
+[REDACT][audit-event] redact applied in pattern Deploy — policy 'secrets', target conf 'public'
+[REDACT][audit-event] redact applied in pattern Deploy — policy 'secrets', target conf 'public'
+[REDACT][audit-event] redact applied in pattern Deploy — policy 'secrets', target conf 'public'
+EXIT=0
+

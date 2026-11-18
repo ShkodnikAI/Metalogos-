@@ -1,0 +1,6 @@
+// p10 — Promise attacked: Core Idea 2 — LLM output is a tainted source reaching a sink (compile-time AND VM check)
+pattern Answer() -> String {
+  let out = call_llm("summarize the inbox")
+  let _ = respond("200 OK", "<p>" + out + "</p>")
+  return "ok"
+}

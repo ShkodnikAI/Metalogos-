@@ -1,0 +1,29 @@
+=== TRANSCRIPT: p02_secret_egress_network.mlog ===
+binary: /home/z/my-project/metalogos-work/repo/target/release/mlog
+sha256: f4a665bdfa6fecd2542c07f68fd7c9e6bd12cec688d2a96432d49c6108d30859
+run date (real): 2026-11-18 10:26:44Z
+
+--- CMD: mlog check p02_secret_egress_network.mlog
+2 errors:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed as http_post body
+  2: [PII_EGRESS_NETWORK] sink clearance violated: argument 1 of http_post in pattern Exfil carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of http_post must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: private-egress
+EXIT=1
+
+--- CMD: mlog check --reference p02_secret_egress_network.mlog
+2 errors:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed as http_post body
+  2: [PII_EGRESS_NETWORK] sink clearance violated: argument 1 of http_post in pattern Exfil carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of http_post must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: private-egress
+EXIT=1
+
+--- CMD: mlog audit p02_secret_egress_network.mlog
+[ERROR] line 0: sink clearance violated: argument 1 of http_post in pattern Exfil carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of http_post must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: private-egress
+[ERROR] line 1: secret may be leaked — env() value passed as http_post body
+Summary: 2 errors
+EXIT=1
+
+--- CMD: mlog run p02_secret_egress_network.mlog
+error: Category A security invariant violated:
+[SECRET_LEAK] secret may be leaked — env() value passed as http_post body
+[PII_EGRESS_NETWORK] sink clearance violated: argument 1 of http_post in pattern Exfil carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of http_post must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: private-egress
+EXIT=1
+

@@ -1,0 +1,15 @@
+// p12 — Promise attacked: Core Idea 3 — backend ladder falls and every degradation is a typed, audible Degraded(t) event
+llm {
+  providers: [
+    { alias: bogus, provider: nonexistent_provider_xyz },
+    { alias: mock, provider: local }
+  ]
+}
+learnable pattern L(q: String) -> String {
+  prompt: "answer the question"
+  model: "bogus"
+}
+test "t-ladder" {
+  let r = L("what is 2+2")
+  print(r)
+}

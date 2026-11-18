@@ -1,0 +1,5 @@
+// p06 — Promise attacked: "What it stops" / IRREVERSIBLE_NO_GRANT — DROP destructive op without the owner grant
+pattern Cleanup() -> String {
+  let _ = query("DROP TABLE users")
+  return "done"
+}

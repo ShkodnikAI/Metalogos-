@@ -1,0 +1,9 @@
+// p13 — Promise attacked: №950 boundary closure — a pattern's return label carries the sources evaluated inside its body, at any call depth
+pattern GetToken() -> String {
+  return env("MLOG_LEAK_SUITE_TOKEN")
+}
+pattern Send() -> String {
+  let t = GetToken()
+  let _ = respond("200 OK", t)
+  return "sent"
+}

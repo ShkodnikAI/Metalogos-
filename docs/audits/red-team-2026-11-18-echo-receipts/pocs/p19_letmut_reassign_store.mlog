@@ -1,0 +1,11 @@
+pattern P(d: String) -> String {
+    let mut x = "safe"
+    x = env("SP")
+    let stored = mem_set("k", x)
+    respond(stored)
+    return "ok"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

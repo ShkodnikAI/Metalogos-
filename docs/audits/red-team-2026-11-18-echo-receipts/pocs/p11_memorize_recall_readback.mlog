@@ -1,0 +1,10 @@
+pattern P(d: String) -> String {
+    memorize("k", env("SP"))
+    let r = recall("k")
+    respond(r)
+    return "ok"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

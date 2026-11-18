@@ -1,0 +1,13 @@
+### PROBE: p05_env_use_only.mlog
+### COMMAND: /home/z/my-project/metalogos-work/rt-977/mlog-candidate check p05_env_use_only.mlog
+--- check (default/VM backend) ---
+OK: no issues found.
+--- check exit code: 0 ---
+### COMMAND: /home/z/my-project/metalogos-work/rt-977/mlog-candidate check --reference p05_env_use_only.mlog
+--- check (reference backend) ---
+OK: no issues found.
+--- check --reference exit code: 0 ---
+### COMMAND: SP=mocksecret /home/z/my-project/metalogos-work/rt-977/mlog-candidate run p05_env_use_only.mlog
+--- run (SP=mocksecret, mock value, never a real credential) ---
+ok
+--- run exit code: 0 ---

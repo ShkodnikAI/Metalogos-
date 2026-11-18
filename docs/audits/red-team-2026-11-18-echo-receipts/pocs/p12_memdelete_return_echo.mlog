@@ -1,0 +1,10 @@
+pattern P(d: String) -> String {
+    mem_set("k", env("SP"))
+    let gone = mem_delete("k")
+    respond(gone)
+    return "ok"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

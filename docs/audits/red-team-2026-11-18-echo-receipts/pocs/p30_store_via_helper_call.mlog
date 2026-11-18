@@ -1,0 +1,13 @@
+pattern Helper(d: String) -> String {
+    return env("SP")
+}
+
+pattern P(d: String) -> String {
+    let stored = mem_set("k", Helper("x"))
+    respond(stored)
+    return "ok"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

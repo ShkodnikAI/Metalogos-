@@ -1,0 +1,9 @@
+pattern P(d: String) -> String {
+    let t = env("DEFINITELY_NOT_SET_RT_977")
+    respond(t)
+    return "ok"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

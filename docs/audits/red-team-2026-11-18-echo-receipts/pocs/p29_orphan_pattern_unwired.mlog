@@ -1,0 +1,12 @@
+pattern Orphan(d: String) -> String {
+    respond(env("SP"))
+    return "ok"
+}
+
+pattern Used(d: String) -> String {
+    return "safe"
+}
+
+flow Main {
+    input: String = "x" -> Used -> output
+}

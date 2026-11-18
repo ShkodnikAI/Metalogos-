@@ -1,0 +1,7 @@
+pattern P(d: String) -> String {
+    return d
+}
+
+flow Main {
+    input: String = query_param("q") -> P -> output<public, untrusted>
+}

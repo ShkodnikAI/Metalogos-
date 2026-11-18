@@ -1,0 +1,16 @@
+### PROBE: p11_memorize_recall_readback.mlog
+### COMMAND: /home/z/my-project/metalogos-work/rt-977/mlog-candidate check p11_memorize_recall_readback.mlog
+--- check (default/VM backend) ---
+1 error:
+  1: [TAINT_PERSISTENCE] sink clearance violated: argument 1 of memorize in pattern P carries label 'private, trusted'; sinks require public — memorize is classified sink/internal/reversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--- check exit code: 1 ---
+### COMMAND: /home/z/my-project/metalogos-work/rt-977/mlog-candidate check --reference p11_memorize_recall_readback.mlog
+--- check (reference backend) ---
+1 error:
+  1: [TAINT_PERSISTENCE] sink clearance violated: argument 1 of memorize in pattern P carries label 'private, trusted'; sinks require public — memorize is classified sink/internal/reversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--- check --reference exit code: 1 ---
+### COMMAND: SP=mocksecret /home/z/my-project/metalogos-work/rt-977/mlog-candidate run p11_memorize_recall_readback.mlog
+--- run (SP=mocksecret, mock value, never a real credential) ---
+error: Category A security invariant violated:
+[TAINT_PERSISTENCE] sink clearance violated: argument 1 of memorize in pattern P carries label 'private, trusted'; sinks require public — memorize is classified sink/internal/reversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+--- run exit code: 1 ---

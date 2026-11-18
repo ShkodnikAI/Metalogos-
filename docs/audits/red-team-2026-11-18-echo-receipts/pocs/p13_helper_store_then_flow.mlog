@@ -1,0 +1,12 @@
+pattern Stash(d: String) -> String {
+    mem_set("k", env("SP"))
+    return "stash-ok"
+}
+
+pattern RecallK(d: String) -> String {
+    return kv_get("k")
+}
+
+flow Main {
+    input: String = "x" -> Stash -> RecallK -> output
+}

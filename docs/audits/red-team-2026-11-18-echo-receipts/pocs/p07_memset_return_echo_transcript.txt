@@ -1,0 +1,25 @@
+### PROBE: p07_memset_return_echo.mlog
+### COMMAND: /home/z/my-project/metalogos-work/rt-977/mlog-candidate check p07_memset_return_echo.mlog
+--- check (default/VM backend) ---
+4 errors:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed to respond()
+  2: [TAINT_PERSISTENCE] sink clearance violated: argument 1 of mem_set in pattern P carries label 'private, trusted'; sinks require public — mem_set is classified sink/internal/reversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+  3: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of respond in pattern P carries label 'private, trusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+  4: строка 7: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in flow Main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress — the flow output carries a non-public label; the confidentiality half is not declareable on the terminator (№967): redact() in the foreground contour is the sanctioned downward move (№326)
+--- check exit code: 1 ---
+### COMMAND: /home/z/my-project/metalogos-work/rt-977/mlog-candidate check --reference p07_memset_return_echo.mlog
+--- check (reference backend) ---
+4 errors:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed to respond()
+  2: [TAINT_PERSISTENCE] sink clearance violated: argument 1 of mem_set in pattern P carries label 'private, trusted'; sinks require public — mem_set is classified sink/internal/reversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+  3: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of respond in pattern P carries label 'private, trusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+  4: строка 7: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in flow Main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress — the flow output carries a non-public label; the confidentiality half is not declareable on the terminator (№967): redact() in the foreground contour is the sanctioned downward move (№326)
+--- check --reference exit code: 1 ---
+### COMMAND: SP=mocksecret /home/z/my-project/metalogos-work/rt-977/mlog-candidate run p07_memset_return_echo.mlog
+--- run (SP=mocksecret, mock value, never a real credential) ---
+error: Category A security invariant violated:
+[SECRET_LEAK] secret may be leaked — env() value passed to respond()
+[TAINT_PERSISTENCE] sink clearance violated: argument 1 of mem_set in pattern P carries label 'private, trusted'; sinks require public — mem_set is classified sink/internal/reversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+[PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of respond in pattern P carries label 'private, trusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+[PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in flow Main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress — the flow output carries a non-public label; the confidentiality half is not declareable on the terminator (№967): redact() in the foreground contour is the sanctioned downward move (№326)
+--- run exit code: 1 ---

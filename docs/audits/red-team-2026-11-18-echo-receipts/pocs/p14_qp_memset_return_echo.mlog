@@ -1,0 +1,9 @@
+pattern P(d: String) -> String {
+    let stored = mem_set("k", query_param("q"))
+    respond(stored)
+    return "ok"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

@@ -103,7 +103,15 @@ fn contract_1_save_load_verify_ok_unfiltered() {
 
     assert!(verdict.ok, "contract 1: expected ok, got {:?}", verdict);
     assert_eq!(verdict.level, "unfiltered", "decision 5: the W1 data level");
-    assert!(verdict.reason.is_empty(), "no informational/refusal code");
+    // №975: the reason may carry the honest teacher line (a
+    // non-permissive resolved teacher appends a loud line WITHOUT a
+    // code) — what must never appear on a consistent story is a refusal
+    // CODE. (The env-dependent teacher resolution — mock vs the provider
+    // default — makes `reason.is_empty()` nondeterministic here.)
+    assert!(
+        !verdict.reason.contains("[ATTESTATION_"),
+        "no refusal code on a consistent provenance story"
+    );
     // The certificate carries the shape keys and the honest nulls.
     let cert: serde_json::Value = serde_json::from_str(&verdict.cert_json).unwrap();
     assert_eq!(cert["model"], "AttestHead");
@@ -111,7 +119,23 @@ fn contract_1_save_load_verify_ok_unfiltered() {
     assert_eq!(cert["eval"]["calibration"], "uncalibrated");
     assert_eq!(cert["dataset"]["filter"], "none");
     assert_eq!(cert["dataset"]["rows"], 2);
-    assert!(cert["teacher"].is_null(), "W3b pending — null with reason");
+    // №975 (ADR-0200 W3b landed): the teacher block FILLS from the
+    // teacher registry for a model with a distill lineage — the four §4
+    // keys, the record the process's teacher resolves to. The W1-era
+    // pin (null with reason, "W3b pending") expired the moment W3b
+    // landed; the null+reason form stays pinned for the no-teacher and
+    // no-record cases in tests/naryad_975_teacher_registry.rs.
+    assert!(
+        cert["teacher"].is_object(),
+        "W3b landed — the block fills from the teacher registry"
+    );
+    assert!(cert["teacher"]["backend"].is_string());
+    assert!(cert["teacher"]["weights_id"].is_string());
+    assert!(
+        cert["teacher"]["license_class"].is_string(),
+        "the ADR-0163 class vocabulary"
+    );
+    assert!(cert["teacher"]["training_on_output_allowed"].is_boolean());
     assert!(
         cert["rollback_if"].is_null(),
         "session-executed rules — null with reason"

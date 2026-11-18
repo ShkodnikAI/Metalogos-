@@ -111,6 +111,24 @@ pub fn mock_llm_requested() -> bool {
         .unwrap_or(false)
 }
 
+/// №975 (ADR-0200 W3b): the teacher the CURRENT process is actually
+/// calling — the explicit mock lane is the in-tree mock teacher;
+/// otherwise the provider default (`Provider::default_model()` — the
+/// exact names the BACKEND_REGISTRY's Llm entries register). This is
+/// the same resolution `create_llm_backend()` performs, so the
+/// `DISTILL_TEACHER_UNLICENSED` gate consults the teacher that actually
+/// served the samples — never an assumption. Lives HERE (not in
+/// backends.rs): this fn reads BOTH predicates this module owns, and a
+/// backends → llm edge would drift the C4 acyclicity inventory
+/// (architecture_contract FROZEN_SCCS).
+pub fn current_teacher_backend() -> &'static str {
+    if mock_llm_requested() {
+        "mock"
+    } else {
+        Provider::from_env().default_model()
+    }
+}
+
 /// Global call counter for MockLlm. Used by cache contract tests to verify
 /// that identical LLM calls are served from cache (counter stays at 1 after
 /// two identical invocations).

@@ -503,6 +503,28 @@ impl DistillHub {
         shared: &HubShared,
         job: &TrainJob,
     ) -> crate::interpreter::learnable::DistillTrainOutcome {
+        // №975 (ADR-0200 W3b, decision 3): the DISTILL_TEACHER_UNLICENSED
+        // rule at the hub boundary — the serve/hub lane refuses the same
+        // way the TW and VM runtime boundaries do (one gate fn, three
+        // sites, the №973 sink-parity form): the training run refuses
+        // before it executes, naming the teacher and the class, audited
+        // and ledger-recorded.
+        if let Err(gate) = crate::interpreter::learnable::distill_teacher_gate() {
+            DistillHub::audit_line(shared, format!("[AUDIT] distill.teacher-gate: {}", gate));
+            crate::ledger::record(
+                "distill.teacher-refused",
+                "runtime",
+                "reflex",
+                &format!("pattern={};{}", job.pattern_name, gate),
+            );
+            return crate::interpreter::learnable::DistillTrainOutcome {
+                pattern_name: job.pattern_name.clone(),
+                switched: false,
+                gate_rejected: false,
+                error: Some(gate),
+                audit_lines: Vec::new(),
+            };
+        }
         let model_id = match shared.names.get(&job.spec.reflex_name).copied() {
             Some(id) => id,
             None => {

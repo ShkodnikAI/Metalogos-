@@ -754,6 +754,22 @@ impl Interpreter {
         distill: &crate::interpreter::types::DistillConfig,
         examples: &[(String, String)],
     ) -> Result<(), String> {
+        // №975 (ADR-0200 W3b, decision 3): the DISTILL_TEACHER_UNLICENSED
+        // rule at the TW distill boundary — the training run REFUSES
+        // before it executes when the teacher the process is actually
+        // calling has no permissive record. The refusal is loud HERE (the
+        // pattern call that would have started the run fails, naming the
+        // teacher and the class), audited, and ledger-recorded.
+        if let Err(gate) = distill_teacher_gate() {
+            self.push_audit(format!("[AUDIT] distill.teacher-gate: {}", gate));
+            crate::ledger::record(
+                "distill.teacher-refused",
+                "runtime",
+                "reflex",
+                &format!("pattern={};{}", pattern_name, gate),
+            );
+            return Err(gate);
+        }
         let model_id = self
             .reflex_names
             .get(&distill.reflex_name)
@@ -1696,6 +1712,21 @@ fn fail(
     }
 }
 
+/// №975: the env-resolving form of the `DISTILL_TEACHER_UNLICENSED`
+/// gate — the form the runtime boundaries call (the TW distill trigger,
+/// the VM trigger, the hub worker — one rule, three sites, the №973
+/// sink-parity form). The pure rule SSOT is
+/// `backends::distill_teacher_gate_for` (a leaf module — edges INTO it
+/// never drift the C4 inventory); the teacher resolution rides this
+/// module's existing llm edge (`crate::llm::current_teacher_backend` —
+/// the same predicates `create_llm_backend()` consults). This fn lives
+/// HERE, next to the distill training core it guards: the hub may not
+/// gain a new intra-cycle llm edge (the C4 ratchet, FROZEN_SCCS), and
+/// every caller already reaches the interpreter module.
+pub fn distill_teacher_gate() -> Result<&'static crate::backends::TeacherEntry, String> {
+    crate::backends::distill_teacher_gate_for(crate::llm::current_teacher_backend())
+}
+
 /// №534 (issue #843; the audit 30.09, Д-3): the PURE training core — the
 /// ONE canonical copy of the distill train-and-gate sequence (the closed
 /// label-set mapping, the №456 holdout gate, the 30-epoch run, the №485
@@ -2328,7 +2359,12 @@ mod n489_background_training_tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn n489_attempt_returns_before_training_finishes() {
+        // №975: the runtime boundary consults the teacher gate — the test
+        // declares its teacher explicitly (the in-tree mock lane, the
+        // №454 explicit-only posture). serial: the env is process-global.
+        std::env::set_var("METALOGOS_MOCK_LLM", "1");
         let mut interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
         let cfg = distill_config(0.60);
         // 50 000 examples: the 30-epoch run is FAR from instantaneous —
@@ -2419,10 +2455,16 @@ mod n489_background_training_tests {
             "the finished marker is loud: {}",
             audit
         );
+        std::env::remove_var("METALOGOS_MOCK_LLM");
     }
 
     #[test]
+    #[serial_test::serial]
     fn n489_refused_training_stays_teaching_via_mailbox() {
+        // №975: the runtime boundary consults the teacher gate — the test
+        // declares its teacher explicitly (the in-tree mock lane, the
+        // №454 explicit-only posture). serial: the env is process-global.
+        std::env::set_var("METALOGOS_MOCK_LLM", "1");
         // The №456 holdout refusal, now riding the background path: the
         // outcome lands through the mailbox, the rejection is loud, the
         // pattern never switches.
@@ -2484,5 +2526,6 @@ mod n489_background_training_tests {
             audit
         );
         assert!(audit.contains("distill.training-finished"));
+        std::env::remove_var("METALOGOS_MOCK_LLM");
     }
 }

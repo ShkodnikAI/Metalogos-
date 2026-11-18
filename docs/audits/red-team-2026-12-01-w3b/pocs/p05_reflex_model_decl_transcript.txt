@@ -1,0 +1,5 @@
+$ ./candidate-mlog run p05_reflex_model_decl.mlog
+EXIT=0
+$ ./candidate-mlog check p05_reflex_model_decl.mlog
+OK: no issues found.
+EXIT=0

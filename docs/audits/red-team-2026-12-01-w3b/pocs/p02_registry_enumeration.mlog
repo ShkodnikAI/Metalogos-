@@ -1,0 +1,14 @@
+// p02 — promise 3: registry reachability from a program.
+// Attempt to enumerate / read / extend the teacher registry via plausible
+// builtin names in a tool method body. Black-box names only.
+tool p {
+  m() -> string {
+    let a = teacher_list()
+    let b = teachers()
+    let c = teacher_record("mock")
+    let d = teacher_get("mock")
+    let e = teacher_all()
+    let f = registry()
+    return "enumerated"
+  }
+}

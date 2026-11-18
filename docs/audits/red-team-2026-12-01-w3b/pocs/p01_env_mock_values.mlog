@@ -1,0 +1,8 @@
+// p01 — env axis: does METALOGOS_MOCK_LLM value handling change
+// compile/exec behavior observable from a program? (spec program; the
+// runtime teach surface was not reachable black-box — see report.)
+spec k {
+  pattern: p,
+  prompt: "reverse the input",
+  distill_after: 2
+}

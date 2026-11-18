@@ -497,6 +497,136 @@ pub fn find_by_name(name: &str) -> Option<&'static BackendEntry> {
     BACKEND_REGISTRY.iter().find(|e| e.name == name)
 }
 
+// ── №975 (ADR-0200 W3b, decision 3): the teacher registry ────────────
+//
+// The distillation teachers are LLM backends whose outputs feed a local
+// training run. The owner's decision 3 (2026-10-27, gh#1599, verbatim):
+// the teacher is "open models with a permissive license". This overlay
+// is the machine form of that decision: records keyed by the ADR-0163
+// backend identifier, RE-USING the license-class taxonomy (Osi |
+// NonOsi | Restrictive — no new vocabulary, ADR-0163 §2.1) and carrying
+// the honest `training_on_output_allowed` flag the W1 certificate's
+// `teacher{...}` block pins (ADR-0200 §4: "until W3b — null with the
+// reason").
+//
+// The source is CONFIGURATION-IN-CODE (a static table, the ADR-0163
+// BACKEND_REGISTRY form) — NOT a config file outside the code (the
+// ADR-0223 §3 rejected alternative: the check must live where the
+// compiler's own facts live, versioned with the source). The registry
+// is internal configuration (the program cannot read, write or
+// influence it — there is no builtin over it), the same posture as the
+// №957 mandate store: the authority a program must not forge.
+//
+// Seed records are CLAIMS WITH NAMED BASES (ADR-0163 §2.1 discipline):
+// every class re-states the class the tree already carries for that
+// backend; the flag carries its basis in the note. A legal pass may
+// reclassify — a one-line table edit, loudly diffable.
+pub const DISTILL_TEACHER_UNLICENSED: &str = "DISTILL_TEACHER_UNLICENSED";
+
+/// One teacher-registry record (№975, ADR-0200 W3b).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TeacherEntry {
+    /// The ADR-0163 backend identifier the teacher is known as.
+    pub backend: &'static str,
+    /// The weights artifact identifier (the certificate's honest field).
+    pub weights_id: &'static str,
+    /// The ADR-0163 license class — the taxonomy is RE-USED, not re-invented.
+    pub license_class: LicenseClass,
+    /// Whether the model's terms allow training on its outputs — the
+    /// honest flag the certificate's `teacher{...}` block carries.
+    pub training_on_output_allowed: bool,
+    /// The named basis for the class and the flag (ADR-0163 §2.1 form).
+    pub note: &'static str,
+}
+
+/// The teacher registry (№975). An empty record for a teacher is the
+/// fail-closed default: NO record = distillation refuses (the
+/// `DISTILL_TEACHER_UNLICENSED` rule names the teacher and the gap).
+pub static TEACHER_REGISTRY: &[TeacherEntry] = &[
+    TeacherEntry {
+        backend: "mock",
+        weights_id: "in-tree-mock-teacher",
+        license_class: LicenseClass::Osi,
+        training_on_output_allowed: true,
+        note: "in-tree deterministic MockLlm (the explicit METALOGOS_MOCK_LLM lane) — no external weights artifact exists; governed by the repository license (MIT OR Apache-2.0 — osi); the embodied-sim precedent (backends.rs №355 entries)",
+    },
+    TeacherEntry {
+        backend: "qwen25-vl-7b",
+        weights_id: "qwen2.5-vl-7b-instruct",
+        license_class: LicenseClass::Osi,
+        training_on_output_allowed: true,
+        note: "re-states the class the tree already carries (BACKEND_REGISTRY qwen25-vl-7b: Apache-2.0 — osi; HF cardData + tags); Apache-2.0 grants using the model's outputs, including as training data — the flag's named basis",
+    },
+    TeacherEntry {
+        backend: "claude-sonnet-4-20250514",
+        weights_id: "claude-sonnet-4-20250514",
+        license_class: LicenseClass::Restrictive,
+        training_on_output_allowed: false,
+        note: "re-states the class the tree already carries (closed commercial API model — restrictive; the provider's commercial terms govern) — decision 3 refuses distillation from it",
+    },
+    TeacherEntry {
+        backend: "gpt-4o",
+        weights_id: "gpt-4o",
+        license_class: LicenseClass::Restrictive,
+        training_on_output_allowed: false,
+        note: "re-states the class the tree already carries (closed commercial API model — restrictive; the provider's commercial terms govern) — decision 3 refuses distillation from it",
+    },
+    TeacherEntry {
+        backend: "llama3",
+        weights_id: "llama3",
+        license_class: LicenseClass::NonOsi,
+        training_on_output_allowed: false,
+        note: "re-states the class the tree already carries (Llama Community License — non-osi, the nemotron-omni MDL-3 precedent); NOT a permissive (OSI) class, so decision 3 refuses distillation from it even where the license text permits output training — the conservative read until an owner decision widens it",
+    },
+];
+
+/// Find a teacher record by the ADR-0163 backend identifier.
+pub fn teacher_record(backend: &str) -> Option<&'static TeacherEntry> {
+    TEACHER_REGISTRY.iter().find(|t| t.backend == backend)
+}
+
+/// The `DISTILL_TEACHER_UNLICENSED` rule (№975, ADR-0200 W3b; the
+/// cut-order record keeps this check_id when the line is trimmed —
+/// ADR-0200 §5). A distillation run against a teacher without a
+/// permissive record REFUSES, loudly, naming the teacher and the class,
+/// BEFORE the training executes (decision 3). The failure axes, each
+/// named in the message: no record (default-deny — the ADR-0163 §2.1
+/// posture), a non-permissive class (decision 3's word: Osi), or the
+/// honest flag refusing output training (the flag's whole purpose).
+///
+/// This fn is the PURE rule SSOT — it takes the teacher identifier and
+/// reads NO environment: the env-resolving wrapper lives in llm.rs
+/// (`llm::distill_teacher_gate`), because a backends → llm edge would
+/// drift the C4 acyclicity inventory (architecture_contract FROZEN_SCCS).
+pub fn distill_teacher_gate_for(backend: &str) -> Result<&'static TeacherEntry, String> {
+    let Some(t) = teacher_record(backend) else {
+        return Err(format!(
+            "{}: the teacher backend '{}' has no teacher-registry record — \
+             default-deny (the ADR-0163 §2.1 posture; owner decision 3: \
+             teachers are open models with a permissive license)",
+            DISTILL_TEACHER_UNLICENSED, backend
+        ));
+    };
+    if t.license_class != LicenseClass::Osi {
+        return Err(format!(
+            "{}: the teacher '{}' carries license class '{}' — not a permissive (OSI) \
+             class; owner decision 3 refuses distillation from it (note: {})",
+            DISTILL_TEACHER_UNLICENSED,
+            t.backend,
+            t.license_class.as_str(),
+            t.note
+        ));
+    }
+    if !t.training_on_output_allowed {
+        return Err(format!(
+            "{}: the teacher '{}' declares training_on_output_allowed = false — its \
+             outputs may not feed a training run (note: {})",
+            DISTILL_TEACHER_UNLICENSED, t.backend, t.note
+        ));
+    }
+    Ok(t)
+}
+
 // ── №334: the per-file weights manifest (the SHA-pin path) ───────────
 //
 // The registry pin names the PRIMARY artifact; the loader verifies EVERY

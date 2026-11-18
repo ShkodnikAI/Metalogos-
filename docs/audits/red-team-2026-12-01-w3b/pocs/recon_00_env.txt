@@ -1,0 +1,5 @@
+$ sha256sum candidate-mlog
+4be5d0db9eaa66d78a655282b0653b08831cf08336f6ba11e84b203d2f852ed9  candidate-mlog  [MATCHES candidate.sha256]
+$ ./candidate-mlog --version
+mlog mlog 0.40.0
+grammar rev: 1

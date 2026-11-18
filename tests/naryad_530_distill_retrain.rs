@@ -9,6 +9,7 @@
 
 use metalogos::distill_hub::{DistillAccess, DistillHub, DistillSpec};
 use metalogos::interpreter::types::DistillMode;
+use serial_test::serial;
 // ── №530 (issue #839; audit 30.09 N-4): the out-of-lock training, the
 // DISTILLED retraining, and the loud degradation → TEACHING revert ──
 #[cfg(test)]
@@ -37,6 +38,10 @@ reflex Head {{
     }
 
     fn make_hub() -> Fixture {
+        // №975: the hub boundary consults the teacher gate — the fixture
+        // declares its teacher explicitly (the in-tree mock lane, the
+        // №454 posture). serial: the env is process-global.
+        std::env::set_var("METALOGOS_MOCK_LLM", "1");
         let decls = metalogos::parser::parse(&source()).expect("reflex source parses");
         let audit_lines: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
             std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -104,6 +109,7 @@ reflex Head {{
     }
 
     #[test]
+    #[serial]
     fn n530_failed_gate_leaves_weights_untouched() {
         // The initial training passes (single-label data: the №496 honest
         // trick — the all-one-label holdout accuracy is 1.0 and the
@@ -145,6 +151,7 @@ reflex Head {{
     }
 
     #[test]
+    #[serial]
     fn n530_retrain_succeeds_and_stays_distilled() {
         let f = make_hub();
         for i in 0..25 {
@@ -183,6 +190,7 @@ reflex Head {{
     }
 
     #[test]
+    #[serial]
     fn n530_training_does_not_hold_the_registry_lock() {
         // The large buffer makes the 30-epoch run long enough (hundreds of
         // ms) that the pre-№530 behavior — holding the registry lock for

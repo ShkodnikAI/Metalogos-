@@ -1,0 +1,8 @@
+// p05 — recon depth evidence: the reflex model declaration surface
+// (parsed cleanly, NO commas). Needed by the distill/attest path.
+reflex r {
+  input: embedding(128)
+  layers: [dense(64)]
+  labels: ["a", "b"]
+  seed: 42
+}

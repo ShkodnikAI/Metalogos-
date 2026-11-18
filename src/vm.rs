@@ -4413,6 +4413,21 @@ impl Vm {
         margin: f64,
         examples: &[(String, String)],
     ) -> Result<bool, String> {
+        // №975 (ADR-0200 W3b, decision 3): the DISTILL_TEACHER_UNLICENSED
+        // rule at the VM distill boundary — sink-parity with the TW site
+        // (one gate fn, both backends refuse before the training
+        // executes, naming the teacher and the class; audited +
+        // ledger-recorded).
+        if let Err(gate) = crate::interpreter::learnable::distill_teacher_gate() {
+            self.push_audit(format!("[AUDIT] distill.teacher-gate: {}", gate));
+            crate::ledger::record(
+                "distill.teacher-refused",
+                "runtime",
+                "reflex",
+                &format!("pattern={};{}", pattern_name, gate),
+            );
+            return Err(gate);
+        }
         let model_id = self
             .reflex_names
             .get(reflex_name)
@@ -6569,7 +6584,12 @@ mod n456_vm_distill_holdout_tests {
     /// inputs pin the model to the class prior; holdout accuracy 0.9
     /// clears the raw 0.85 gate but NOT baseline+margin (0.950).
     #[test]
+    #[serial_test::serial]
     fn n485_vm_degenerate_majority_model_stays_teaching() {
+        // №975: the runtime boundary consults the teacher gate — the test
+        // declares its teacher explicitly (the in-tree mock lane, the
+        // №454 explicit-only posture). serial: the env is process-global.
+        std::env::set_var("METALOGOS_MOCK_LLM", "1");
         let mut vm = make_vm_with_head();
         let examples: Vec<(String, String)> = (0..50)
             .map(|i| {
@@ -6590,10 +6610,16 @@ mod n456_vm_distill_holdout_tests {
             "the VM rejection must carry the baseline: {}",
             audit
         );
+        std::env::remove_var("METALOGOS_MOCK_LLM");
     }
 
     #[test]
+    #[serial_test::serial]
     fn n456_vm_holdout_too_small_is_rejected() {
+        // №975: the runtime boundary consults the teacher gate — the test
+        // declares its teacher explicitly (the in-tree mock lane, the
+        // №454 explicit-only posture). serial: the env is process-global.
+        std::env::set_var("METALOGOS_MOCK_LLM", "1");
         let mut vm = make_vm_with_head();
         let examples: Vec<(String, String)> = (0..10)
             .map(|i| (format!("k{}", i), "yes".to_string()))
@@ -6611,10 +6637,16 @@ mod n456_vm_distill_holdout_tests {
             "the holdout rejection must be loud: {}",
             audit
         );
+        std::env::remove_var("METALOGOS_MOCK_LLM");
     }
 
     #[test]
+    #[serial_test::serial]
     fn n456_vm_noisy_labels_stay_teaching() {
+        // №975: the runtime boundary consults the teacher gate — the test
+        // declares its teacher explicitly (the in-tree mock lane, the
+        // №454 explicit-only posture). serial: the env is process-global.
+        std::env::set_var("METALOGOS_MOCK_LLM", "1");
         let mut vm = make_vm_with_head();
         let examples: Vec<(String, String)> = (0..24)
             .map(|i| {
@@ -6632,10 +6664,16 @@ mod n456_vm_distill_holdout_tests {
             "the accuracy rejection must be loud: {}",
             audit
         );
+        std::env::remove_var("METALOGOS_MOCK_LLM");
     }
 
     #[test]
+    #[serial_test::serial]
     fn n456_vm_consistent_labels_pass_the_gate() {
+        // №975: the runtime boundary consults the teacher gate — the test
+        // declares its teacher explicitly (the in-tree mock lane, the
+        // №454 explicit-only posture). serial: the env is process-global.
+        std::env::set_var("METALOGOS_MOCK_LLM", "1");
         let mut vm = make_vm_with_head();
         let examples: Vec<(String, String)> = (0..24)
             .map(|i| (format!("k{}", i), "yes".to_string()))
@@ -6644,6 +6682,7 @@ mod n456_vm_distill_holdout_tests {
             .try_train_distilled_model("P", "TestHead", 0.85, 0.05, &examples)
             .expect("train must not error");
         assert!(result, "consistent labels must pass the holdout gate");
+        std::env::remove_var("METALOGOS_MOCK_LLM");
     }
 
     /// №534: the №530 snapshot discipline extended to the VM lane — a
@@ -6653,7 +6692,12 @@ mod n456_vm_distill_holdout_tests {
     /// posture the TW path already had; this pin makes the VM lane
     /// unable to regress).
     #[test]
+    #[serial_test::serial]
     fn n534_vm_failed_gate_leaves_weights_untouched() {
+        // №975: the runtime boundary consults the teacher gate — the test
+        // declares its teacher explicitly (the in-tree mock lane, the
+        // №454 explicit-only posture). serial: the env is process-global.
+        std::env::set_var("METALOGOS_MOCK_LLM", "1");
         let mut vm = make_vm_with_head();
         let id = *vm
             .reflex_names
@@ -6682,6 +6726,7 @@ mod n456_vm_distill_holdout_tests {
             before, after,
             "a refused gate must not move the live weights"
         );
+        std::env::remove_var("METALOGOS_MOCK_LLM");
     }
 }
 

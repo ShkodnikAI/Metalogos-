@@ -1,0 +1,7 @@
+ENV: 0 metalogos vars; METALOGOS_MOCK_LLM unset
+$ ./candidate-mlog run p02_registry_enumeration.mlog
+error: [UNDEFINED_FUNCTION] compile: undefined function: teacher_list
+EXIT=1
+$ ./candidate-mlog run p02_registry_enumeration.mlog  (mock lane)
+error: [UNDEFINED_FUNCTION] compile: undefined function: teacher_list
+EXIT=1

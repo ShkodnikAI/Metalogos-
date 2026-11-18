@@ -80,6 +80,15 @@ const FLIPPED_967_PINS: &[(&str, &str, &str)] = &[(
     "HTML_INJECTION",
 )];
 
+/// The row FLIPPED by №970 — the exec-stdout channel on the flow edge
+/// (row B14, issue #1974 — form (ii), the owner decision 18.11; the
+/// red-team finding F2, p38_exec_step_stdout_display): a flow whose
+/// pipeline step is the builtin `exec` carrier refuses with the frozen
+/// print-channel class unless the §3 terminator annotation declares the
+/// display intent.
+const FLIPPED_970_PINS: &[(&str, &str, &str)] =
+    &[("b14_exec_stdout_display.mlog", "B14", "HTML_INJECTION")];
+
 /// The row FLIPPED by №965 — the flow edge carries the step-return label
 /// (the confidentiality axis): the pin is a blocking leak-suite negative.
 const FLIPPED_965_PINS: &[(&str, &str, &str)] =
@@ -422,6 +431,50 @@ fn n948_b13_flow_output_integrity_gated() {
         assert!(
             rendered.contains("declare `-> output<public, untrusted>`"),
             "row {} ({}): the refusal must name the idiom form (ADR-0154 §13.8 п.3); got: {}",
+            row,
+            fixture,
+            rendered
+        );
+    }
+}
+
+/// B14 pin — FLIPPED TO THE LEAK-SUITE NEGATIVE by №970 (issue #1974,
+/// form (ii), the owner decision 18.11): the flow edge carries the exec
+/// stdout — the builtin `exec` pipeline step joins `Integrity::Untrusted`
+/// and the №967 gate answers — an UNANNOTATED exec-step flow output
+/// refuses with the frozen print-channel class (HTML_INJECTION), and the
+/// refusal names the idiom form. The annotated positive, the
+/// weaker-claim negative, the no-exec control (zero migration) and the
+/// static-gate check live in `tests/naryad_970_exec_stdout_claim.rs`.
+#[test]
+fn n948_b14_exec_stdout_display_gated() {
+    for (fixture, row, check_id) in FLIPPED_970_PINS {
+        let src = fs::read_to_string(boundary_dir().join(fixture))
+            .unwrap_or_else(|e| panic!("cannot read {}: {}", fixture, e));
+        let result = metalogos::check_program(&src)
+            .unwrap_or_else(|e| panic!("row {}: parse failed — the pin is broken: {}", row, e));
+        let rendered = result
+            .errors
+            .iter()
+            .map(|e| format!("{:?}", e))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains(check_id),
+            "row {} ({}): the unannotated exec-step flow output must refuse with {} (№970 — \
+             the exec stdout is the untrusted channel on the display edge); got: {}",
+            row,
+            fixture,
+            check_id,
+            if rendered.is_empty() {
+                "<no errors — the B14 gate is back to silence>"
+            } else {
+                rendered.as_str()
+            }
+        );
+        assert!(
+            rendered.contains("declare `-> output<public, untrusted>`"),
+            "row {} ({}): the refusal must name the idiom form (the №967 machinery reused); got: {}",
             row,
             fixture,
             rendered

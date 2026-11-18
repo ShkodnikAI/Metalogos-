@@ -301,13 +301,22 @@ document records the checklist; the executor cannot apply it. Settings
 - [ ] **Require status checks to pass before merging** — the required
       set (the job display names as the check-runs API reports them,
       fact-checked against `.github/workflows/ci.yml` and the
-      live-protection API read of 2026-10-28 (№824, issue #1592 —
-      23 required contexts; the earlier reads: 22 on 2026-10-05 (the
+      live-protection API read of 2026-11-18 (№971, issue #1976 —
+      25 required contexts; the earlier reads: 22 on 2026-10-05 (the
       №586 first audit), 27 on 2026-10-26 (the №824 fact — before the
-      owner's №1593 toggle dropped the four pillar contexts)):
+      owner's №1593 toggle dropped the four pillar contexts), 23 on
+      2026-10-28 (№824, issue #1592), 24 on 2026-11-05 (№899, gh#1793 —
+      the release-train-gate); the 25th — the `Red-team gate (blocking
+      on the security class — №961)` context — was ALREADY ENFORCED by
+      the owner's protection toggle between the №961 landing (17.11)
+      and the №969 merge (the gate's success run on the №969 merge SHA
+      `e3a02bee`, `2026-11-17T20:11:03Z`, is the first verifiable
+      enforcement point); №971 only synced the detective records to the
+      live rule):
       `test-lib (blocking)`, `test-integration (blocking)`,
       `crosscheck (blocking)`, `clippy (blocking)`, `fmt (blocking)`,
       `release-train-gate (blocking)` (№899, gh#1793, 2026-11-05 — the calendar-train numbering and the rc↔final SHA gate),
+      `Red-team gate (blocking on the security class — №961)` (№971, issue #1976, 2026-11-18 — the security-class PR merges only with the red-team pass attached; the producing job №961, gh#1928),
 
       `cargo-audit (blocking)`, `cargo-deny (blocking)`,
       `gitleaks (blocking)`, `gate-facts-sync (blocking)`,

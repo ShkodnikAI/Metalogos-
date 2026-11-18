@@ -92,6 +92,7 @@ REQUIRED_CHECKS = [
     "vscode-extension (blocking)",
     "xml-tests (blocking)",
     "release-train-gate (blocking)",  # №899 (issue #1793, 2026-11-05) — the calendar-train gate
+    "Red-team gate (blocking on the security class — №961)",  # №971 (issue #1976) — the security-class red-team pass gate; the owner's toggle verified by the gate's success run on the №969 merge SHA (2026-11-17T20:11:03Z), the live-protection read of 2026-11-18: 25 contexts
 ]
 
 # №960 (issue #1927): WHEN each context became required.
@@ -114,6 +115,14 @@ REQUIRED_CHECKS = [
 # («a context predating its own birth is not a divergence»).
 REQUIRED_SINCE = {
     "release-train-gate (blocking)": "2026-11-05T11:19:45Z",
+    # №971 (issue #1976): the producing job landed on main with №961 —
+    # the commit instant of the workflow change `63c824c7`
+    # (`2026-11-17T04:45:53Z`). The enforcement (the owner's protection
+    # toggle) followed between that landing and the №969 merge — the
+    # gate's success run on the №969 merge SHA (2026-11-17T20:11:03Z) is
+    # the first verifiable enforcement point; the job-birth instant is
+    # the map's honest row per the №960 form above.
+    "Red-team gate (blocking on the security class — №961)": "2026-11-17T04:45:53Z",
 }
 
 

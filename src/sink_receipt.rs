@@ -250,24 +250,18 @@ pub fn external_sink_return(fn_name: &str) -> bool {
 ///   `quarantine_write` — returns the audit text `«[QUARANTINE_EGRESS]
 ///       poisoned value reached the quarantine sink (legal egress with
 ///       audit event, №335; reason: …)»` which interpolates args[1] (the
-///       caller-supplied reason) — `src/builtins/consent.rs`,
-///       `builtin_quarantine_write`. The name keeps its place in
-///       `SINK_RECEIPT_NAMES`: the PAYLOAD (args[0]) must not ride the
-///       return — quarantining a secret and logging the receipt stays
-///       legal (№964/№325, `w1_consent_revoke`). But the echo means a
-///       value passed AS THE REASON arrived at every display sink as
-///       `Label::bottom()` — the laundering path the №977 escalation
-///       named — closed here by the exact class instead of the coarse
-///       two (removing the name re-breaks the motivating false positive;
-///       joining the payload back poisons it).
-///
-/// REMOVAL CONDITION (№983): when the product fix lands — the return
-/// becomes the machine quarantine id, the reason moves into the №335
-/// audit event — this hand is removed BY THAT naryad's PR and the name
-/// re-enters the pure receipt claim. Keeping `from=1` past the fix would
-/// make the rule stricter than the code — the §1 drift, the reverse
-/// direction. The pins in `tests/naryad_980_receipt_echo.rs` name this
-/// condition.
+///       `builtin_quarantine_write` (№983, issue #1997 — the reason
+///       lives in the audit journal on stderr, not in the return). The
+///       name keeps its place in `SINK_RECEIPT_NAMES`: neither the
+///       PAYLOAD (args[0]) nor the REASON (args[1]) rides the return —
+///       quarantining a secret and logging the receipt stays legal
+///       (№964/№325, `w1_consent_revoke`). The №980 echo hand
+///       (`from=1`) that closed the №977 laundering path is RETIRED by
+///       №983 in the same PR that made the split: keeping `from=1`
+///       past the fix would make the rule stricter than the code — the
+///       §1 drift, the reverse direction. The mutation pin (the reason
+///       back in the return → red) now guards the split, and the
+///       №980 pins are flipped by №983 to assert the non-echo.
 ///
 /// Consulted by FOUR lanes, in the same order everywhere — after the
 /// private-field bridge, before `is_sink_receipt`: the static lattice

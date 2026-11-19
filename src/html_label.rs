@@ -10,9 +10,14 @@
 //! and every declared learnable pattern — №201, ADR-0117: the model
 //! output is untrusted text) is a value of the type
 //!
-//!     Labeled(String, Untrusted)
+//! ```text
+//! Labeled(String, Untrusted)
+//! ```
 //!
 //! — the stage-2 label the HTML lane adds to the stage-0 vocabulary.
+//! (№976: the notation block is a ```text fence — rustdoc compiled the
+//! indented form as Rust and the fence broke the doctest build since
+//! 02.10 behind green gates.)
 //! The UserInput KIND of the old machinery (form_data / json_body /
 //! query_param / mcp_call — №268: their policy is NOT the HTML lane's)
 //! mirrors as `Labeled(String, Private)`: distinguishable in

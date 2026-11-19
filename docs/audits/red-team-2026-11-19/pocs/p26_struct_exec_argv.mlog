@@ -1,0 +1,8 @@
+pattern P(d: String) -> String {
+  let u = query_param("q")
+  let rec = { cmd: u }
+  let c = rec.cmd
+  let r = exec_argv(["echo", c])
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

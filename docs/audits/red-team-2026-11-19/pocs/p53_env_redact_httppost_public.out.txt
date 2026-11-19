@@ -1,0 +1,19 @@
+##### SOURCE p53_env_redact_httppost_public.mlog
+profile capability { allow_carrier: "http_post" }
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let r = redact(s, "secrets")
+  let w = http_post("http://example.invalid/hook", r)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+[REDACT][audit-event] redact applied in pattern P — policy 'secrets', target conf 'public'
+OK: no issues found.
+##### CHECK_EXIT=0
+##### RUN (non-routable placeholder example.invalid; secret in POST body)
+[REDACT][audit-event] redact applied in pattern P — policy 'secrets', target conf 'public'
+[REDACT][audit-event] redact applied in pattern P — policy 'secrets', target conf 'public'
+[REDACT][audit-event] redact applied in pattern P — policy 'secrets', target conf 'public'
+error: SSRF guard: DNS resolution failed for 'example.invalid': failed to lookup address information: Name or service not known
+##### RUN_EXIT=1

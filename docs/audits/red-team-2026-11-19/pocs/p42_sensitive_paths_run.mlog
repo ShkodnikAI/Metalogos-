@@ -1,0 +1,5 @@
+pattern P(d: String) -> String {
+  let a = read_file("/tmp/adversary-980/work/.env")
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

@@ -1,0 +1,15 @@
+##### SOURCE p31_flow_output_label_declare.mlog
+pattern P(d: String) -> String {
+  let u = query_param("q")
+  print(u)
+  return u
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }
+##### CHECK
+1 error:
+  1: [HTML_INJECTION] sink clearance violated: argument 0 of print in pattern P carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+##### CHECK_EXIT=1
+##### RUN
+error: Category A security invariant violated:
+[HTML_INJECTION] sink clearance violated: argument 0 of print in pattern P carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+##### RUN_EXIT=1

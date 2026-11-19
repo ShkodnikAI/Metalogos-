@@ -1,0 +1,11 @@
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let xs = ["a", s]
+  let mut acc = ""
+  each x in xs {
+    acc = acc + x
+  }
+  print(acc)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

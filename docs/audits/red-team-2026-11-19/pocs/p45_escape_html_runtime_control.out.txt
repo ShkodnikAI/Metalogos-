@@ -1,0 +1,13 @@
+##### SOURCE p45_escape_html_runtime_control.mlog
+pattern P(d: String) -> String {
+  print(escape_html("<img src=x onerror=alert(1)>"))
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+OK: no issues found.
+##### CHECK_EXIT=0
+##### RUN
+[print] &lt;img src=x onerror=alert(1)&gt;
+x
+##### RUN_EXIT=0

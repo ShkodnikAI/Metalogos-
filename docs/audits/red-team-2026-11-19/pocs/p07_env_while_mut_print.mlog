@@ -1,0 +1,12 @@
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let mut acc = "acc-"
+  let mut i = 0
+  while i < 2 {
+    acc = acc + s
+    i = i + 1
+  }
+  print(acc)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

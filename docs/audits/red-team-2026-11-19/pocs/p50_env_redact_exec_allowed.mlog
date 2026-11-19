@@ -1,0 +1,7 @@
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let r = redact(s, "secrets")
+  let e = exec("echo " + r)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

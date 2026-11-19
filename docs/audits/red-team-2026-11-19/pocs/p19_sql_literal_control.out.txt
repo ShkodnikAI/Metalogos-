@@ -1,0 +1,12 @@
+##### SOURCE p19_sql_literal_control.mlog
+pattern P(d: String) -> String {
+  let r = db_execute("CREATE TABLE IF NOT EXISTS t1 (id INTEGER)")
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+OK: no issues found.
+##### CHECK_EXIT=0
+##### RUN
+error: db_execute() error: no database connection. Declare db { url: "sqlite::memory:" } first.
+##### RUN_EXIT=1

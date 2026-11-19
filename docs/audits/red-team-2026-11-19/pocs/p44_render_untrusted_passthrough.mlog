@@ -1,0 +1,10 @@
+template card(name: String) -> Html {
+  return "<div class='card'>" + name + "</div>"
+}
+pattern P(d: String) -> String {
+  let u = query_param("q")
+  let h = render("card", u)
+  print(h)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

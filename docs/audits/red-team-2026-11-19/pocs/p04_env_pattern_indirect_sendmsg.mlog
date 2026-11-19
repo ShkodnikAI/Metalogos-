@@ -1,0 +1,10 @@
+pattern Leak() -> String {
+  let s = env("SP")
+  return s
+}
+pattern P(d: String) -> String {
+  let s = Leak()
+  let r = send_message("chan-1", s)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

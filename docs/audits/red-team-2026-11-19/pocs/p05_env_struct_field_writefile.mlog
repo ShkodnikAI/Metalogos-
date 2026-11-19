@@ -1,0 +1,7 @@
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let rec = { name: "n1", token: s }
+  let r = write_file("/tmp/adversary-980/work/out1.txt", rec.token)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

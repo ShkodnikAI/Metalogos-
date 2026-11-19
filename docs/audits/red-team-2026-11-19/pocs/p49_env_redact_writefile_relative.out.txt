@@ -1,0 +1,23 @@
+##### SOURCE p49_env_redact_writefile_relative.mlog
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let r = redact(s, "secrets")
+  let w = write_file("leaked-out.txt", r)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+[REDACT][audit-event] redact applied in pattern P — policy 'secrets', target conf 'public'
+OK: no issues found.
+##### CHECK_EXIT=0
+##### RUN
+[REDACT][audit-event] redact applied in pattern P — policy 'secrets', target conf 'public'
+[REDACT][audit-event] redact applied in pattern P — policy 'secrets', target conf 'public'
+[REDACT][audit-event] redact applied in pattern P — policy 'secrets', target conf 'public'
+x
+##### RUN_EXIT=0
+##### EVIDENCE: leaked file content after RUN from cwd /tmp/adversary-980/work
+[REDACT][audit-event] redact applied in pattern P — policy 'secrets', target conf 'public'
+x
+--- cat leaked-out.txt:
+s3cr3t-t0ken-980

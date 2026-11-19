@@ -1,0 +1,12 @@
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let mut out = "safe"
+  if d == "x" {
+    out = s
+  } else {
+    out = "nope"
+  }
+  print(out)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

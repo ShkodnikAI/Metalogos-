@@ -1,0 +1,18 @@
+##### SOURCE p48_env_redact_writefile.mlog
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let r = redact(s, "secrets")
+  let w = write_file("/tmp/adversary-980/work/out3.txt", r)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+[REDACT][audit-event] redact applied in pattern P — policy 'secrets', target conf 'public'
+OK: no issues found.
+##### CHECK_EXIT=0
+##### RUN
+[REDACT][audit-event] redact applied in pattern P — policy 'secrets', target conf 'public'
+[REDACT][audit-event] redact applied in pattern P — policy 'secrets', target conf 'public'
+[REDACT][audit-event] redact applied in pattern P — policy 'secrets', target conf 'public'
+error: [SANDBOX_VIOLATION] file I/O sandbox: absolute paths not allowed: '/tmp/adversary-980/work/out3.txt'
+##### RUN_EXIT=1

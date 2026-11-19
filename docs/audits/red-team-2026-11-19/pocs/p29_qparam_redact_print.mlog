@@ -1,0 +1,7 @@
+pattern P(d: String) -> String {
+  let u = query_param("q")
+  let r = redact(u, "pii")
+  print(r)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

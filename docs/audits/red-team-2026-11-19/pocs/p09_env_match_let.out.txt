@@ -1,0 +1,18 @@
+##### SOURCE p09_env_match_let.mlog
+pattern P(d: String) -> String {
+  let out = match d {
+    a : env("SP"),
+    _ : "nope"
+  }
+  print(out)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+1 error:
+  1: строка 9: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in flow Main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress — the flow output carries a non-public label; the confidentiality half is not declareable on the terminator (№967): redact() in the foreground contour is the sanctioned downward move (№326)
+##### CHECK_EXIT=1
+##### RUN
+error: Category A security invariant violated:
+[PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in flow Main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress — the flow output carries a non-public label; the confidentiality half is not declareable on the terminator (№967): redact() in the foreground contour is the sanctioned downward move (№326)
+##### RUN_EXIT=1

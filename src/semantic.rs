@@ -2110,6 +2110,18 @@ fn expr_label(expr: &Expr, env: &BTreeMap<String, Label>) -> Label {
             if let Some(l) = registry_private_flow_label(name) {
                 return l;
             }
+            // ── №980: a RECEIPT that ECHOES one caller argument — the
+            // return carries THAT argument's label, not bottom and not
+            // the payload join (`sink_receipt::RECEIPT_ECHO_ARGS`, one
+            // table, every lane, the same order). Before the receipt
+            // arm: the wrapper is machinery, the interpolated reason
+            // rides its own label. A missing argument (the 1-arg
+            // quarantine_write) falls through to the pure receipt.
+            if let Some(i) = crate::sink_receipt::receipt_echo_arg(name) {
+                if let Some(a) = args.get(i) {
+                    return expr_label(a, env);
+                }
+            }
             // ── №964: a SINK's value is a RECEIPT, not the payload.
             // After the private-field bridge (a typed struct return
             // declares its own field labels and those win) and before the

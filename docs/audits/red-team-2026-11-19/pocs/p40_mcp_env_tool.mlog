@@ -1,0 +1,7 @@
+tool EnvTools {
+  peek(d: String) -> String {
+    let s = env("SP")
+    return s
+  }
+}
+flow Main { input: String = "x" -> print -> output }

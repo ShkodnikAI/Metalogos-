@@ -1,0 +1,12 @@
+##### SOURCE p36_gitpush_nogrant.mlog
+pattern P(d: String) -> String {
+  let r = git_push("http://example.invalid/repo.git")
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+OK: no issues found.
+##### CHECK_EXIT=0
+##### RUN
+error: IRREVERSIBLE_NO_GRANT: capability gate: 'git_push' is an irreversible carrier — no covering capability grant (issue one with scope "builtin:git_push" or wider), no 'profile capability { allow_carrier: "git_push" }' permit; the refusal is BEFORE the action (ADR-0203 §2.4, №845 — fail-closed, the profile cannot weaken the GrantAlways classes)
+##### RUN_EXIT=1

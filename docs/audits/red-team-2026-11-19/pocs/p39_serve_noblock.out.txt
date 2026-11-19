@@ -1,0 +1,16 @@
+##### SOURCE p39_serve_noblock.mlog (serve invocation)
+pattern P(d: String) -> String {
+  return d
+}
+flow Main { input: String = "x" -> P -> print -> output }
+##### CHECK
+OK: no issues found.
+##### CHECK_EXIT=0
+##### SERVE (no mlogserver block)
+[serve] exec context: strict-by-default (Naryad #457) — unmarked threads are serve-route; top-level registration keeps the process context
+[mlog serve] tokio runtime: 4 worker thread(s)
+[serve] route exec: denied (set METALOGOS_SERVE_ALLOW_EXEC=1 to allow exec() in route bodies)
+[serve] route env: denied (set METALOGOS_SERVE_ALLOW_ENV=1 to allow all env() reads in route bodies, or METALOGOS_ENV_ALLOWLIST="NAME1,NAME2" for specific variables)
+[serve] LLM UNCONFIGURED — every LLM call will refuse at the first call (№898). Configure one of: METALOGOS_LLM_PROVIDER (+ METALOGOS_API_KEY), METALOGOS_OPENAI_BASE_URL, an llm { providers: [...] } block in the program — or opt in explicitly to the deterministic offline mock with METALOGOS_MOCK_LLM=1. The /health x-llm-mode header carries: unconfigured
+error: no mlogserver block found in source
+##### SERVE_EXIT=0

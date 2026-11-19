@@ -1,0 +1,22 @@
+##### SOURCE p40_mcp_env_tool.mlog
+tool EnvTools {
+  peek(d: String) -> String {
+    let s = env("SP")
+    return s
+  }
+}
+flow Main { input: String = "x" -> print -> output }
+
+##### CHECK
+OK: no issues found.
+ 
+##### CHECK_EXIT=0
+##### MCP-DRIVE (deny case, no METALOGOS_SERVE_ALLOW_ENV); SP is set in the environment
+STDERR: [mcp-serve] exec context: strict-by-default (Naryad #457 + #477) — unmarked threads are serve-route; tool calls keep their explicit guard, top-level registration keeps the process context
+[mcp-serve] exposing 1 tool(s): EnvTools.peek
+[mcp-serve] tool env: deny (set METALOGOS_SERVE_ALLOW_ENV=1 or METALOGOS_ENV_ALLOWLIST to allow); tool exec: denied
+[MCP_TOOL_ERROR] EnvTools.peek id=err-000001: [ENV_NOT_PERMITTED] env("SP") is denied in serve route handlers and MCP tool methods. In route bodies and tool methods set METALOGOS_SERVE_ALLOW_ENV=1 to allow all env reads, or add the variable name to METALOGOS_ENV_ALLOWLIST="NAME1,NAME2" to allow specific variables (Naryad #259).
+
+OUT: {"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{}},"protocolVersion":"2024-11-05","serverInfo":{"name":"metalogos-mcp-server","version":"0.40.0"}}}
+OUT: {"id":null,"jsonrpc":"2.0","result":{}}
+OUT: {"id":3,"jsonrpc":"2.0","result":{"content":[{"text":"Error (id: err-000001) — the full text is in the server log (№955)","type":"text"}],"isError":true}}

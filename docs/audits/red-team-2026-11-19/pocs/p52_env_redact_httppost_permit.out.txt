@@ -1,0 +1,19 @@
+##### SOURCE p52_env_redact_httppost_permit.mlog
+profile capability { allow_carrier: "http_post" }
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let r = redact(s, "secrets")
+  let w = http_post("http://127.0.0.1:9/hook", r)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+[REDACT][audit-event] redact applied in pattern P — policy 'secrets', target conf 'public'
+OK: no issues found.
+##### CHECK_EXIT=0
+##### RUN (capability permit present; target 127.0.0.1:9 placeholder)
+[REDACT][audit-event] redact applied in pattern P — policy 'secrets', target conf 'public'
+[REDACT][audit-event] redact applied in pattern P — policy 'secrets', target conf 'public'
+[REDACT][audit-event] redact applied in pattern P — policy 'secrets', target conf 'public'
+error: SSRF guard: URL 'http://127.0.0.1:9/hook' resolves to 127.0.0.1 which is a private/loopback/link-local or otherwise reserved address — outgoing requests to internal networks are blocked. Set METALOGOS_HTTP_ALLOW_PRIVATE=1 to disable this protection.
+##### RUN_EXIT=1

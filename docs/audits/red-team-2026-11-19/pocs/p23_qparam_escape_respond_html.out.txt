@@ -1,0 +1,14 @@
+##### SOURCE p23_qparam_escape_respond_html.mlog
+pattern P(d: String) -> String {
+  let u = query_param("q")
+  let e = escape_html(u)
+  let w = respond_html(e)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+OK: no issues found.
+##### CHECK_EXIT=0
+##### RUN
+x
+##### RUN_EXIT=0

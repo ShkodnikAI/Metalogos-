@@ -1,0 +1,16 @@
+##### SOURCE p03_env_concat_websearch.mlog
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let q = "token=" + s
+  let r = web_search(q)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+1 error:
+  1: [PII_EGRESS_NETWORK] sink clearance violated: argument 0 of web_search in pattern P carries label 'private, trusted'; sinks require public — web_search is classified source/network/pure (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+##### CHECK_EXIT=1
+##### RUN
+error: Category A security invariant violated:
+[PII_EGRESS_NETWORK] sink clearance violated: argument 0 of web_search in pattern P carries label 'private, trusted'; sinks require public — web_search is classified source/network/pure (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+##### RUN_EXIT=1

@@ -1,0 +1,20 @@
+##### SOURCE p29_qparam_redact_print.mlog
+pattern P(d: String) -> String {
+  let u = query_param("q")
+  let r = redact(u, "pii")
+  print(r)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+[REDACT][audit-event] redact applied in pattern P — policy 'pii', target conf 'private'
+2 errors:
+  1: [HTML_INJECTION] sink clearance violated: argument 0 of print in pattern P carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+  2: строка 7: [HTML_INJECTION] sink clearance violated: argument 0 of print in flow Main carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress — the flow output carries 'public, untrusted'; declare `-> output<public, untrusted>` if the display is intended (ADR-0154 §13.4 form (а))
+##### CHECK_EXIT=1
+##### RUN
+[REDACT][audit-event] redact applied in pattern P — policy 'pii', target conf 'private'
+error: Category A security invariant violated:
+[HTML_INJECTION] sink clearance violated: argument 0 of print in pattern P carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+[HTML_INJECTION] sink clearance violated: argument 0 of print in flow Main carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress — the flow output carries 'public, untrusted'; declare `-> output<public, untrusted>` if the display is intended (ADR-0154 §13.4 form (а))
+##### RUN_EXIT=1

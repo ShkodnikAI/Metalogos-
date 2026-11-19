@@ -1,0 +1,18 @@
+##### SOURCE p44_render_untrusted_passthrough.mlog
+template card(name: String) -> Html {
+  return "<div class='card'>" + name + "</div>"
+}
+pattern P(d: String) -> String {
+  let u = query_param("q")
+  let h = render("card", u)
+  print(h)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+OK: no issues found.
+##### CHECK_EXIT=0
+##### RUN
+[SINK_CLEARANCE][audit-event] [SINK_CLEARANCE_RUNTIME] sink clearance violated at runtime: print argument #0 carries label 'public, untrusted' (line 0) — the value-label second line (№952); deny reason class: HTML_INJECTION
+error: [SINK_CLEARANCE_RUNTIME] sink clearance violated at runtime: print argument #0 carries label 'public, untrusted' (line 0) — the value-label second line (№952); deny reason class: HTML_INJECTION
+##### RUN_EXIT=1

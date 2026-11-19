@@ -1,0 +1,6 @@
+profile capability { allow_carrier: "git_push" }
+pattern P(d: String) -> String {
+  let r = git_push("http://example.invalid/repo.git")
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

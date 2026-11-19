@@ -1,0 +1,16 @@
+##### SOURCE p16_sql_qparam_concat.mlog
+pattern P(d: String) -> String {
+  let u = query_param("q")
+  let sql = "SELECT * FROM users WHERE name = '" + u + "'"
+  let r = db_execute(sql)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+1 error:
+  1: строка 1: [SQL_DYNAMIC] SQL injection risk — db_execute() with non-literal SQL at argument 0 (sql)
+##### CHECK_EXIT=1
+##### RUN
+error: Category A security invariant violated:
+[SQL_DYNAMIC] SQL injection risk — db_execute() with non-literal SQL at argument 0 (sql)
+##### RUN_EXIT=1

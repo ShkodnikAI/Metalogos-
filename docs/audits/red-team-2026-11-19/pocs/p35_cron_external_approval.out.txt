@@ -1,0 +1,17 @@
+##### SOURCE p35_cron_external_approval.mlog
+pattern P(d: String) -> String {
+  let r = cron_run("job1")
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### APPROVE CLI STEP
+approved: actor='redteam-alice' target='carrier:cron_run' actor_verified=true window=[1795094835, 1795098435) ttl=3600s
+store: /tmp/adversary-980/work/mandates.json
+the counted class of the human-oversight coverage (ADR-0211 §3); revoke with approval_revoke (a program) or by deleting the store row — a revoked mandate never revives
+##### APPROVE_EXIT=0
+##### CHECK
+OK: no issues found.
+##### CHECK_EXIT=0
+##### RUN (with external mandate)
+x
+##### RUN_EXIT=0

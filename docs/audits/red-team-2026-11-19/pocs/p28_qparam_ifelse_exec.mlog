@@ -1,0 +1,12 @@
+pattern P(d: String) -> String {
+  let u = query_param("q")
+  let mut c = "echo safe"
+  if d == "x" {
+    c = u
+  } else {
+    c = "echo safe"
+  }
+  let r = exec(c)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

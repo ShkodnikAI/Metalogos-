@@ -186,9 +186,10 @@ pub(crate) fn consent_revoke_dispatch(
 }
 
 /// `quarantine_write(value, reason?)` — the quarantine sink: the ONLY
-/// legal egress for a poisoned value. Returns the audit-event text (the
+/// legal egress for a poisoned value. Returns a MACHINE ID of the
 /// program-visible half of the event; the static half is the
-/// QUARANTINE_EGRESS audit finding + stderr line, №326 posture).
+/// quarantine record; the reason goes to the audit journal on stderr
+/// (the №326 unconditional event), not into the return — №983.
 pub(crate) fn builtin_quarantine_write(args: &[Value]) -> Result<Value, String> {
     let fn_name = "quarantine_write";
     if args.is_empty() || args.len() > 2 {
@@ -209,10 +210,32 @@ pub(crate) fn builtin_quarantine_write(args: &[Value]) -> Result<Value, String> 
             ))
         }
     };
-    Ok(Value::String(format!(
-        "[QUARANTINE_EGRESS] poisoned value reached the quarantine sink (legal egress with audit event, №335; reason: {})",
-        reason
-    )))
+    // №983 (issue #1997): the receipt is a MACHINE ID, not the echoed
+    // reason. The reason belongs to the audit journal (№335/№326 — the
+    // unconditional event), not to the return value: the old body
+    // merged two roles into one string, and the label rule had to grow
+    // a special hand (`RECEIPT_ECHO_ARGS`, `from=1`, №980) to keep the
+    // echo from laundering. With the echo gone the hand is removed (the
+    // same PR) and the receipt table is honest by the new body. The id
+    // is process-scoped (the sidecar/posture is in-process — the
+    // inter-process quarantine ledger is a separate owner decision).
+    static QRT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = QRT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let id = format!(
+        "qrt-{}-{:04}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        seq
+    );
+    // The reason travels to the AUDIT JOURNAL — the unconditional №326
+    // event, on stderr with the audit-event convention. A program that
+    // needs the reason reads the journal, not the receipt.
+    eprintln!(
+        "[QUARANTINE_EGRESS][audit-event] quarantine record {id} written (legal egress with audit event, №335; reason: {reason})"
+    );
+    Ok(Value::String(id))
 }
 
 /// `consent_ledger_export(path)` — dump the ledger as JSON to a

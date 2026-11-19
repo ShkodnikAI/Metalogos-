@@ -275,7 +275,12 @@ pub fn external_sink_return(fn_name: &str) -> bool {
 /// the VM runtime (`vm.rs::builtin_result_label`) and the typed secret
 /// lane (`secret_label::label_of_expr`). One table, no island (§2): the
 /// same consult order is the same verdict.
-pub const RECEIPT_ECHO_ARGS: &[(&str, usize)] = &[("quarantine_write", 1)];
+// №983: the table is EMPTY — the only entry (`quarantine_write`, `from=1`)
+/// was removed in the same PR that gave the receipt a machine id (issue
+/// #1997): the echo no longer exists, so the hand has nothing to guard.
+/// The table stays as the form for any future receipt that legitimately
+/// echoes an argument, with the removal condition named at the entry.
+pub const RECEIPT_ECHO_ARGS: &[(&str, usize)] = &[];
 
 /// The index of the argument the receipt ECHOES, or `None` when the
 /// return is a pure receipt. Guarded by the live registry like

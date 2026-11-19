@@ -932,3 +932,42 @@ confidentiality a sensitive path carries.
   record): each removed → exactly that lane's trusted-lift pin reddens, restore
   byte-identical.
 - ADR-0154 §14 (Proposed) — the principle and the measured boundary.
+
+## 0.40.x → next (№983 — the quarantine receipt is a machine id, BREAKING)
+
+> **The version line:** the row lands after the 0.40.x cut; the section number follows the
+> release-train numbering at publication.
+
+### What changed
+
+`quarantine_write(value, reason?)` used to return the audit text
+`«[QUARANTINE_EGRESS] … (reason: …)»` — the receipt and the echo of the reason in one
+string, which is why the label engine carried a special hand (№980's `from=1`). The product
+fix (issue #1997): the return is the quarantine record's **machine id** `qrt-<unix>-<seq>`;
+the reason travels to the audit journal — the unconditional №326 event on stderr, which now
+carries the record id too.
+
+| Since | The return | The reason |
+|---|---|---|
+| before | `[QUARANTINE_EGRESS] poisoned value … (reason: …)` | in the return (and laundered as bottom without the №980 hand) |
+| the №983 merge | `qrt-<unix>-<seq>` | in the stderr audit journal only |
+
+### The migration
+
+1. **A program that parses the audit text breaks.** If you displayed or matched on the
+   `[QUARANTINE_EGRESS] …` return, switch to: the machine id for correlation, and the
+   operator's log/audit pipeline for the reason (the №326 event carries both the id and the
+   reason).
+2. **A program that just logged the receipt keeps working** — the receipt is still a String,
+   still carries nothing sensitive (№983 makes that claim by the BODY, not by a label hand).
+3. The quarantine sink's legality is unchanged (№325/№964 — the sanctioned egress); the
+   label semantics for the payload and the reason are unchanged from the №980 verdicts —
+   only the ECHO is gone.
+
+### Pinned by
+
+- `tests/naryad_983_quarantine_machine_id.rs` — the machine-id format on BOTH backends, the
+  stderr journal (the reason + the record id), the secret-reason journal route.
+- `tests/naryad_980_receipt_echo.rs` + `_runtime.rs` — flipped to assert the NON-echo (the
+  hand's removal condition fired; the pins document the honest mutation mapping).
+- `scripts/mutation_verify_983.sh` — the reason back in the return → the format pin reddens.

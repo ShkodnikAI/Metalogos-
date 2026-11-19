@@ -226,11 +226,13 @@ flow Main { input: String = "d" -> P -> output }
     metalogos::compile_program(src.trim())
         .unwrap_or_else(|e| panic!("quarantine sink must be legal, got: {}", e));
     let out = run_tw(src, Path::new(MANIFEST)).expect("quarantine sink runs");
+    // №983: the receipt is the MACHINE ID of the quarantine record; the
+    // audit event moved to the stderr journal (the №326 unconditional
+    // event) — the output carries the id, not the audit text.
     assert!(
-        out.as_deref()
-            .unwrap_or_default()
-            .contains("[QUARANTINE_EGRESS]"),
-        "the program output carries the audit event, got: {:?}",
+        out.as_deref().unwrap_or_default().starts_with("qrt-"),
+        "the program output carries the quarantine record's machine id \
+         (№983), got: {:?}",
         out
     );
 }
@@ -318,7 +320,9 @@ flow Main { input: String = "d" -> P -> output }
 fn w1_consent_revoke_example_passes_on_tw_and_vm() {
     let src = std::fs::read_to_string(Path::new(MANIFEST).join("examples/w1_consent_revoke.mlog"))
         .expect("fixture exists");
-    let expected_head = "[QUARANTINE_EGRESS] poisoned value reached the quarantine sink";
+    // №983: the receipt is the machine id on BOTH backends; the audit
+    // text is retired (the reason rides the stderr journal — pinned in
+    // tests/naryad_983_quarantine_machine_id.rs).
     let out_tw = run_tw(&src, Path::new(MANIFEST))
         .unwrap_or_else(|e| panic!("w1_consent_revoke must run on TW: {}", e));
     assert!(
@@ -326,7 +330,7 @@ fn w1_consent_revoke_example_passes_on_tw_and_vm() {
             .as_deref()
             .unwrap_or_default()
             .trim_end()
-            .starts_with(expected_head),
+            .starts_with("qrt-"),
         "got: {:?}",
         out_tw
     );
@@ -337,7 +341,7 @@ fn w1_consent_revoke_example_passes_on_tw_and_vm() {
             .as_deref()
             .unwrap_or_default()
             .trim_end()
-            .starts_with(expected_head),
+            .starts_with("qrt-"),
         "got: {:?}",
         out_vm
     );

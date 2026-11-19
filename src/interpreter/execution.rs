@@ -2168,7 +2168,15 @@ impl Interpreter {
                 // `--allow-unchecked` opt-out must silence it here too (the
                 // contract: NO gates for this test run; the banner is the
                 // witness, the leak pins fail on their own asserts).
-                if !self.runtime_label_gate_off && crate::runtime_labels::is_gated_dispatch(name) {
+                // №982: the walk's labels are captured here and, after
+                // the arguments are evaluated, feed the store-label
+                // sidecar's record — the arm head is the ONE point where
+                // both halves exist (the pre-eval gate below sees only
+                // labels; the registry site sees only values).
+                let gate_arg_labels: Option<Vec<crate::labels::Label>> = if !self
+                    .runtime_label_gate_off
+                    && crate::runtime_labels::is_gated_dispatch(name)
+                {
                     let arg_labels: Vec<crate::labels::Label> =
                         args.iter().map(|a| self.label_of_expr(a, 0)).collect();
                     crate::runtime_labels::gate_labels_only(
@@ -2176,7 +2184,10 @@ impl Interpreter {
                         &arg_labels,
                         self.egress_advisory,
                     )?;
-                }
+                    Some(arg_labels)
+                } else {
+                    None
+                };
                 let mut eval_args = Vec::new();
                 for (i, arg) in args.iter().enumerate() {
                     // Наряд №115: render(TemplateName, ...) — bare Ident is the template name
@@ -2264,6 +2275,18 @@ impl Interpreter {
                         }
                     }
                     eval_args.push(self.eval_expr_with_env(arg, env)?);
+                }
+
+                // №982: the store-label sidecar's record — both halves
+                // exist here: the walk's labels (captured at the arm
+                // head) and the evaluated values (the keys). The
+                // store-write names record what went IN; the read-back
+                // consults the same table (the lookups ride
+                // `source_return_label` on the VM and
+                // `store_lookup_recorded` in this walk's arm). Recording
+                // only — the clearance check above is unchanged.
+                if let Some(labels) = &gate_arg_labels {
+                    crate::runtime_labels::record_store_write(name, &eval_args, labels);
                 }
 
                 // Наряд №179b: reflex_train / reflex_predict need interpreter

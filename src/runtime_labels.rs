@@ -82,7 +82,12 @@ pub fn source_return_label(fn_name: &str, args: &[crate::interpreter::values::Va
         | "html_select" | "html_text" | "html_links" | "feed_parse" | "sitemap_parse"
         | "xml_parse" => kind_label("UserInput"),
         // №325: network/file ingress — untrusted; read_file keeps the
-        // №455 sensitive-path rule with the REAL argument value.
+        // №455 sensitive-path rule with the REAL argument value, and
+        // since №982 consults the file stream of the store-label
+        // sidecar FIRST: a recorded write of THIS path rides the
+        // read-back (the stored label — a trusted own-config write
+        // reads back trusted); no record = the №325 ingress default
+        // (the file outlives the process — someone outside wrote it).
         "http_get" => kind_label("UserInput"),
         "read_file" | "read_file_tokens" => {
             let sensitive = args.first().and_then(|v| match v {
@@ -93,6 +98,8 @@ pub fn source_return_label(fn_name: &str, args: &[crate::interpreter::values::Va
             });
             if sensitive.unwrap_or(false) {
                 private_trusted()
+            } else if let Some(path) = store_key_from_args(args) {
+                store_get_return_label("file", &path)
             } else {
                 kind_label("UserInput")
             }
@@ -103,43 +110,177 @@ pub fn source_return_label(fn_name: &str, args: &[crate::interpreter::values::Va
             // floor stays bottom (the №951 owner decision).
             kv_label_lookup_from_args(args)
         }
+        // №982: the store axis of the sidecar — the recorded label
+        // rides the read-back; no record → `bottom` (the №951 owner
+        // decision: an unwritten key is not untrusted data). The
+        // stream tags keep mem, session and kv from sharing labels
+        // across their store boundaries. THE SIGNATURES DIFFER:
+        // mem_get(key) takes the key at #0, session_get(sid, key) at
+        // #1 — the per-name index is part of the arm.
+        "mem_get" | "mem_get_or" => match store_key_from_args(args) {
+            Some(k) => store_get_return_label("mem", &k),
+            None => Label::bottom(),
+        },
+        "session_get" | "session_get_or" => match args.get(1).and_then(|v| match v {
+            crate::interpreter::values::Value::String(s) => Some(s.clone()),
+            _ => None,
+        }) {
+            Some(k) => store_get_return_label("session", &k),
+            None => Label::bottom(),
+        },
         _ => Label::bottom(),
     }
 }
 
-// ── The KV label sidecar (the №952 kv round-trip contract) ───────────
+// ── The STORE label sidecar (№952's kv contract, generalized by №982) ─
 //
-// `kv_set(key, value)` records the value's runtime label under the key;
-// `kv_get(key)` returns the stored label joined over the class floor.
-// The store is process-wide (the same static KV_STORE the handlers use),
-// so the label survives the round-trip on BOTH backends and across
-// pattern frames — the «kv/mem/сессии в пределах процесса сохраняют»
-// clause of ADR-0156 §5.
+// The owner's 19.11 decision (issue #1996): the sidecar is the ONE
+// mechanism for label persistence through storage — no write gate. One
+// table, stream-tagged keys, the same record point in every runtime
+// lane, the same lookup point in `source_return_label`. The miss
+// default is PER STREAM: the kv/mem/session stores answer `bottom` (the
+// №951 owner decision — an unwritten key is not untrusted data), the
+// file stream answers `public, untrusted` (the sidecar is in-process;
+// a file nobody in THIS process wrote was written by someone outside —
+// that is the definition of untrusted, and the same default the №325
+// ingress rule already applies). The kv stream keeps its historical
+// bare keys (its records predate the streams).
+//
+// THE MEASURED BOUNDARY (named in the PR, not hidden): the sidecar lives
+// in the process — a write in one run and a read in another share
+// nothing. The inter-process form stays open, recorded as the
+// threat-model residual (№982).
 
 fn kv_label_table() -> &'static Mutex<HashMap<String, Label>> {
     static KV_LABELS: OnceLock<Mutex<HashMap<String, Label>>> = OnceLock::new();
     KV_LABELS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Record the label a value carried INTO the kv store (kv_set, the
-/// dispatch wrapper calls this with the computed argument label).
-pub fn kv_label_record(key: &str, label: &Label) {
+/// Record the label a value carried INTO the store (the dispatch
+/// wrappers call this with the computed argument label; the empty
+/// stream tag is the kv stream's historical bare-key form).
+pub fn store_label_record(stream: &str, key: &str, label: &Label) {
+    let tagged = if stream.is_empty() {
+        key.to_string()
+    } else {
+        format!("{stream}:{key}")
+    };
     if let Ok(mut t) = kv_label_table().lock() {
-        t.insert(key.to_string(), label.clone());
+        t.insert(tagged, label.clone());
     }
 }
 
-fn kv_label_lookup_from_args(args: &[crate::interpreter::values::Value]) -> Label {
-    let key = args.first().and_then(|v| match v {
+/// The full label of a store read-back: the recorded label if this
+/// process wrote the value, else the stream's default — `bottom` for
+/// the stores, `public, untrusted` for the file stream.
+pub fn store_get_return_label(stream: &str, key: &str) -> Label {
+    let tagged = if stream.is_empty() {
+        key.to_string()
+    } else {
+        format!("{stream}:{key}")
+    };
+    match kv_label_table()
+        .lock()
+        .ok()
+        .and_then(|t| t.get(&tagged).cloned())
+    {
+        Some(l) => l,
+        None if stream == "file" => kind_label("UserInput"),
+        None => Label::bottom(),
+    }
+}
+
+fn store_key_from_args(args: &[crate::interpreter::values::Value]) -> Option<String> {
+    args.first().and_then(|v| match v {
         crate::interpreter::values::Value::String(s) => Some(s.clone()),
         _ => None,
-    });
-    match key {
-        Some(k) => kv_label_table()
-            .lock()
-            .ok()
-            .and_then(|t| t.get(&k).cloned())
-            .unwrap_or_else(Label::bottom),
+    })
+}
+
+/// №982: record the label a value carried INTO a store (kv/mem/session)
+/// or a file (write_file/append_file). The dispatch gates call this with
+/// the evaluated values (the keys) and the walk's labels (the stored
+/// labels) — the one point where BOTH halves exist. THE SIGNATURES ARE
+/// PART OF THE TABLE: kv_set(key, value) — the key at #0;
+/// mem_set(key, value) — #0; session_set(sid, key, value) — the KEY at
+/// #1, the VALUE at #2; write_file/append_file(path, content) — the
+/// path at #0. Recording only — NO WRITE GATE (the owner's 19.11
+/// decision, issue #1996): the refusal behavior lives in the clearance
+/// check, unchanged.
+pub fn record_store_write(
+    name: &str,
+    values: &[crate::interpreter::values::Value],
+    labels: &[Label],
+) {
+    let (stream, key_idx, val_idx): (&str, usize, usize) = if name == crate::recipe_ops::NAME_KV_SET
+    {
+        ("", 0, 1)
+    } else {
+        match name {
+            "mem_set" => ("mem", 0, 1),
+            "session_set" => ("session", 1, 2),
+            "write_file" | "append_file" => ("file", 0, 1),
+            _ => return,
+        }
+    };
+    if let (Some(crate::interpreter::values::Value::String(key)), Some(label)) =
+        (values.get(key_idx), labels.get(val_idx))
+    {
+        store_label_record(stream, key, label);
+    }
+}
+
+/// №982: the recorded-label lookup for a store read — `Some` ONLY when
+/// THIS process recorded a label for the key (the lift: a trusted
+/// own-config write reads back trusted); `None` on a miss — the caller
+/// keeps its conservative default (the static source table on the TW
+/// lane, the per-stream defaults in `source_return_label` on the VM
+/// lane). The №455 sensitive-path verdict is NEVER lifted: a recorded
+/// label cannot lower the confidentiality a sensitive path carries.
+pub fn store_lookup_recorded(name: &str, args: &[crate::ast::Expr]) -> Option<Label> {
+    // The walk's arguments are EXPRESSIONS — the runtime key exists only
+    // for a LITERAL argument; a computed key keeps the conservative
+    // static default (which matches the VM's miss verdict exactly, so
+    // the two lanes never disagree on the class).
+    let literal = |i: usize| -> Option<String> {
+        args.get(i).and_then(|a| match a {
+            crate::ast::Expr::StringLit { value, .. } => Some(value.clone()),
+            _ => None,
+        })
+    };
+    let (stream, key): (&str, String) = match name {
+        "kv_get" => ("", literal(0)?),
+        "mem_get" | "mem_get_or" => ("mem", literal(0)?),
+        "session_get" | "session_get_or" => ("session", literal(1)?),
+        "read_file" | "read_file_tokens" => {
+            let path = literal(0)?;
+            if crate::builtins::io::sensitive_path_match(&path) {
+                return None;
+            }
+            ("file", path)
+        }
+        _ => return None,
+    };
+    let tagged = if stream.is_empty() {
+        key
+    } else {
+        format!("{stream}:{key}")
+    };
+    kv_label_table()
+        .lock()
+        .ok()
+        .and_then(|t| t.get(&tagged).cloned())
+}
+
+/// Record the label a value carried INTO the kv store (kv_set, the
+/// dispatch wrapper calls this with the computed argument label).
+pub fn kv_label_record(key: &str, label: &Label) {
+    store_label_record("", key, label);
+}
+
+fn kv_label_lookup_from_args(args: &[crate::interpreter::values::Value]) -> Label {
+    match store_key_from_args(args) {
+        Some(k) => store_get_return_label("", &k),
         None => Label::bottom(),
     }
 }

@@ -1022,13 +1022,11 @@ impl Vm {
         if !crate::runtime_labels::is_gated_dispatch(name) {
             return Ok(());
         }
-        if name == crate::recipe_ops::NAME_KV_SET {
-            if let (Some(crate::interpreter::values::Value::String(key)), Some(label)) =
-                (args.first(), arg_labels.get(1))
-            {
-                crate::runtime_labels::kv_label_record(key, label);
-            }
-        }
+        // №982: the sidecar's record — the shared helper (the same
+        // table, the same per-name signature indices as the TW lane's
+        // arm-head record). NO WRITE GATE — the owner's 19.11 decision
+        // (issue #1996).
+        crate::runtime_labels::record_store_write(name, args, arg_labels);
         for (i, value) in args.iter().enumerate() {
             let walk_label = arg_labels.get(i).cloned().unwrap_or_default();
             let label = walk_label.join(&Self::variant_floor(value));

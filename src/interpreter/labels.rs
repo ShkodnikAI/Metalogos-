@@ -182,6 +182,18 @@ impl Interpreter {
             }
             return acc;
         }
+        // ── №982: the store-label sidecar's LOOKUP — the RECORDED
+        // label is the more specific fact and wins over the static
+        // conservative default (`label_source` below answers only on a
+        // miss): a trusted own-config write reads back trusted (the lift: a trusted own-config write reads
+        // back trusted; the №455 sensitive-path verdict is never
+        // lifted). A miss keeps the static verdict — the VM lane
+        // reaches the same table through
+        // `runtime_labels::source_return_label` with the same
+        // per-stream miss defaults.
+        if let Some(l) = crate::runtime_labels::store_lookup_recorded(name, args) {
+            return l;
+        }
         if let Some(l) = crate::semantic::label_source(name, args, &self.label_env_for(overlay)) {
             return l;
         }
@@ -375,15 +387,6 @@ impl Interpreter {
             return Ok(());
         }
         // The kv round-trip contract: record the label the value carried
-        // INTO the store (the ADR-0156 §5 «kv в пределах процесса
-        // сохраняют» clause).
-        if name == crate::recipe_ops::NAME_KV_SET {
-            if let (Some(crate::interpreter::values::Value::String(key_str)), Some(label)) =
-                (arg_values.first(), arg_labels.get(1))
-            {
-                crate::runtime_labels::kv_label_record(key_str, label);
-            }
-        }
         for (i, value) in arg_values.iter().enumerate() {
             let walk_label = arg_labels.get(i).cloned().unwrap_or_else(Label::bottom);
             let label = walk_label.join(&Self::value_variant_label(value));

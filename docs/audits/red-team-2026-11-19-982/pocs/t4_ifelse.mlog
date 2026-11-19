@@ -1,0 +1,4 @@
+flow Main {
+  let a = "x"
+  if a == "x" { print("yes") } else { print("no") }
+}

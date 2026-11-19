@@ -1,0 +1,6 @@
+error: parse error:  --> 2:3
+  |
+2 |   let l = ["a", "b"]
+  |   ^---
+  |
+  = expected flow_pipeline

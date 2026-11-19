@@ -1,0 +1,3 @@
+[SINK_CLEARANCE][audit-event] [SINK_CLEARANCE_RUNTIME] sink clearance violated at runtime: exec argument #0 carries label 'public, untrusted' (line 0) — the value-label second line (№952); deny reason class: UNTRUSTED_EXEC_DECISION
+error: [SINK_CLEARANCE_RUNTIME] sink clearance violated at runtime: exec argument #0 carries label 'public, untrusted' (line 0) — the value-label second line (№952); deny reason class: UNTRUSTED_EXEC_DECISION
+exit=1

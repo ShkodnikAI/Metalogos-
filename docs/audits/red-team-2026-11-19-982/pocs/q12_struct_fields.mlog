@@ -1,0 +1,13 @@
+pattern PName(d: String) -> String {
+  let q = query_param("q")
+  let m = { name: q, tag: "t" }
+  respond_html(m.name)
+  return "ok"
+}
+pattern PTag(d: String) -> String {
+  let q = query_param("q")
+  let m = { name: q, tag: "t" }
+  respond_html(m.tag)
+  return "ok"
+}
+flow Main { input: String = "x" -> PName -> PTag -> output<public, untrusted> }

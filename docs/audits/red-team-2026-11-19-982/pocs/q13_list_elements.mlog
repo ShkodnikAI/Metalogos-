@@ -1,0 +1,13 @@
+pattern PFirst(d: String) -> String {
+  let q = query_param("q")
+  let l = [q, "safe"]
+  respond_html(l[0])
+  return "ok"
+}
+pattern PSecond(d: String) -> String {
+  let q = query_param("q")
+  let l = [q, "safe"]
+  respond_html(l[1])
+  return "ok"
+}
+flow Main { input: String = "x" -> PFirst -> PSecond -> output<public, untrusted> }

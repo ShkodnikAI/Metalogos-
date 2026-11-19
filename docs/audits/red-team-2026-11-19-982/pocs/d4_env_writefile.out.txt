@@ -1,0 +1,3 @@
+2 errors:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed to write_file()
+  2: [SECRET_LEAK] sink clearance violated: argument 1 of write_file in pattern P carries label 'private, trusted'; sinks require public — write_file is classified sink/internal/reversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress

@@ -1,0 +1,16 @@
+pattern P(d: String) -> String {
+  let a1 = to_json("a")
+  let a2 = from_json("a")
+  let a3 = parse_json("a")
+  let a4 = stringify("a")
+  let a5 = json_encode("a")
+  let a6 = json_decode("a")
+  let a7 = encode_json("a")
+  let a8 = decode_json("a")
+  let a9 = to_string("a")
+  let a10 = str("a")
+  let a11 = text("a")
+  let a12 = number("1")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

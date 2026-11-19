@@ -1,0 +1,3 @@
+[SINK_CLEARANCE][audit-event] [SINK_CLEARANCE_RUNTIME] sink clearance violated at runtime: respond_html argument #0 carries label 'public, untrusted' (line 0) — the value-label second line (№952); deny reason class: HTML_INJECTION
+error: [SINK_CLEARANCE_RUNTIME] sink clearance violated at runtime: respond_html argument #0 carries label 'public, untrusted' (line 0) — the value-label second line (№952); deny reason class: HTML_INJECTION
+exit=1

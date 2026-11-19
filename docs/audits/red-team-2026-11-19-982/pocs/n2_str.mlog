@@ -1,0 +1,16 @@
+pattern P(d: String) -> String {
+  let b1 = replace("a", "b", "c")
+  let b2 = split("a,b", ",")
+  let b3 = join(["a", "b"], ",")
+  let b4 = format("a", "b")
+  let b5 = concat("a", "b")
+  let b6 = len("a")
+  let b7 = length("a")
+  let b8 = contains("a", "b")
+  let b9 = starts_with("a", "b")
+  let b10 = ends_with("a", "b")
+  let b11 = lower("A")
+  let b12 = lowercase("A")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

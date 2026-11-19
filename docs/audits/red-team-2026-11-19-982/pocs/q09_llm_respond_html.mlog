@@ -1,0 +1,6 @@
+pattern P(d: String) -> String {
+  let r = call_llm("summarize this")
+  respond_html(r)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

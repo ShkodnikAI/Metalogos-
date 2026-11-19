@@ -1,0 +1,8 @@
+pattern P(d: String) -> String {
+  let q = query_param("q")
+  mem_set("k", q)
+  let g = mem_get("k")
+  respond_html(g)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

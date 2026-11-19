@@ -1,0 +1,6 @@
+error: parse error:  --> 3:9
+  |
+3 |   route get "/q" {
+  |         ^---
+  |
+  = expected STRING_LITERAL

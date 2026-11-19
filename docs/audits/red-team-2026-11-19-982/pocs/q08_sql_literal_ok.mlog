@@ -1,0 +1,5 @@
+pattern P(d: String) -> String {
+  db_execute("SELECT 1")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

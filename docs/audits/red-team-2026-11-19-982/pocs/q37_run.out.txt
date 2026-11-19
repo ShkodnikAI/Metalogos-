@@ -1,0 +1,2 @@
+error: [EXEC_NOT_PERMITTED] exec() is disabled by default. Set METALOGOS_ALLOW_EXEC=1 to enable — this applies to mlog run, check, and serve top-level alike. For serve route bodies set METALOGOS_SERVE_ALLOW_EXEC=1 instead (Naryad #253).
+exit=1

@@ -1,0 +1,9 @@
+8 errors:
+  1: undefined: function 'title' is not a builtin, pattern, or learnable
+  2: function 'strip' expects 2 argument(s), got 1
+  3: undefined: function 'strip_tags' is not a builtin, pattern, or learnable
+  4: undefined: function 'sanitize' is not a builtin, pattern, or learnable
+  5: undefined: function 'sanitize_html' is not a builtin, pattern, or learnable
+  6: undefined: function 'html_escape' is not a builtin, pattern, or learnable
+  7: undefined: function 'url_encode' is not a builtin, pattern, or learnable
+  8: undefined: function 'hash' is not a builtin, pattern, or learnable

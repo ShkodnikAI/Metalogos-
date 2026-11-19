@@ -1,0 +1,7 @@
+pattern P(d: String) -> String {
+  let s = env("SECRET")
+  let r = redact(s)
+  mem_set("k", r)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

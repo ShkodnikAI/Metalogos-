@@ -1,0 +1,4 @@
+3 errors:
+  1: undefined: function 'json_stringify' is not a builtin, pattern, or learnable
+  2: undefined: function 'json_parse' is not a builtin, pattern, or learnable
+  3: [HTML_INJECTION] sink clearance violated: argument 0 of respond_html in pattern P carries label 'public, untrusted'; sinks require public — respond_html is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress

@@ -1,0 +1,5 @@
+flow Main {
+  let a = "x"
+  let b = a + "y"
+  print(b)
+}

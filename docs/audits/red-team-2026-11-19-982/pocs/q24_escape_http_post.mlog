@@ -1,0 +1,7 @@
+pattern P(d: String) -> String {
+  let q = query_param("q")
+  let safe = escape_html(q)
+  http_post("http://127.0.0.1:9/x", safe)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

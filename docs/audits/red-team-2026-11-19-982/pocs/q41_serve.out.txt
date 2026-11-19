@@ -1,0 +1,14 @@
+[serve] exec context: strict-by-default (Naryad #457) — unmarked threads are serve-route; top-level registration keeps the process context
+[mlog serve] tokio runtime: 4 worker thread(s)
+[serve] route exec: denied (set METALOGOS_SERVE_ALLOW_EXEC=1 to allow exec() in route bodies)
+[serve] route env: denied (set METALOGOS_SERVE_ALLOW_ENV=1 to allow all env() reads in route bodies, or METALOGOS_ENV_ALLOWLIST="NAME1,NAME2" for specific variables)
+[serve] LLM UNCONFIGURED — every LLM call will refuse at the first call (№898). Configure one of: METALOGOS_LLM_PROVIDER (+ METALOGOS_API_KEY), METALOGOS_OPENAI_BASE_URL, an llm { providers: [...] } block in the program — or opt in explicitly to the deterministic offline mock with METALOGOS_MOCK_LLM=1. The /health x-llm-mode header carries: unconfigured
+[WARN] METALOGOS_HMAC_KEY env var not set — generating random key; sessions will not survive restart
+[server] rate limit: 100 req/min per client (mlogserver rate_limit field, default 100)
+[server] METALOGOS_TRUSTED_PROXIES unset — the connection peer address is the rate-limit key; XFF/X-Real-IP headers are ignored (naryad #263)
+[server] backend: vm (bytecode VM, default per ADR-0171 — owner flip decision 2026-09-21 on the re-gate №3 3/3 GREEN evidence)
+[server] VM compilation: 0 routes in 247 µs (0 instructions total)
+mlog serve: listening on 127.0.0.1:8099
+mlog serve: scheduler active (5s interval — reminders + cron)
+mlog serve: CSRF token cleanup active (60s interval, 15-min TTL)
+serve-exit=124

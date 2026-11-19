@@ -1,0 +1,3 @@
+2 errors:
+  1: undefined: function 'concat' is not a builtin, pattern, or learnable
+  2: undefined: function 'lowercase' is not a builtin, pattern, or learnable

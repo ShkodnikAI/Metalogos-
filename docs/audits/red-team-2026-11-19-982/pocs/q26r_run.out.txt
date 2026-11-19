@@ -1,0 +1,2 @@
+error: exec() command exited with exit status: 2: sh: 1: Syntax error: "&" unexpected (expecting ")")
+exit=1

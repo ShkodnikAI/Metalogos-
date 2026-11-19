@@ -1,0 +1,2 @@
+1 error:
+  1: строка 5: cannot assign to immutable variable: acc (use 'let mut acc' to make it mutable)

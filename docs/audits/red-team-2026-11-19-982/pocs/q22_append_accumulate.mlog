@@ -1,0 +1,9 @@
+pattern P(d: String) -> String {
+  let q = query_param("q")
+  append_file("log.html", q)
+  append_file("log.html", q)
+  let c = read_file("log.html")
+  respond_html(c)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

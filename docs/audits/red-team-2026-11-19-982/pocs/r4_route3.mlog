@@ -1,0 +1,9 @@
+mlogserver {
+  port: 8099
+}
+routes {
+  get "/q" {
+    let q = query_param("q")
+    respond_html(q)
+  }
+}

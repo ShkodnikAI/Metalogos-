@@ -1,0 +1,8 @@
+pattern P(d: String) -> String {
+  let q = query_param("q")
+  let t = trim(q)
+  let s2 = substring(t, 0, 2)
+  respond_html(s2)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

@@ -1,0 +1,6 @@
+pattern P(d: String) -> String {
+  let j = json_body()
+  print(j)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

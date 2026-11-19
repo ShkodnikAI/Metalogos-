@@ -1,0 +1,6 @@
+pattern P(d: String) -> String {
+  let q = query_param("q")
+  respond_html(str(q))
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

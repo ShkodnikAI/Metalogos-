@@ -1,0 +1,6 @@
+flow Main {
+  let l = ["a", "b"]
+  each x in l {
+    print(x)
+  }
+}

@@ -1,0 +1,6 @@
+pattern PR(d: String) -> String {
+  let c = read_file("carry.html")
+  respond_html(c)
+  return "ok"
+}
+flow Main { input: String = "x" -> PR -> output<public, untrusted> }

@@ -1,0 +1,7 @@
+pattern P(d: String) -> String {
+  let s = env("SECRET")
+  session_set("s1", "k", s)
+  kv_set("kk", s)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

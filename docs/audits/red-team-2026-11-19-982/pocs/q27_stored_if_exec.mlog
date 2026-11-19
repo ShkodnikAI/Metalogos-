@@ -1,0 +1,11 @@
+pattern P(d: String) -> String {
+  mem_set("k", "rm -rf /")
+  let g = mem_get("k")
+  if g == "x" {
+    exec("echo safe-branch")
+  } else {
+    print(g)
+  }
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

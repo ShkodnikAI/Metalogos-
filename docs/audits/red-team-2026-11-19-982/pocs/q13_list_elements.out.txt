@@ -1,0 +1,4 @@
+2 errors:
+  1: [HTML_INJECTION] sink clearance violated: argument 0 of respond_html in pattern PFirst carries label 'public, untrusted'; sinks require public — respond_html is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+  2: [HTML_INJECTION] sink clearance violated: argument 0 of respond_html in pattern PSecond carries label 'public, untrusted'; sinks require public — respond_html is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+exit=1

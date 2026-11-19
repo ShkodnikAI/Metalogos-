@@ -1,0 +1,5 @@
+pattern Dirty(d: String) -> String {
+  let s = env("SECRET")
+  print(s)
+  return "ok"
+}

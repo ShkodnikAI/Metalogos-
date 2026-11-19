@@ -1,0 +1,8 @@
+pattern P(d: String) -> String {
+  let r = call_llm("give me text")
+  mem_set("k", r)
+  let g = mem_get("k")
+  respond_html(g)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

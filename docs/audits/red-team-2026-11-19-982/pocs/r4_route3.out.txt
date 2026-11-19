@@ -1,0 +1,6 @@
+error: parse error:  --> 4:1
+  |
+4 | routes {
+  | ^---
+  |
+  = expected EOI, type_alias_decl, LLM_KW, mcp_policy_decl, TOOL_KW, HOOK_KW, ON_DENY_KW, mlogserver_decl, template_decl, db_decl, schema_decl, skill_index_decl, TEST_KW, EVAL_KW, entity_type_decl, entity_record_decl, entity_simple_decl, rule_decl, CONVERSATION_KW, CONTEXT_BUDGET_KW, pattern_decl, PROFILE_KW, ORIGIN_KW, flow_decl, FLUID_KW, MEMORY_KW, LEARNABLE_KW, ADAPT_KW, RELATE_KW, SANDBOX_KW, MUTATE_KW, MEMORIZE_KW, FORGET_KW, IMPORT_KW, REFLEX_KW, SPEC_KW, REFLEX_SEQ_KW, REFLEX_GEN_KW, or VISION_KW

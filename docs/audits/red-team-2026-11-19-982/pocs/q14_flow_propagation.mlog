@@ -1,0 +1,8 @@
+pattern P1(d: String) -> String {
+  let q = query_param("q")
+  return q
+}
+pattern P2(d: String) -> String {
+  return d
+}
+flow Main { input: String = "x" -> P1 -> P2 -> output }

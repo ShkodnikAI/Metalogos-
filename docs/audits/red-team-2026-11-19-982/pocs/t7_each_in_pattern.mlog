@@ -1,0 +1,9 @@
+pattern P(d: String) -> String {
+  let l = [d, "b"]
+  let acc = ""
+  each x in l {
+    acc = acc + x
+  }
+  return acc
+}
+flow Main { input: String = "t" -> P -> output }

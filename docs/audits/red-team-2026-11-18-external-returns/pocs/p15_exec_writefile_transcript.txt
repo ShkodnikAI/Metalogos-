@@ -1,0 +1,21 @@
+===== PROBE: p15_exec_writefile =====
+----- source (pocs/p15_exec_writefile.mlog) -----
+pattern P(d: String) -> String {
+    let out = exec("echo CANARY-p15-exec-stdout")
+    write_file("probe-tmp/p15_out.txt", out)
+    return "wrote"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}
+----- check (VM backend) -----
+OK: no issues found.
+[check exit=0]
+----- check --reference (reference backend) -----
+OK: no issues found.
+[check --reference exit=0]
+----- run (env knobs: METALOGOS_ALLOW_EXEC=1 METALOGOS_HTTP_ALLOW_PRIVATE=1, timeout 20s) -----
+wrote
+[run exit=0]
+===== END p15_exec_writefile =====

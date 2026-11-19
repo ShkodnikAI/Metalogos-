@@ -1,0 +1,21 @@
+===== PROBE: p10_httpget_writefile =====
+----- source (pocs/p10_httpget_writefile.mlog) -----
+pattern P(d: String) -> String {
+    let r = http_get("http://127.0.0.1:9/")
+    write_file("/tmp/mlog_p10_out.txt", r)
+    return "wrote"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}
+----- check (VM backend) -----
+OK: no issues found.
+[check exit=0]
+----- check --reference (reference backend) -----
+OK: no issues found.
+[check --reference exit=0]
+----- run (env knobs: METALOGOS_ALLOW_EXEC=1 METALOGOS_HTTP_ALLOW_PRIVATE=1, timeout 20s) -----
+error: [HTTP_CONNECT] http_get: connection failed: error sending request for url (http://127.0.0.1:9/)
+[run exit=1]
+===== END p10_httpget_writefile =====

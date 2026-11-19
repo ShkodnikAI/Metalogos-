@@ -1,0 +1,9 @@
+pattern P(d: String) -> String {
+    let a = human_respond("What is your name?", "ctx")
+    respond(a)
+    return "asked"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

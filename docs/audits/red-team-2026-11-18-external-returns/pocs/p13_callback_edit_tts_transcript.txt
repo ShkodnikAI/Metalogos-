@@ -1,0 +1,42 @@
+===== PROBE: p13_callback_edit_tts =====
+----- source (pocs/p13_callback_edit_tts.mlog) -----
+pattern P(d: String) -> String {
+    let a = answer_callback_query("cbid", "ok")
+    let b = edit_message_text("chat1", 1, "new text")
+    let c = tts_send("chat1", "hello world", "voice1", "en")
+    let t = a + b + c
+    respond(t)
+    return "sent"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}
+----- check (VM backend) -----
+6 errors:
+  1: [VOICE_EGRESS_UNCONSENTED] sink clearance violated: argument 0 of tts_send in pattern P carries label 'public, trusted'; sinks require public — tts_send is classified sink/network/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: voice-unconsented
+  2: [VOICE_EGRESS_UNCONSENTED] sink clearance violated: argument 1 of tts_send in pattern P carries label 'public, trusted'; sinks require public — tts_send is classified sink/network/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: voice-unconsented
+  3: [VOICE_EGRESS_UNCONSENTED] sink clearance violated: argument 2 of tts_send in pattern P carries label 'public, trusted'; sinks require public — tts_send is classified sink/network/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: voice-unconsented
+  4: [VOICE_EGRESS_UNCONSENTED] sink clearance violated: argument 3 of tts_send in pattern P carries label 'public, trusted'; sinks require public — tts_send is classified sink/network/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: voice-unconsented
+  5: [HTML_INJECTION] sink clearance violated: argument 0 of respond in pattern P carries label 'public, untrusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+  6: строка 10: [HTML_INJECTION] sink clearance violated: argument 0 of print in flow Main carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress — the flow output carries 'public, untrusted'; declare `-> output<public, untrusted>` if the display is intended (ADR-0154 §13.4 form (а))
+[check exit=1]
+----- check --reference (reference backend) -----
+6 errors:
+  1: [VOICE_EGRESS_UNCONSENTED] sink clearance violated: argument 0 of tts_send in pattern P carries label 'public, trusted'; sinks require public — tts_send is classified sink/network/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: voice-unconsented
+  2: [VOICE_EGRESS_UNCONSENTED] sink clearance violated: argument 1 of tts_send in pattern P carries label 'public, trusted'; sinks require public — tts_send is classified sink/network/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: voice-unconsented
+  3: [VOICE_EGRESS_UNCONSENTED] sink clearance violated: argument 2 of tts_send in pattern P carries label 'public, trusted'; sinks require public — tts_send is classified sink/network/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: voice-unconsented
+  4: [VOICE_EGRESS_UNCONSENTED] sink clearance violated: argument 3 of tts_send in pattern P carries label 'public, trusted'; sinks require public — tts_send is classified sink/network/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: voice-unconsented
+  5: [HTML_INJECTION] sink clearance violated: argument 0 of respond in pattern P carries label 'public, untrusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+  6: строка 10: [HTML_INJECTION] sink clearance violated: argument 0 of print in flow Main carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress — the flow output carries 'public, untrusted'; declare `-> output<public, untrusted>` if the display is intended (ADR-0154 §13.4 form (а))
+[check --reference exit=1]
+----- run (env knobs: METALOGOS_ALLOW_EXEC=1 METALOGOS_HTTP_ALLOW_PRIVATE=1, timeout 20s) -----
+error: Category A security invariant violated:
+[VOICE_EGRESS_UNCONSENTED] sink clearance violated: argument 0 of tts_send in pattern P carries label 'public, trusted'; sinks require public — tts_send is classified sink/network/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: voice-unconsented
+[VOICE_EGRESS_UNCONSENTED] sink clearance violated: argument 1 of tts_send in pattern P carries label 'public, trusted'; sinks require public — tts_send is classified sink/network/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: voice-unconsented
+[VOICE_EGRESS_UNCONSENTED] sink clearance violated: argument 2 of tts_send in pattern P carries label 'public, trusted'; sinks require public — tts_send is classified sink/network/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: voice-unconsented
+[VOICE_EGRESS_UNCONSENTED] sink clearance violated: argument 3 of tts_send in pattern P carries label 'public, trusted'; sinks require public — tts_send is classified sink/network/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: voice-unconsented
+[HTML_INJECTION] sink clearance violated: argument 0 of respond in pattern P carries label 'public, untrusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+[HTML_INJECTION] sink clearance violated: argument 0 of print in flow Main carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress — the flow output carries 'public, untrusted'; declare `-> output<public, untrusted>` if the display is intended (ADR-0154 §13.4 form (а))
+[run exit=1]
+===== END p13_callback_edit_tts =====

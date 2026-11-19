@@ -26,4 +26,8 @@ pattern RunAll(_input: String) -> String {
   return type_of(a) + "|" + type_of(b) + "|" + type_of(c) + "|" + type_of(d)
 }
 
-flow Main { input: String = "x" -> RunAll -> output }
+// №978: the send_message/send_photo returns are EXTERNAL data (the
+// remote API response — here the no-token stub's Unit); the type_of
+// chain displayed on the terminator declares the display intent
+// (the §13.4 form (а) annotation — a CHECKABLE claim, №967).
+flow Main { input: String = "x" -> RunAll -> output<public, untrusted> }

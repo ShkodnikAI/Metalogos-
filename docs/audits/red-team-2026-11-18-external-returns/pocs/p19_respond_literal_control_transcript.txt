@@ -1,0 +1,20 @@
+===== PROBE: p19_respond_literal_control =====
+----- source (pocs/p19_respond_literal_control.mlog) -----
+pattern P(d: String) -> String {
+    respond("literal payload control")
+    return "done"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}
+----- check (VM backend) -----
+OK: no issues found.
+[check exit=0]
+----- check --reference (reference backend) -----
+OK: no issues found.
+[check --reference exit=0]
+----- run (env knobs: METALOGOS_ALLOW_EXEC=1 METALOGOS_HTTP_ALLOW_PRIVATE=1, timeout 20s) -----
+done
+[run exit=0]
+===== END p19_respond_literal_control =====

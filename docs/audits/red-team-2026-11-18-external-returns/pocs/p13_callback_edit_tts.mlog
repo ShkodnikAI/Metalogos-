@@ -1,0 +1,12 @@
+pattern P(d: String) -> String {
+    let a = answer_callback_query("cbid", "ok")
+    let b = edit_message_text("chat1", 1, "new text")
+    let c = tts_send("chat1", "hello world", "voice1", "en")
+    let t = a + b + c
+    respond(t)
+    return "sent"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

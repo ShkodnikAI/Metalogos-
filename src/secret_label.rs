@@ -136,6 +136,18 @@ pub fn label_of_expr(expr: &Expr, vars: &HashMap<String, Type>) -> Option<Type> 
             if crate::sink_receipt::is_sink_receipt(name) {
                 return declared_base_type(name);
             }
+            // №978: a SINK's return that carries EXTERNAL data (the
+            // remote response body, the host stdout, a human's answer) is
+            // untrusted NOT-secret data — the plain declared base type,
+            // mirroring the receipt arm above. The same predicate the
+            // lattice consults, so the lanes cannot disagree about what
+            // an external return is; a secret that rode an ARGUMENT
+            // refuses at the call's argument gates before any return is
+            // read, so the plain marking never masks a secret that is
+            // still on the table.
+            if crate::sink_receipt::external_sink_return(name) {
+                return declared_base_type(name);
+            }
             // Any other call: the label joins from the arguments (the
             // taint-propagation parity — upper(env("K")) stays private).
             let mut acc: Option<Type> = None;

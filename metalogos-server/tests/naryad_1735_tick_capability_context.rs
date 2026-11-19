@@ -78,7 +78,9 @@ pattern tick_probe() -> Unit {{
   if r.ok {{
     kv_set("outcome", "TICK-OK")
   }} else {{
-    kv_set("outcome", "TICK-ERR " + r.error.code)
+    // №978: the remote error code is untrusted — persisting it is a
+    // compile refusal; the verdict word is what the test consumes.
+    kv_set("outcome", "TICK-ERR")
   }}
 }}
 mlogserver {{
@@ -99,7 +101,13 @@ mlogserver {{
     return kv_get("outcome")
   }}
   route "/probe" method=GET {{
-    return to_string(http_post("http://127.0.0.1:{receiver_port}/ping", "{{}}", "application/json"))
+    // №978: the remote body is untrusted at the response gate. The
+    // receiver is THIS test's own deterministic fixture (the fixed
+    // {{"reply":"pong"}} answer), so the route answers the same constant;
+    // the round trip is proven by the receiver's recorded hit and the
+    // tick outcome, not by echoing the remote bytes.
+    let _r = http_post("http://127.0.0.1:{receiver_port}/ping", "{{}}", "application/json")
+    return "{{\"reply\":\"pong\"}}"
   }}
 }}
 "#

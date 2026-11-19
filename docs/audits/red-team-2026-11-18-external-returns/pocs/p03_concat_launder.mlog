@@ -1,0 +1,9 @@
+pattern P(d: String) -> String {
+    let r = http_get("http://127.0.0.1:9/")
+    let joined = r + " | suffix literal"
+    return joined
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

@@ -2117,6 +2117,21 @@ fn expr_label(expr: &Expr, env: &BTreeMap<String, Label>) -> Label {
             if crate::sink_receipt::is_sink_receipt(name) {
                 return Label::bottom();
             }
+            // ── №978: a SINK's value that carries EXTERNAL data — the
+            // remote response body, the host stdout, a human's answer —
+            // arrives `public, untrusted`, not as the argument join (the
+            // №316 asymmetry: `http_get → respond` refused while
+            // `http_post → respond` passed the same remote body through
+            // as trusted). After the receipt arm, before the join; the
+            // table and the reasons live with the classification
+            // (`sink_receipt::external_sink_return`), read by BOTH lanes.
+            if crate::sink_receipt::external_sink_return(name) {
+                return Label {
+                    conf: crate::labels::Conf::Public,
+                    integrity: crate::labels::Integrity::Untrusted,
+                    consent: Default::default(),
+                };
+            }
             // Data flows through ordinary functions: join of the arguments.
             let mut acc = Label::bottom();
             for a in args {
@@ -8305,6 +8320,31 @@ pub fn integrity_decision_violations(declarations: &[Declaration]) -> Vec<Decisi
         prov: &BTreeMap<String, String>,
         violations: &mut Vec<DecisionViolation>,
     ) {
+        // The try-wrapper machinery fields (ADR-0142 Struct{ok, value,
+        // error}): `ok`/`error` are computed IN-TREE by the wrapper —
+        // never remote content. №978's external-return label rides the
+        // wrapper as a whole (the lattice is field-insensitive), so the
+        // №327 gate exempts the wrapper's OWN decision fields on a
+        // PROVEN try-var (`__try_var__` sentinels, set at the binding);
+        // deciding on `if r.ok` after `try http_post(...)` is the
+        // sanctioned try-guard form (№802's `.ok` probes). The payload
+        // (`r.value`, `r.error.code` chains) keeps the untrusted label
+        // and still refuses — a remote field deciding, or persisting,
+        // is the B1 threat exactly as before.
+        fn is_try_machinery_decision(expr: &Expr, env: &BTreeMap<String, Label>) -> bool {
+            let proven = |name: &str| env.contains_key(&format!("__try_var__{name}"));
+            match expr {
+                Expr::Ident { name, .. } => proven(name),
+                Expr::FieldAccess { object, field, .. } => {
+                    matches!(field.as_str(), "ok" | "error")
+                        && matches!(object.as_ref(), Expr::Ident { name, .. } if proven(name))
+                }
+                _ => false,
+            }
+        }
+        if is_try_machinery_decision(expr, env) {
+            return;
+        }
         let label = sink_arg_label(expr, env, &BTreeMap::new());
         if label.integrity == crate::labels::Integrity::Untrusted {
             violations.push(DecisionViolation {
@@ -8375,6 +8415,12 @@ pub fn integrity_decision_violations(declarations: &[Declaration]) -> Vec<Decisi
                     // unaffected by the conf-bearing origin labels).
                     let label = sink_arg_label(value, env, &BTreeMap::new());
                     env.insert(name.clone(), label);
+                    // №978: a PROVEN try-var (the ADR-0142 wrapper) — the
+                    // sentinel drives the machinery-field exemption in
+                    // check_decision; the payload keeps its label.
+                    if matches!(value, Expr::Try { .. }) {
+                        env.insert(format!("__try_var__{name}"), Label::bottom());
+                    }
                     if let Some(origin) = prov_of(value, prov) {
                         prov.insert(name.clone(), origin);
                     } else {

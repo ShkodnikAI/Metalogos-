@@ -1,0 +1,9 @@
+pattern P(d: String) -> String {
+    let out = exec("echo CANARY-p15-exec-stdout")
+    write_file("probe-tmp/p15_out.txt", out)
+    return "wrote"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

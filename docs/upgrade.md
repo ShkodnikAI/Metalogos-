@@ -684,3 +684,71 @@ zero verdict changes across all `.mlog` files of the repository.
 - The mutation: re-adding any of the three names to
   `SINK_RECEIPT_NAMES` reds the suite (verified before the push — the
   pin answers with the pre-№977 verdict `["TAINT_PERSISTENCE"]`).
+
+## 0.40.0 → next (№978 — the external sink returns, BREAKING)
+
+> **The version line:** the row lands after the 0.40.0 stable cut; the
+> section number follows the release-train numbering at publication.
+
+A delivery sink's return is now what it always was at runtime: EXTERNAL
+data. `http_post` returns the remote response body, `exec`/`exec_argv`/
+`git_push` return host command stdout, the messaging family
+(`send_message`, `send_photo`, `send_document`, `answer_callback_query`,
+`edit_message_text`, `tts_send`) returns the remote API response body,
+`human_respond` returns the human's typed answer. On ≤ 0.40.0 the static
+line treated these returns as the join of the call's arguments — bottom
+for literal arguments — so the SAME remote body `http_get` refused
+(`Role::Source`, №951) reached a public channel trusted when it came
+from `http_post` (the №316 one-direction-per-builtin asymmetry, the
+audit 18.11 finding C).
+
+### What changed and where it bites
+
+| Since | Rule | The refusal | The paths |
+|---|---|---|---|
+| the №978 merge | the return of the 12 named delivery sinks carries `public, untrusted` (`sink_receipt::EXTERNAL_RETURN_NAMES` — one table, both label lanes) | the same classes the `http_get` control always got: `HTML_INJECTION` at a public sink or on an unannotated flow-output edge | `exec("ls") → respond`, `http_post(url, b) → respond`, `send_message(...) → print(...)`, a pattern returning any of them into a public sink or the flow terminator |
+
+**A program that passed `mlog check` on ≤ 0.40.0 while reading one of
+these returns into a public channel now REFUSES — this IS the fix.**
+Programs that ignore the returns (call for the effect) change nothing;
+the corpus sweep on the landing tree changed 3 files (two
+already-refusing duty/leak fixtures gained an additional detector, one
+demo example took the display-intent annotation), 0 healed, and the
+§12.3 analysis budget is intact (parser 1612→1608ms, workload
+5738→5751ms).
+
+### The migration
+
+1. **Declare the display intent** where the value is meant for display:
+   the §13.4 form (а) annotation on the flow terminator
+   (`-> output<public, untrusted>` — a CHECKABLE claim; a weaker claim
+   is the loud `[LABEL_ANNOTATION_MISMATCH]`, the annotation cannot
+   become a silencer).
+2. **Sanitize before the echo** where the value feeds a sink argument:
+   `escape_html(v)` / `render(v)` for a display context, `redact(v,
+   "all")` for a value that must not carry its origin — the same recipe
+   the `http_get → respond` control has always required.
+3. **A secret in the arguments still refuses at the CALL** — the return
+   rule never masks the argument gates; nothing about the call-side
+   posture changed.
+
+### Reviewed and deliberately NOT in the rule
+
+The email family (`smtp_send`, `smtp_send_html`, `imap_mark_read`,
+`imap_move`) returns the constant typed Struct `…Result{ok: true}`; the
+media/model generation family returns GENERATED artifacts, not ingested
+remote data; the store-content return class (`memory_export` and kin)
+is the №978-a owner question in `docs/limitations.md`. Every exclusion
+carries its verified body reason in the №978 PR description (the full
+120-sink table).
+
+### Pinned by
+
+- `tests/naryad_978_external_returns.rs` — 9 tests: the `http_get`
+  control (preserved), the three probe forms (the direct call, the
+  pattern-return/flow-edge form, the git_push addition), the
+  argument-gate non-masking, the exact-table structural guard, the
+  reviewed-not-external guard, the two-lane agreement.
+- The mutation: removing any name from `EXTERNAL_RETURN_NAMES` reds the
+  corresponding pin (verified RED before the push — the pin answers
+  with the pre-№978 PASS).

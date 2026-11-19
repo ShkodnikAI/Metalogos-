@@ -1,0 +1,12 @@
+pattern P(d: String) -> String {
+    let a = send_message("chat1", "hi")
+    let b = send_photo("chat1", "http://127.0.0.1:9/pic.png", "cap")
+    let c = send_document("chat1", "/tmp/doc.txt")
+    let t = a + b + c
+    respond(t)
+    return "sent"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

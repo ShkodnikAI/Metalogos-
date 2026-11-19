@@ -1,0 +1,9 @@
+pattern P(d: String) -> String {
+    let r = http_get("http://127.0.0.1:9/")
+    let msg = "prefix: ${r}"
+    return msg
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

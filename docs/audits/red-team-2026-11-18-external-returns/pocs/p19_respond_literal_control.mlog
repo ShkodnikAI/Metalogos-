@@ -1,0 +1,8 @@
+pattern P(d: String) -> String {
+    respond("literal payload control")
+    return "done"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

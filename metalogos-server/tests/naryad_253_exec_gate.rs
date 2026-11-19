@@ -43,7 +43,9 @@ mlogserver {
   port: 8093
   route "/sh" method=GET {
     let out = exec("echo serve-exec-ok")
-    respond("200", out)
+    // №978: the exec stdout is untrusted at the respond argument gate;
+    // the sanitizer cures the integrity axis, the marker bytes survive.
+    respond("200", escape_html(out))
   }
 }
 "#;
@@ -53,7 +55,7 @@ pattern Sh(input: String) -> String {
   return exec("echo proc-ok")
 }
 entity start: String = ""
-flow Main { input: String = start -> Sh -> output }
+flow Main { input: String = start -> Sh -> output<public, untrusted> }
 "#;
 
 async fn start_server(

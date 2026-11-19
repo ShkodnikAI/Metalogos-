@@ -1,0 +1,27 @@
+===== PROBE: p22_exec_sendmessage =====
+----- source (pocs/p22_exec_sendmessage.mlog) -----
+pattern P(d: String) -> String {
+    let out = exec("echo CANARY-p22-exec-to-chat")
+    send_message("chat1", out)
+    return "done"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}
+----- check (VM backend) -----
+2 errors:
+  1: [UNTRUSTED_EGRESS_NETWORK] sink clearance violated: argument 1 of send_message in pattern P carries label 'public, untrusted'; sinks require public — bridge (№391): the decision/data argument of send_message must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: untrusted-egress
+  2: строка 7: [HTML_INJECTION] sink clearance violated: argument 0 of print in flow Main carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress — the flow output carries 'public, untrusted'; declare `-> output<public, untrusted>` if the display is intended (ADR-0154 §13.4 form (а))
+[check exit=1]
+----- check --reference (reference backend) -----
+2 errors:
+  1: [UNTRUSTED_EGRESS_NETWORK] sink clearance violated: argument 1 of send_message in pattern P carries label 'public, untrusted'; sinks require public — bridge (№391): the decision/data argument of send_message must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: untrusted-egress
+  2: строка 7: [HTML_INJECTION] sink clearance violated: argument 0 of print in flow Main carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress — the flow output carries 'public, untrusted'; declare `-> output<public, untrusted>` if the display is intended (ADR-0154 §13.4 form (а))
+[check --reference exit=1]
+----- run (env knobs: METALOGOS_ALLOW_EXEC=1 METALOGOS_HTTP_ALLOW_PRIVATE=1, timeout 20s) -----
+error: Category A security invariant violated:
+[UNTRUSTED_EGRESS_NETWORK] sink clearance violated: argument 1 of send_message in pattern P carries label 'public, untrusted'; sinks require public — bridge (№391): the decision/data argument of send_message must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: untrusted-egress
+[HTML_INJECTION] sink clearance violated: argument 0 of print in flow Main carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress — the flow output carries 'public, untrusted'; declare `-> output<public, untrusted>` if the display is intended (ADR-0154 §13.4 form (а))
+[run exit=1]
+===== END p22_exec_sendmessage =====

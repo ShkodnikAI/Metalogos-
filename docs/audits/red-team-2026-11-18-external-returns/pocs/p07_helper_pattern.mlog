@@ -1,0 +1,12 @@
+pattern Helper(s: String) -> String {
+    return s
+}
+
+pattern P(d: String) -> String {
+    let r = http_get("http://127.0.0.1:9/")
+    return Helper(r)
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

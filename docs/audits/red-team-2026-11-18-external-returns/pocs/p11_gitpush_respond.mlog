@@ -1,0 +1,9 @@
+pattern P(d: String) -> String {
+    let res = git_push("http://127.0.0.1:9/repo.git")
+    respond(res)
+    return "pushed"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

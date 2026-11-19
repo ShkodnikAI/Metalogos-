@@ -1,0 +1,26 @@
+===== PROBE: p18_redact_control =====
+----- source (pocs/p18_redact_control.mlog) -----
+pattern P(d: String) -> String {
+    let r = http_get("http://127.0.0.1:9/")
+    let clean = redact(r, "all")
+    return clean
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}
+----- check (VM backend) -----
+[REDACT][audit-event] redact applied in pattern P — policy 'all', target conf 'public'
+OK: no issues found.
+[check exit=0]
+----- check --reference (reference backend) -----
+[REDACT][audit-event] redact applied in pattern P — policy 'all', target conf 'public'
+OK: no issues found.
+[check --reference exit=0]
+----- run (env knobs: METALOGOS_ALLOW_EXEC=1 METALOGOS_HTTP_ALLOW_PRIVATE=1, timeout 20s) -----
+[REDACT][audit-event] redact applied in pattern P — policy 'all', target conf 'public'
+[REDACT][audit-event] redact applied in pattern P — policy 'all', target conf 'public'
+[REDACT][audit-event] redact applied in pattern P — policy 'all', target conf 'public'
+error: [HTTP_CONNECT] http_get: connection failed: error sending request for url (http://127.0.0.1:9/)
+[run exit=1]
+===== END p18_redact_control =====

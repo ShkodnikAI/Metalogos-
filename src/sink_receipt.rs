@@ -144,3 +144,84 @@ pub fn is_sink_receipt(fn_name: &str) -> bool {
         .find(|s| s.name == fn_name)
         .is_some_and(|s| matches!(s.return_type_raw, "Unit" | "Bool"))
 }
+
+/// №978 (issue #1987, the consolidated audit 18.11 — finding C): the
+/// sinks whose RETURN is EXTERNAL DATA — a remote response body, a host
+/// command's stdout, a human's typed answer — and therefore arrives
+/// `public, untrusted`, not as the join of the call's arguments. The
+/// audit's probe: `http_get(url) → respond` refuses (`http_get` is a
+/// `Role::Source`, the №951 class), while `http_post(url, …) → respond`
+/// and `exec("ls") → respond` PASSED — the same remote body trusted or
+/// untrusted depending on which ROLE the builtin answers, the №316
+/// one-direction-per-builtin mechanism.
+///
+/// THE REASON PER NAME, each verified against the actual return read in
+/// the bounds of the handler body (the №977 method):
+///   `exec`, `exec_argv` — return the host command's STDOUT
+///       (`src/builtins/io.rs`, `String::from_utf8_lossy(&output.stdout)`);
+///   `git_push` — returns the git command's stdout too (`src/builtins/io.rs`)
+///       — the completeness pass added it to the audit's six (the audit's
+///       probe table never exercised it; the class is identical);
+///   `http_post`, `http_post_multipart` — return the HTTP RESPONSE BODY
+///       (`src/builtins/http.rs`, `Ok(Value::String(resp_body))`);
+///   `tts_send` — returns the remote Telegram API response body
+///       (`src/builtins/llm.rs`, `Ok(Value::String(tg_body))`);
+///   `send_message`, `send_photo`, `send_document`,
+///       `answer_callback_query`, `edit_message_text` — return the remote
+///       messaging-API response body (`src/builtins/server.rs`,
+///       `src/builtins/pdf.rs` — `resp_body` / `last_body` / `resp`) — the
+///       completeness pass added the messaging family to the audit's six;
+///   `human_respond` — returns the HUMAN'S ANSWER (`src/builtins/office/
+///       human.rs`, `Ok(Value::String(response))`) — untrusted user input,
+///       not the program's own data.
+///
+/// Reviewed and deliberately NOT in this table (the completeness pass
+/// over every `Role::Sink` classification row, 120 names):
+///   the email family — `smtp_send`, `smtp_send_html`, `imap_mark_read`,
+///       `imap_move` return the constant typed Struct `…Result{ok: true}`
+///       (`src/builtins/email.rs`) — a declared-constant field, not remote
+///       content;
+///   the media/model generation family (`vision_generate`, `video_render`,
+///       `audio_export`, …) returns GENERATED artifacts — model output,
+///       not ingested remote data (a different boundary, owned by the
+///       flow-edge and runtime gates, not by this class);
+///   the store-content return class (`memory_export` and kin return the
+///       STORE's content through a sink return) is recorded as the №978-a
+///       residual in `docs/limitations.md` — whether it carries the store's
+///       channel class is the owner's call, not this naryad's.
+///
+/// The rule lives HERE, one table, and is consulted by BOTH label lanes —
+/// the lattice (`semantic::expr_label`) and the typed secret lane
+/// (`secret_label::label_of_expr`) — exactly like the receipts above, so
+/// the two lanes cannot disagree about what an external return is. The
+/// ROLE predicate is deliberately NOT the mechanism (it is the source of
+/// the №316 asymmetry): the claim is made per name, with a verified
+/// reason, and a reclassified builtin must lose the marking rather than
+/// keep it.
+pub const EXTERNAL_RETURN_NAMES: &[&str] = &[
+    "exec",
+    "exec_argv",
+    "git_push",
+    "http_post",
+    "http_post_multipart",
+    "tts_send",
+    "send_message",
+    "send_photo",
+    "send_document",
+    "answer_callback_query",
+    "edit_message_text",
+    "human_respond",
+];
+
+/// `true` when the call's value is a sink's EXTERNAL return — remote
+/// response content, host stdout, or a human's answer — and therefore
+/// carries `public, untrusted` in the lattice and the plain declared
+/// base type in the typed secret lane (it is untrusted NOT-secret data;
+/// a secret that rode an argument refuses at the CALL, in the argument
+/// gates, before any return is read).
+pub fn external_sink_return(fn_name: &str) -> bool {
+    if !matches!(classify(fn_name).map(|c| c.role), Some(Role::Sink)) {
+        return false;
+    }
+    EXTERNAL_RETURN_NAMES.contains(&fn_name)
+}

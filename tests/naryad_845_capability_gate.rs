@@ -62,7 +62,7 @@ pattern T(_t: String) -> String {
   let out = exec("echo n845-must-not-run")
   return out
 }
-flow Main { input: String = "t" -> T -> output }
+flow Main { input: String = "t" -> T -> output<public, untrusted> }
 "#,
         )
         .unwrap_err();
@@ -91,7 +91,7 @@ pattern T(_t: String) -> String {
   let out = exec("echo n845-must-not-run")
   return type_of(out)
 }
-flow Main { input: String = "t" -> T -> output }
+flow Main { input: String = "t" -> T -> output<public, untrusted> }
 "#,
         )
         .unwrap()
@@ -124,7 +124,7 @@ pattern T(_t: String) -> String {
   let out = exec("echo n845-permitted")
   return out
 }
-flow Main { input: String = "t" -> T -> output }
+flow Main { input: String = "t" -> T -> output<public, untrusted> }
 "#,
         )
         .unwrap()
@@ -158,7 +158,7 @@ pattern T(_t: String) -> String {
   let _r = grant_revoke(g)
   return out
 }
-flow Main { input: String = "t" -> T -> output }
+flow Main { input: String = "t" -> T -> output<public, untrusted> }
 "#,
         )
         .unwrap()
@@ -231,7 +231,7 @@ pattern T(_t: String) -> String {
   let r = send_message("123", "n845-must-not-send")
   return r
 }
-flow Main { input: String = "t" -> T -> output }
+flow Main { input: String = "t" -> T -> output<public, untrusted> }
 "#,
         )
         .unwrap_err();
@@ -250,7 +250,7 @@ pattern T(_t: String) -> String {
   let r = send_message("123", "n845-reaches-the-wire-gate")
   return type_of(r)
 }
-flow Main { input: String = "t" -> T -> output }
+flow Main { input: String = "t" -> T -> output<public, untrusted> }
 "#,
         );
         match out2 {
@@ -281,7 +281,7 @@ pattern T(_t: String) -> String {
   let r = http_post("https://n845.invalid/hook", "x")
   return r
 }
-flow Main { input: String = "t" -> T -> output }
+flow Main { input: String = "t" -> T -> output<public, untrusted> }
 "#,
         )
         .unwrap_err();
@@ -323,7 +323,7 @@ pattern T(_t: String) -> String {
   let r = send_message("123", "n845-legacy-must-not-send")
   return r
 }
-flow Main { input: String = "t" -> T -> output }
+flow Main { input: String = "t" -> T -> output<public, untrusted> }
 "#,
         )
         .unwrap_err();

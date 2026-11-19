@@ -1,0 +1,9 @@
+pattern P(d: String) -> String {
+    let r = http_post("http://127.0.0.1:9/", "body")
+    respond(r)
+    return "done"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

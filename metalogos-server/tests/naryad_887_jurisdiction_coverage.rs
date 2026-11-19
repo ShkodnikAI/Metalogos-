@@ -63,7 +63,7 @@ pattern LimitMarked(_tick: String) -> String {
   let r = try http_post("http://127.0.0.1:1/v1", "{}", "application/json")
   return "limit-mark honored: EU | post-outcome captured: " + to_string(r)
 }
-flow Main { input: String = "t" -> LimitMarked -> output }
+flow Main { input: String = "t" -> LimitMarked -> output<public, untrusted> }
 "#;
 
 fn run_tw(source: &str) -> Result<Option<String>, String> {

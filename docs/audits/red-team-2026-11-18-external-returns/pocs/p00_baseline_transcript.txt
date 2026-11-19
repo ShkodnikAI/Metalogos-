@@ -1,0 +1,19 @@
+===== PROBE: p00_baseline =====
+----- source (pocs/p00_baseline.mlog) -----
+pattern P(d: String) -> String {
+    return "ok"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}
+----- check (VM backend) -----
+OK: no issues found.
+[check exit=0]
+----- check --reference (reference backend) -----
+OK: no issues found.
+[check --reference exit=0]
+----- run (env knobs: METALOGOS_ALLOW_EXEC=1 METALOGOS_HTTP_ALLOW_PRIVATE=1, timeout 20s) -----
+ok
+[run exit=0]
+===== END p00_baseline =====

@@ -1,0 +1,7 @@
+pattern P(d: String) -> String {
+    return "ok"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

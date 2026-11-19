@@ -1,0 +1,9 @@
+pattern P(d: String) -> String {
+    let out = exec("echo CANARY-p22-exec-to-chat")
+    send_message("chat1", out)
+    return "done"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

@@ -188,8 +188,22 @@ pub(crate) fn consent_revoke_dispatch(
 /// `quarantine_write(value, reason?)` — the quarantine sink: the ONLY
 /// legal egress for a poisoned value. Returns a MACHINE ID of the
 /// program-visible half of the event; the static half is the
+static QRT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// quarantine record; the reason goes to the audit journal on stderr
 /// (the №326 unconditional event), not into the return — №983.
+///
+/// The id is DETERMINISTIC: the process-local sequence counter RESETS
+/// at every program start (both backends call
+/// `reset_quarantine_seq`), so a run's receipts are reproducible — the
+/// golden-pair crosscheck (examples/*.expected) requires it, and TW/VM
+/// in one test process stay identical. Uniqueness WITHIN a program run
+/// is the contract; across runs the journal's surrounding context
+/// disambiguates (the №982 in-process boundary).
+pub fn reset_quarantine_seq() {
+    QRT_SEQ.store(0, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub(crate) fn builtin_quarantine_write(args: &[Value]) -> Result<Value, String> {
     let fn_name = "quarantine_write";
     if args.is_empty() || args.len() > 2 {
@@ -219,16 +233,14 @@ pub(crate) fn builtin_quarantine_write(args: &[Value]) -> Result<Value, String> 
     // same PR) and the receipt table is honest by the new body. The id
     // is process-scoped (the sidecar/posture is in-process — the
     // inter-process quarantine ledger is a separate owner decision).
-    static QRT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let seq = QRT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let id = format!(
-        "qrt-{}-{:04}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0),
-        seq
-    );
+    // DETERMINISTIC by design: the id is the process-local sequence
+    // number only — reproducible across runs, which the golden-pair
+    // crosscheck (examples/*.expected) and the journal tests require.
+    // Uniqueness WITHIN the process is the contract (the ledger is
+    // in-process — the №982 boundary); across processes the id needs
+    // the journal's surrounding context to disambiguate.
+    let id = format!("qrt-{seq:04}");
     // The reason travels to the AUDIT JOURNAL — the unconditional №326
     // event, on stderr with the audit-event convention. A program that
     // needs the reason reads the journal, not the receipt.

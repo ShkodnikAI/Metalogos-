@@ -1,0 +1,8 @@
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let ok = kv_set("k1", s)
+  let v = kv_get("k1")
+  print(v)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

@@ -40,11 +40,13 @@ use crate::builtins_classification::{classify, Role};
 ///       reason) — `src/builtins/consent.rs`, the `builtin_quarantine_write`
 ///       body; the old «entry id» wording was false. The receipt claim
 ///       for this name rests on the №335 POLICY (the quarantine is THE
-///       sanctioned egress with an audit event), not on the mechanics of
-///       the return, and the echo means a value passed AS THE REASON
-///       launders out — kept in the table by scope (removing it re-breaks
-///       the motivating false positive and is a design call over
-///       №325/№335), escalated to the owner in the №977 report;
+///       sanctioned egress with an audit event): the PAYLOAD (args[0])
+///       must not ride the return. The ECHO is a different fact — a value
+///       passed AS THE REASON laundered out as bottom (the №977
+///       escalation) — and №980 (issue #1994) resolves it with the exact
+///       class: the return carries the reason's label via
+///       `RECEIPT_ECHO_ARGS` (`from=1`) below; the hand names its own
+///       removal condition (№983);
 ///   `write_file`, `append_file` — return the constant status `"ok"` on
 ///       success and `""` on soft-failure (`src/builtins/io.rs`, the
 ///       handler bodies) — NOT the path the old wording claimed; a
@@ -224,4 +226,59 @@ pub fn external_sink_return(fn_name: &str) -> bool {
         return false;
     }
     EXTERNAL_RETURN_NAMES.contains(&fn_name)
+}
+
+/// №980 (issue #1994, the escalations line 19.11 — escalation 1): the
+/// receipts whose return EMBEDS one caller-supplied argument — the return
+/// is not a pure receipt (bottom) and not the payload join, but a
+/// constant machinery wrapper around EXACTLY ONE argument. The honest
+/// class is `from=<i>`: the return carries the label of that argument and
+/// nothing else.
+///
+/// THE REASON PER NAME, read in the bounds of the handler body (the №977
+/// method — the whole function, never a fixed-size window):
+///   `quarantine_write` — returns the audit text `«[QUARANTINE_EGRESS]
+///       poisoned value reached the quarantine sink (legal egress with
+///       audit event, №335; reason: …)»` which interpolates args[1] (the
+///       caller-supplied reason) — `src/builtins/consent.rs`,
+///       `builtin_quarantine_write`. The name keeps its place in
+///       `SINK_RECEIPT_NAMES`: the PAYLOAD (args[0]) must not ride the
+///       return — quarantining a secret and logging the receipt stays
+///       legal (№964/№325, `w1_consent_revoke`). But the echo means a
+///       value passed AS THE REASON arrived at every display sink as
+///       `Label::bottom()` — the laundering path the №977 escalation
+///       named — closed here by the exact class instead of the coarse
+///       two (removing the name re-breaks the motivating false positive;
+///       joining the payload back poisons it).
+///
+/// REMOVAL CONDITION (№983): when the product fix lands — the return
+/// becomes the machine quarantine id, the reason moves into the №335
+/// audit event — this hand is removed BY THAT naryad's PR and the name
+/// re-enters the pure receipt claim. Keeping `from=1` past the fix would
+/// make the rule stricter than the code — the §1 drift, the reverse
+/// direction. The pins in `tests/naryad_980_receipt_echo.rs` name this
+/// condition.
+///
+/// Consulted by FOUR lanes, in the same order everywhere — after the
+/// private-field bridge, before `is_sink_receipt`: the static lattice
+/// (`semantic::expr_label`), the TW runtime (`interpreter/labels.rs`),
+/// the VM runtime (`vm.rs::builtin_result_label`) and the typed secret
+/// lane (`secret_label::label_of_expr`). One table, no island (§2): the
+/// same consult order is the same verdict.
+pub const RECEIPT_ECHO_ARGS: &[(&str, usize)] = &[("quarantine_write", 1)];
+
+/// The index of the argument the receipt ECHOES, or `None` when the
+/// return is a pure receipt. Guarded by the live registry like
+/// `is_sink_receipt`: a reclassified builtin must lose the echo rather
+/// than keep it. An index beyond the call's arity answers `None` — a
+/// 1-arg `quarantine_write(v)` interpolates the constant «unspecified»,
+/// pure machinery, `bottom`.
+pub fn receipt_echo_arg(fn_name: &str) -> Option<usize> {
+    if !matches!(classify(fn_name).map(|c| c.role), Some(Role::Sink)) {
+        return None;
+    }
+    RECEIPT_ECHO_ARGS
+        .iter()
+        .find(|(n, _)| *n == fn_name)
+        .map(|(_, i)| *i)
 }

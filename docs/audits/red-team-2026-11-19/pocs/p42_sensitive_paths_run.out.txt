@@ -1,0 +1,12 @@
+##### SOURCE p42_sensitive_paths_run.mlog
+pattern P(d: String) -> String {
+  let a = read_file("/tmp/adversary-980/work/.env")
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+OK: no issues found.
+##### CHECK_EXIT=0
+##### RUN
+error: [SANDBOX_SENSITIVE_PATH] read_file('/tmp/adversary-980/work/.env'): the path matches the sensitive-path deny-list (.env*, *.db, *.sqlite*, .git/**, *.mlog, metalogos.toml, .mlog/**, .metalogos/**, mandates.json) — set METALOGOS_SENSITIVE_PATH_ALLOWLIST="NAME" to allow a specific file explicitly (Naryad #455)
+##### RUN_EXIT=1

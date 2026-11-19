@@ -1,0 +1,19 @@
+##### SOURCE p04_env_pattern_indirect_sendmsg.mlog
+pattern Leak() -> String {
+  let s = env("SP")
+  return s
+}
+pattern P(d: String) -> String {
+  let s = Leak()
+  let r = send_message("chan-1", s)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+1 error:
+  1: [PII_EGRESS_NETWORK] sink clearance violated: argument 1 of send_message in pattern P carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of send_message must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: private-egress
+##### CHECK_EXIT=1
+##### RUN
+error: Category A security invariant violated:
+[PII_EGRESS_NETWORK] sink clearance violated: argument 1 of send_message in pattern P carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of send_message must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: private-egress
+##### RUN_EXIT=1

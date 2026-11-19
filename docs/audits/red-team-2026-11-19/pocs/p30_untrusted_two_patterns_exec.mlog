@@ -1,0 +1,13 @@
+pattern Inner(u: String) -> String {
+  return u
+}
+pattern Outer(u: String) -> String {
+  let x = Inner(u)
+  return x
+}
+pattern P(d: String) -> String {
+  let c = Outer(query_param("q"))
+  let r = exec(c)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

@@ -1,0 +1,22 @@
+##### SOURCE p06_env_list_each_print.mlog
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let xs = ["a", s]
+  let mut acc = ""
+  each x in xs {
+    acc = acc + x
+  }
+  print(acc)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+2 errors:
+  1: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in pattern P carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+  2: строка 11: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in flow Main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress — the flow output carries a non-public label; the confidentiality half is not declareable on the terminator (№967): redact() in the foreground contour is the sanctioned downward move (№326)
+##### CHECK_EXIT=1
+##### RUN
+error: Category A security invariant violated:
+[PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in pattern P carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+[PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in flow Main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress — the flow output carries a non-public label; the confidentiality half is not declareable on the terminator (№967): redact() in the foreground contour is the sanctioned downward move (№326)
+##### RUN_EXIT=1

@@ -1,0 +1,15 @@
+##### SOURCE p27_jsonbody_exec_argv.mlog
+pattern P(d: String) -> String {
+  let u = json_body("cmd")
+  let r = exec_argv(["echo", u])
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+1 error:
+  1: [UNTRUSTED_EXEC_DECISION] sink clearance violated: argument 0 of exec_argv in pattern P carries label 'public, untrusted'; sinks require public — bridge (№391): the decision/data argument of exec_argv must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: untrusted-exec
+##### CHECK_EXIT=1
+##### RUN
+error: Category A security invariant violated:
+[UNTRUSTED_EXEC_DECISION] sink clearance violated: argument 0 of exec_argv in pattern P carries label 'public, untrusted'; sinks require public — bridge (№391): the decision/data argument of exec_argv must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: untrusted-exec
+##### RUN_EXIT=1

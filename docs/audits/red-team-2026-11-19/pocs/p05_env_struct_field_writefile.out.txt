@@ -1,0 +1,16 @@
+##### SOURCE p05_env_struct_field_writefile.mlog
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let rec = { name: "n1", token: s }
+  let r = write_file("/tmp/adversary-980/work/out1.txt", rec.token)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+1 error:
+  1: [SECRET_LEAK] sink clearance violated: argument 1 of write_file in pattern P carries label 'private, trusted'; sinks require public — write_file is classified sink/internal/reversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+##### CHECK_EXIT=1
+##### RUN
+error: Category A security invariant violated:
+[SECRET_LEAK] sink clearance violated: argument 1 of write_file in pattern P carries label 'private, trusted'; sinks require public — write_file is classified sink/internal/reversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+##### RUN_EXIT=1

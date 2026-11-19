@@ -1,0 +1,8 @@
+profile capability { allow_carrier: "http_post" }
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let r = redact(s, "secrets")
+  let w = http_post("http://127.0.0.1:9/hook", r)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

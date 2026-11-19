@@ -124,6 +124,21 @@ pub fn label_of_expr(expr: &Expr, vars: &HashMap<String, Type>) -> Option<Type> 
             if name == "env" || name == "secret" {
                 return Some(secret_source_type());
             }
+            // №980: a receipt that ECHOES a caller argument — in the
+            // typed secret lane the echo carries the ARGUMENT's labeled
+            // type, so a SECRET passed as the reason refuses at the
+            // display sink; the plain declared base type must not mask
+            // it (`sink_receipt::RECEIPT_ECHO_ARGS`, the same table the
+            // other three lanes consult). A missing argument or an
+            // argument this lane cannot type falls through to the
+            // receipt's declared base below.
+            if let Some(i) = crate::sink_receipt::receipt_echo_arg(name) {
+                if let Some(a) = args.get(i) {
+                    if let Some(t) = label_of_expr(a, vars) {
+                        return Some(t);
+                    }
+                }
+            }
             // №964: a SINK's value is a RECEIPT — an id, a path, a
             // count — and carries none of the payload's labels. The
             // table and its reasons live with the classification

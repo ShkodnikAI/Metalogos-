@@ -1,0 +1,7 @@
+tool ExecTools {
+  runit(d: String) -> String {
+    let r = exec("echo mcp-exec-probe")
+    return r
+  }
+}
+flow Main { input: String = "x" -> print -> output }

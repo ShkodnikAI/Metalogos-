@@ -1,0 +1,6 @@
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let r = write_file(s, "innocent-data")
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

@@ -1,0 +1,6 @@
+pattern P(d: String) -> String {
+  let r = call_llm("give me an html snippet")
+  let w = respond_html(r)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

@@ -752,3 +752,70 @@ carries its verified body reason in the №978 PR description (the full
 - The mutation: removing any name from `EXTERNAL_RETURN_NAMES` reds the
   corresponding pin (verified RED before the push — the pin answers
   with the pre-№978 PASS).
+
+## 0.40.0 → next (№980 — the quarantine receipt carries the reason's label, BREAKING)
+
+> **The version line:** the row lands after the 0.40.0 stable cut; the
+> section number follows the release-train numbering at publication.
+
+`quarantine_write` keeps its receipt claim (№964/№325: the PAYLOAD —
+args[0], the quarantined value — must not ride the return, so
+quarantining a secret and logging the receipt stays legal), but its
+return is not a pure receipt: the handler returns the audit text
+`«[QUARANTINE_EGRESS] … (reason: …)»` which interpolates args[1] — the
+caller-supplied reason (`src/builtins/consent.rs`, read in the bounds
+of the handler body). Until №980 the receipt rule blanked that echo to
+`Label::bottom()`, so a value passed AS THE REASON arrived at every
+display sink unlabelled: `quarantine_write(v, query_param("r")) →
+respond(…)` PASSED where the bare `query_param → respond` control
+refuses `HTML_INJECTION` (the audit's R2 probe).
+
+### What changed and where it bites
+
+| Since | Rule | The refusal | The paths |
+|---|---|---|---|
+| the №980 merge | the receipt's return carries `from=1` — EXACTLY the label of the reason it echoes, in all FOUR label lanes (the static lattice, the TW runtime, the VM runtime, the typed secret lane; one table, `sink_receipt::RECEIPT_ECHO_ARGS`) | the same class the echoed value would get on its own: `HTML_INJECTION` for an untrusted reason into a public channel, `SECRET_LEAK` for a secret reason into any sink — on top of any class the call itself already carries | `quarantine_write(v, reason) → <sink>` where the RETURN reaches a sink and the REASON carries a mark |
+
+**A program that passed `mlog check` on ≤ 0.40.0 while printing or
+forwarding a quarantine receipt built from a MARKED reason (an
+`env()`/`query_param()` value passed as the reason) now REFUSES — this
+is the fix, not a regression.** Programs that pass a benign literal
+reason (the common shape, `examples/w1_consent_revoke.mlog` among them:
+`quarantine_write(data, "gdpr revoked by patient")`) change nothing —
+the corpus sweep on the landing tree found zero verdict changes across
+all 683 `.mlog` files.
+
+### The migration
+
+1. **Do not pass a marked value as the reason.** The reason is
+   caller-supplied text interpolated into the receipt — treat it like
+   any other value that reaches a sink: pass a benign literal, or
+   sanitize it first (`redact(r, "all")` for a reason that must not
+   carry its origin).
+2. **The reason belongs to the audit event, not the return.** The
+   №335 audit event already records the quarantine with its reason —
+   the program-visible receipt is the wrong channel for it. №983 moves
+   the reason into the audit event entirely and replaces the echo with
+   the machine quarantine id; after that naryad lands, this whole
+   section applies to nothing (the hand is removed BY №983's PR — the
+   removal condition is written in the code next to the table).
+3. **The payload half is unchanged.** `quarantine_write(secret, "benign
+   reason") → print(receipt)` keeps its №964 verdict (the receipt
+   carries the REASON's label only); the №964 probes in
+   `tests/naryad_964_sink_receipt.rs` are updated to that
+   mechanically-true form.
+
+### Pinned by
+
+- `tests/naryad_980_receipt_echo.rs` — 7 tests: the control, the static
+  R2 pin (the non-maskable probe refuses `HTML_INJECTION` again), the
+  secret-reason end-to-end (`SECRET_LEAK`), the payload-stays-receipt
+  pin, the 1-arg bottom pin, the typed-lane unit pin (the only pin that
+  isolates the fourth lane's hand), the table grounding (a live
+  `Role::Sink`, the receipt membership, the String return).
+- `tests/naryad_980_receipt_echo_runtime.rs` — 4 tests: the TW and VM
+  runtime refusals under `METALOGOS_STATIC_LABEL_GATE_OFF=1` (each pin
+  names its lane's hand) plus the TW and VM payload controls.
+- `scripts/mutation_verify_980.sh` — M1 semantic / M2 TW / M3 VM /
+  M4 typed: each hand removed → exactly that lane's pin reddens,
+  restore byte-identical (PASS before the push).

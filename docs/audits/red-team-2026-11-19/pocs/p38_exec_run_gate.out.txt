@@ -1,0 +1,15 @@
+##### SOURCE p38_exec_run_gate.mlog
+pattern P(d: String) -> String {
+  let r = exec("echo capability-probe")
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+OK: no issues found.
+##### CHECK_EXIT=0
+##### RUN (no METALOGOS_ALLOW_EXEC)
+error: IRREVERSIBLE_NO_GRANT: capability gate: 'exec' is an irreversible carrier — no covering capability grant (issue one with scope "builtin:exec" or wider), no 'profile capability { allow_carrier: "exec" }' permit, or the named host permit (METALOGOS_ALLOW_EXEC=1); the refusal is BEFORE the action (ADR-0203 §2.4, №845 — fail-closed, the profile cannot weaken the GrantAlways classes)
+##### RUN_EXIT=1
+##### RUN (METALOGOS_ALLOW_EXEC=1)
+x
+##### RUN_EXIT=0

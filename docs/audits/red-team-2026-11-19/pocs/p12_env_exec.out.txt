@@ -1,0 +1,15 @@
+##### SOURCE p12_env_exec.mlog
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let r = exec("echo " + s)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+1 error:
+  1: [SECRET_TO_EXEC] sink clearance violated: argument 0 of exec in pattern P carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of exec must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: secret-exec
+##### CHECK_EXIT=1
+##### RUN
+error: Category A security invariant violated:
+[SECRET_TO_EXEC] sink clearance violated: argument 0 of exec in pattern P carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of exec must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: secret-exec
+##### RUN_EXIT=1

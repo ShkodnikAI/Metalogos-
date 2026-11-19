@@ -1,0 +1,5 @@
+pattern P(d: String) -> String {
+  let r = db_execute("CREATE TABLE IF NOT EXISTS t1 (id INTEGER)")
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

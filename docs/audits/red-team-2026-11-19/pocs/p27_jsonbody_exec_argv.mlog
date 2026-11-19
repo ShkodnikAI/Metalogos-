@@ -1,0 +1,6 @@
+pattern P(d: String) -> String {
+  let u = json_body("cmd")
+  let r = exec_argv(["echo", u])
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

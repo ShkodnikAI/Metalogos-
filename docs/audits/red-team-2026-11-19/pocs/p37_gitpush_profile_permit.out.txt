@@ -1,0 +1,13 @@
+##### SOURCE p37_gitpush_profile_permit.mlog
+profile capability { allow_carrier: "git_push" }
+pattern P(d: String) -> String {
+  let r = git_push("http://example.invalid/repo.git")
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+OK: no issues found.
+##### CHECK_EXIT=0
+##### RUN
+x
+##### RUN_EXIT=0

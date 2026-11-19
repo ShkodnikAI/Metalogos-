@@ -188,6 +188,15 @@ impl Interpreter {
         if let Some(l) = crate::semantic::registry_private_flow_label(name) {
             return l;
         }
+        // ── №980: the receipt echo — the same table the static lane
+        // consults, the same order (after the private-field bridge,
+        // before the receipt bottom). The echoed reason rides its own
+        // label; a missing argument falls through to the pure receipt.
+        if let Some(i) = crate::sink_receipt::receipt_echo_arg(name) {
+            if let Some(a) = args.get(i) {
+                return self.label_of_expr_env(a, depth, overlay);
+            }
+        }
         if crate::sink_receipt::is_sink_receipt(name) {
             return Label::bottom();
         }

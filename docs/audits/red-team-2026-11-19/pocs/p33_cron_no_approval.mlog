@@ -1,0 +1,5 @@
+pattern P(d: String) -> String {
+  let r = cron_run("job1")
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

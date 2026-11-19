@@ -1,0 +1,15 @@
+##### SOURCE p32_httpget_respond_html.mlog
+pattern P(d: String) -> String {
+  let w = http_get("http://127.0.0.1:9/feed")
+  let h = respond_html(w)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+1 error:
+  1: [HTML_INJECTION] sink clearance violated: argument 0 of respond_html in pattern P carries label 'public, untrusted'; sinks require public — respond_html is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+##### CHECK_EXIT=1
+##### RUN
+error: Category A security invariant violated:
+[HTML_INJECTION] sink clearance violated: argument 0 of respond_html in pattern P carries label 'public, untrusted'; sinks require public — respond_html is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+##### RUN_EXIT=1

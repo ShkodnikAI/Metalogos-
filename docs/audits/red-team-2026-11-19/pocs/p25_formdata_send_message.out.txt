@@ -1,0 +1,15 @@
+##### SOURCE p25_formdata_send_message.mlog
+pattern P(d: String) -> String {
+  let f = form_data("msg")
+  let r = send_message("chan-1", f)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+1 error:
+  1: [UNTRUSTED_EGRESS_NETWORK] sink clearance violated: argument 1 of send_message in pattern P carries label 'public, untrusted'; sinks require public — bridge (№391): the decision/data argument of send_message must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: untrusted-egress
+##### CHECK_EXIT=1
+##### RUN
+error: Category A security invariant violated:
+[UNTRUSTED_EGRESS_NETWORK] sink clearance violated: argument 1 of send_message in pattern P carries label 'public, untrusted'; sinks require public — bridge (№391): the decision/data argument of send_message must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: untrusted-egress
+##### RUN_EXIT=1

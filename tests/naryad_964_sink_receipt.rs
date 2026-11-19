@@ -75,16 +75,24 @@ fn prog(body: &str) -> String {
 
 /// THE FIX. The legal quarantine write passes, and so does using its
 /// receipt. This is the test that was RED before the naryad.
+///
+/// №980 form note: the probe puts the SECRET in args[0] (the PAYLOAD —
+/// the quarantine's input) and a benign literal in args[1] (the reason).
+/// The pre-№980 spelling of this probe passed the secret AS the reason
+/// (args[1]); №980 gives the echo its own label, so THAT form refuses —
+/// the flip is pinned in tests/naryad_980_receipt_echo.rs. This pin
+/// keeps the №964 promise: the payload never rides the receipt.
 #[test]
 fn n964_the_receipt_of_a_legal_quarantine_write_is_usable() {
     let v = verdict(&prog(
-        "let r = quarantine_write(\"q\", env(\"SP\")) let _ = print(r)",
+        "let r = quarantine_write(env(\"SP\"), \"gdpr revoked by patient\") \
+         let _ = print(r)",
     ));
     assert_eq!(
         v, "PASS",
         "a program that quarantines a secret CORRECTLY and logs the \
-         quarantine id must not be refused for logging the id — the \
-         receipt carries no payload (№964)"
+         quarantine receipt must not be refused for logging it — the \
+         receipt carries the REASON's label only (№964 + №980 from=1)"
     );
 }
 
@@ -114,12 +122,14 @@ fn n964_the_receipt_rule_does_not_excuse_the_call() {
 #[test]
 fn n964_a_receipt_may_travel_to_another_sink() {
     let v = verdict(&prog(
-        "let r = quarantine_write(\"q\", env(\"SP\")) let _ = write_file(\"audit.txt\", r)",
+        "let r = quarantine_write(env(\"SP\"), \"gdpr revoked by patient\") \
+         let _ = write_file(\"audit.txt\", r)",
     ));
     assert_eq!(
         v, "PASS",
-        "the quarantine id is an id — recording it in an audit file is \
-         the intended use of a receipt"
+        "the quarantine receipt is a receipt — recording it in an audit \
+         file is the intended use (the payload is args[0], the reason a \
+         benign literal; №980 form note on the pin above)"
     );
 }
 
@@ -278,7 +288,8 @@ fn n964_both_label_lanes_honour_the_receipt() {
     // this test wrongly used that form). The receipt rule changes which
     // RETURN values carry a label; it never changes which calls are legal.
     let v = verdict(&prog(
-        "let r = quarantine_write(\"q\", env(\"SP\")) let _ = print(r) \
+        "let r = quarantine_write(env(\"SP\"), \"gdpr revoked by patient\") \
+         let _ = print(r) \
          let s = kv_set(\"k\", redact(env(\"SP\"), \"all\")) let _ = print(s)",
     ));
     assert_eq!(

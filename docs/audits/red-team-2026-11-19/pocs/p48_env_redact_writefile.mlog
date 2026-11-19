@@ -1,0 +1,7 @@
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let r = redact(s, "secrets")
+  let w = write_file("/tmp/adversary-980/work/out3.txt", r)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

@@ -1,0 +1,9 @@
+pattern P(d: String) -> String {
+  let out = match d {
+    a : env("SP"),
+    _ : "nope"
+  }
+  print(out)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

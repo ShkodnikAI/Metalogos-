@@ -1,0 +1,19 @@
+##### SOURCE p43_env_redact_all_print.mlog
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let r = redact(s, "all")
+  print(r)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+[REDACT][audit-event] redact applied in pattern P — policy 'all', target conf 'public'
+OK: no issues found.
+##### CHECK_EXIT=0
+##### RUN
+[REDACT][audit-event] redact applied in pattern P — policy 'all', target conf 'public'
+[REDACT][audit-event] redact applied in pattern P — policy 'all', target conf 'public'
+[REDACT][audit-event] redact applied in pattern P — policy 'all', target conf 'public'
+[print] s3cr3t-t0ken-980
+x
+##### RUN_EXIT=0

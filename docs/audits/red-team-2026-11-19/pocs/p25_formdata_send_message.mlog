@@ -1,0 +1,6 @@
+pattern P(d: String) -> String {
+  let f = form_data("msg")
+  let r = send_message("chan-1", f)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

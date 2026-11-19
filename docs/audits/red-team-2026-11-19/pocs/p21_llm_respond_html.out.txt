@@ -1,0 +1,19 @@
+##### SOURCE p21_llm_respond_html.mlog
+pattern P(d: String) -> String {
+  let r = call_llm("give me an html snippet")
+  let w = respond_html(r)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+3 errors:
+  1: строка 1: [HTML_INJECTION] LLM output passed to respond() — use template/render for XSS safety
+  2: строка 1: [TAINT_INTERP] LLM output reaches respond_html() through merged control-flow state (match arms / loop boundary / memory) — use render()/escape_html() for XSS safety
+  3: [HTML_INJECTION] sink clearance violated: argument 0 of respond_html in pattern P carries label 'public, untrusted'; sinks require public — respond_html is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+##### CHECK_EXIT=1
+##### RUN
+error: Category A security invariant violated:
+[HTML_INJECTION] LLM output passed to respond() — use template/render for XSS safety
+[TAINT_INTERP] LLM output reaches respond_html() through merged control-flow state (match arms / loop boundary / memory) — use render()/escape_html() for XSS safety
+[HTML_INJECTION] sink clearance violated: argument 0 of respond_html in pattern P carries label 'public, untrusted'; sinks require public — respond_html is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+##### RUN_EXIT=1

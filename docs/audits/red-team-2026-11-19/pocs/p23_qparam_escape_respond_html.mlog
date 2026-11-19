@@ -1,0 +1,7 @@
+pattern P(d: String) -> String {
+  let u = query_param("q")
+  let e = escape_html(u)
+  let w = respond_html(e)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

@@ -1,0 +1,21 @@
+##### SOURCE p41_mcp_exec_tool.mlog
+tool ExecTools {
+  runit(d: String) -> String {
+    let r = exec("echo mcp-exec-probe")
+    return r
+  }
+}
+flow Main { input: String = "x" -> print -> output }
+
+##### CHECK
+OK: no issues found.
+ 
+##### CHECK_EXIT=0
+##### MCP-DRIVE (deny case, no METALOGOS_SERVE_ALLOW_EXEC)
+STDERR: [mcp-serve] exec context: strict-by-default (Naryad #457 + #477) — unmarked threads are serve-route; tool calls keep their explicit guard, top-level registration keeps the process context
+[mcp-serve] exposing 1 tool(s): ExecTools.runit
+[mcp-serve] tool env: deny (set METALOGOS_SERVE_ALLOW_ENV=1 or METALOGOS_ENV_ALLOWLIST to allow); tool exec: denied
+[MCP_TOOL_ERROR] ExecTools.runit id=err-000001: IRREVERSIBLE_NO_GRANT: capability gate: 'exec' is an irreversible carrier — no covering capability grant (issue one with scope "builtin:exec" or wider), no 'profile capability { allow_carrier: "exec" }' permit, or the named host permit (METALOGOS_SERVE_ALLOW_EXEC=1 — the process-level METALOGOS_ALLO
+OUT: {"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{}},"protocolVersion":"2024-11-05","serverInfo":{"name":"metalogos-mcp-server","version":"0.40.0"}}}
+OUT: {"id":null,"jsonrpc":"2.0","result":{}}
+OUT: {"id":3,"jsonrpc":"2.0","result":{"content":[{"text":"Error (id: err-000001) — the full text is in the server log (№955)","type":"text"}],"isError":true}}

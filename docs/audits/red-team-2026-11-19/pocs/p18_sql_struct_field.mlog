@@ -1,0 +1,8 @@
+pattern P(d: String) -> String {
+  let u = query_param("q")
+  let rec = { name: u }
+  let sql = "SELECT * FROM users WHERE name = '" + rec.name + "'"
+  let r = db_execute(sql)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

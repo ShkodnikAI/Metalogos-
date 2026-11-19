@@ -959,6 +959,17 @@ impl Vm {
         match classify(name).map(|c| c.role) {
             Some(Role::Source) => crate::runtime_labels::source_return_label(name, args),
             Some(Role::Sink) => {
+                // №980: the receipt may ECHO one caller argument (the
+                // reason) — the echo rides its own label out, before the
+                // receipt bottom (`sink_receipt::RECEIPT_ECHO_ARGS`, the
+                // same table the static lanes consult, the same order:
+                // after the private-field bridge, before is_sink_receipt).
+                // A missing argument (the 1-arg call) falls through.
+                if let Some(i) = crate::sink_receipt::receipt_echo_arg(name) {
+                    if let Some(l) = arg_labels.get(i) {
+                        return l.clone();
+                    }
+                }
                 // №964: a sink's value is a RECEIPT, not the payload.
                 if crate::sink_receipt::is_sink_receipt(name) {
                     Self::bottom()

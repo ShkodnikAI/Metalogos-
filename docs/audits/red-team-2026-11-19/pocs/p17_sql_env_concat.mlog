@@ -1,0 +1,7 @@
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let sql = "INSERT INTO t1 VALUES ('" + s + "')"
+  let r = db_execute(sql)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

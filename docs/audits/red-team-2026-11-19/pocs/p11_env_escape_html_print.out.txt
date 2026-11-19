@@ -1,0 +1,20 @@
+##### SOURCE p11_env_escape_html_print.mlog
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let e = escape_html(s)
+  print(e)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }
+##### CHECK
+3 errors:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed to print()
+  2: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in pattern P carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+  3: строка 7: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in flow Main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress — the flow output carries a non-public label; the confidentiality half is not declareable on the terminator (№967): redact() in the foreground contour is the sanctioned downward move (№326)
+##### CHECK_EXIT=1
+##### RUN
+error: Category A security invariant violated:
+[SECRET_LEAK] secret may be leaked — env() value passed to print()
+[PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in pattern P carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+[PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in flow Main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress — the flow output carries a non-public label; the confidentiality half is not declareable on the terminator (№967): redact() in the foreground contour is the sanctioned downward move (№326)
+##### RUN_EXIT=1

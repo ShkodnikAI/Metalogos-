@@ -1,0 +1,7 @@
+pattern P(d: String) -> String {
+  let s = env("SP")
+  let e = escape_html(s)
+  print(e)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

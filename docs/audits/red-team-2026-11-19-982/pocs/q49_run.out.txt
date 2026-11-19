@@ -1,0 +1,2 @@
+error: render(): unknown template 'abc; touch PWNED_982_MARKER; # tail' — declare it with `template abc; touch PWNED_982_MARKER; # tail(...) -> Html { ... }`
+exit=1

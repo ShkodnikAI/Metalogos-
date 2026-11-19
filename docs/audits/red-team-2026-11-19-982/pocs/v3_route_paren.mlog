@@ -1,0 +1,9 @@
+mlogserver {
+  port: 8099
+  route "/q" ("GET") QH
+}
+pattern QH(d: String) -> String {
+  let q = query_param("q")
+  respond_html(q)
+  return "ok"
+}

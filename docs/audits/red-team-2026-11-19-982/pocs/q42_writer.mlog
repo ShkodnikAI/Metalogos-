@@ -1,0 +1,6 @@
+pattern PW(d: String) -> String {
+  let c = read_file("in.html")
+  write_file("carry.html", c)
+  return "ok"
+}
+flow Main { input: String = "x" -> PW -> output<public, untrusted> }

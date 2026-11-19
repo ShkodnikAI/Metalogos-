@@ -1,0 +1,2 @@
+1 error:
+  1: [HTML_INJECTION] sink clearance violated: argument 0 of print in pattern P carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress

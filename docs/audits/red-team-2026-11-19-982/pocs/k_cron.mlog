@@ -1,0 +1,6 @@
+pattern P(d: String) -> String {
+  approval_issue("human", "carrier:cron_run", 60)
+  cron_run("job1")
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

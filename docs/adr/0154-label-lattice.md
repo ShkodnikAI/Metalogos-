@@ -475,3 +475,49 @@ The measurement: 0 exec-step carriers in the corpus (`grep -rn -e "-> *exec" exa
 
 The pins: the fixture `examples/boundaries/b14_exec_stdout_display.mlog` (+ its .expected — the threat-model row B14 flipped to FIXED in the same PR, the №948 contract), `FLIPPED_970_PINS` in `tests/naryad_948_boundary_pins.rs`, the contract `tests/naryad_970_exec_stdout_claim.rs` (the gated negative — the fixture and inline, the annotated positive, the weaker-claim negative, the no-exec zero-migration control, the static-gate check). The mutations: `scripts/mutation_verify_970.sh` — M1 (the join dropped → the negatives red), M2 (the join moved onto EVERY step → the control reds) — RED verified before the push, the backup-copy restore (the №953 lesson).
 
+
+---
+
+## 14. Appendix (№982): the store-label sidecar — read-back carries the stored label
+
+**Status: PROPOSED** (the naryad lands the implementation; the promotion to Accepted is the
+owner's call — the agent does not raise ADR status, §13.14 п.6).
+
+**The principle in one sentence:** *read-back of stored content carries the stored label;
+receipts and metadata are the channel's own class.*
+
+**The decision this implements (the owner, 19.11, issue #1996):** the №952 kv sidecar is THE
+mechanism for label persistence through storage — generalized to `mem_*`/`session_*` (the
+store axis) and to the file axis (`write_file`/`append_file` record the content's label; the
+read-back rides it). **No write gate**: writing untrusted bytes into a store or a file does
+not claim they became trusted — the label changes on the way OUT of the store, not on the way
+in; a write gate would refuse the normal cases (a log, a cache, a downloaded artifact) and
+produce a rule people annotate away.
+
+**The miss defaults, per stream (the owner's фиксация):** `kv`/`mem`/`session` answer `bottom`
+(the №951 decision — an unwritten key is not untrusted data); the file stream answers
+`public, untrusted` (the sidecar is in-process; a file nobody in THIS process wrote was
+written by someone outside — that is the definition of untrusted, and the same default the
+№325 ingress rule already applies). The №455 sensitive-path verdict is never lifted: a
+recorded label cannot lower the confidentiality a sensitive path carries.
+
+**The lift, and what it changes:** the trusted own-config round-trip
+(`write_file("config.txt", "v1")` → `read_file("config.txt")` → a public sink) was refused by
+the №325 ingress default; with the sidecar it reads back trusted and passes. The untrusted
+round-trip refuses on both sides of the change (the recorded label and the miss default agree).
+The store axes' untrusted case is shadowed by the entrance closure (the runtime
+`TAINT_PERSISTENCE` clearance refuses untrusted into `mem_set`/`session_set`/`kv_set` before
+the sidecar can matter) — the sidecar arms are still correct and stand, because the mechanism
+must not depend on the entrance's strictness.
+
+**One table, both streams:** the №952 table carries stream-tagged keys (`mem:`, `session:`,
+`file:`; kv keeps its historical bare keys). The record point: the dispatch gates, at the one
+place per lane where both halves exist (the TW's FnCall arm head — the walk's labels plus the
+evaluated values; the VM's `vm_runtime_sink_gate`). The lookup point: `source_return_label`
+(the VM) and `store_lookup_recorded` in the walk arm (the TW — the recorded label wins over
+the static conservative default; a miss keeps it).
+
+**The measured boundary (named, not hidden):** the sidecar lives in the process. The
+inter-process form — one run writes, another reads — shares nothing; for it the label must
+live NEXT TO the file (a sidecar format, a separate owner decision). Recorded as the
+threat-model residual, not closed by this appendix.

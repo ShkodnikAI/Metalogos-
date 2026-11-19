@@ -1,0 +1,2 @@
+error: [SANDBOX_SENSITIVE_PATH] write_file('/home/z/.metalogos/mandates.json'): the path matches the sensitive-path deny-list (writes: .env*, *.db*, *.pem, *.key, id_rsa*, id_ed25519*, .netrc, .npmrc, credentials*, *.sqlite*, .git/**, metalogos.toml, .mlog/**) — set METALOGOS_SENSITIVE_PATH_ALLOWLIST="NAME" to allow a specific file explicitly (Naryad #455/#475)
+exit=1

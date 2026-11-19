@@ -1,0 +1,2 @@
+error: IRREVERSIBLE_NO_GRANT: capability gate: 'http_post' is an irreversible carrier — no covering capability grant (issue one with scope "builtin:http_post" or wider), no 'profile capability { allow_carrier: "http_post" }' permit; the refusal is BEFORE the action (ADR-0203 §2.4, №845 — fail-closed, the profile cannot weaken the GrantAlways classes)
+exit=1

@@ -1,0 +1,6 @@
+error: parse error:  --> 2:3
+  |
+2 |   print("hello")
+  |   ^---
+  |
+  = expected flow_pipeline

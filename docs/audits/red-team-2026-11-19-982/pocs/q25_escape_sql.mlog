@@ -1,0 +1,7 @@
+pattern P(d: String) -> String {
+  let q = query_param("q")
+  let safe = escape_html(q)
+  db_execute("SELECT * FROM t WHERE u = '" + safe + "'")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

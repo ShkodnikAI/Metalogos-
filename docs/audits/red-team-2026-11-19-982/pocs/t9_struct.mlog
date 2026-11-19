@@ -1,0 +1,5 @@
+pattern P(d: String) -> String {
+  let m = { name: d, tag: "t" }
+  return m.name
+}
+flow Main { input: String = "x" -> P -> output }

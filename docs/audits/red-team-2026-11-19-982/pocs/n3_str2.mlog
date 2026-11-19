@@ -1,0 +1,16 @@
+pattern P(d: String) -> String {
+  let c1 = title("a")
+  let c2 = repeat("a", 2)
+  let c3 = slice("a", 0, 1)
+  let c4 = strip("a")
+  let c5 = strip_tags("a")
+  let c6 = sanitize("a")
+  let c7 = sanitize_html("a")
+  let c8 = html_escape("a")
+  let c9 = url_encode("a")
+  let c10 = base64_encode("a")
+  let c11 = base64_decode("a")
+  let c12 = hash("a")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

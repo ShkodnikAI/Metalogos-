@@ -1,0 +1,4 @@
+[REDACT][audit-event] redact applied in pattern P — policy 'email', target conf 'unknown'
+2 errors:
+  1: function 'git_push' expects 1 argument(s), got 2
+  2: undefined: function 'html_response' is not a builtin, pattern, or learnable

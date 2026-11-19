@@ -1,0 +1,9 @@
+pattern P(d: String) -> String {
+  let q = query_param("q")
+  mem_set("dirty", q)
+  mem_set("clean2", "safe-literal")
+  let g = mem_get("clean2")
+  respond_html(g)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

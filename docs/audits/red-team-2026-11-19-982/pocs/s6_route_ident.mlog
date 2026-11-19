@@ -1,0 +1,10 @@
+mlogserver {
+  port: 8099
+  route "/q" QHandler {
+    let q = query_param("q")
+    respond_html(q)
+  }
+}
+pattern QHandler(d: String) -> String {
+  return d
+}

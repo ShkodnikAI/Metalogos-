@@ -1,0 +1,8 @@
+pattern P(d: String) -> String {
+  let q = query_param("q")
+  let j = json_encode(q)
+  let back = parse_json(j)
+  respond_html(to_string(back))
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

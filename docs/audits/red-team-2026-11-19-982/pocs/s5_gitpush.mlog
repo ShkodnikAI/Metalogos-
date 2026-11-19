@@ -1,0 +1,5 @@
+pattern P(d: String) -> String {
+  git_push("origin")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

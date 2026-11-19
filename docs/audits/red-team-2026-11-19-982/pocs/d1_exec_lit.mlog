@@ -1,0 +1,5 @@
+pattern P(d: String) -> String {
+  exec("echo hi")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

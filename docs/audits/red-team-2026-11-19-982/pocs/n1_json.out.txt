@@ -1,0 +1,9 @@
+8 errors:
+  1: undefined: function 'to_json' is not a builtin, pattern, or learnable
+  2: undefined: function 'from_json' is not a builtin, pattern, or learnable
+  3: undefined: function 'stringify' is not a builtin, pattern, or learnable
+  4: undefined: function 'json_decode' is not a builtin, pattern, or learnable
+  5: undefined: function 'encode_json' is not a builtin, pattern, or learnable
+  6: undefined: function 'decode_json' is not a builtin, pattern, or learnable
+  7: undefined: function 'text' is not a builtin, pattern, or learnable
+  8: undefined: function 'number' is not a builtin, pattern, or learnable

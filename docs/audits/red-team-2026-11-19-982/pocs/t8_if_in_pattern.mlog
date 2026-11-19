@@ -1,0 +1,8 @@
+pattern P(d: String) -> String {
+  if d == "x" {
+    return "a"
+  } else {
+    return "b"
+  }
+}
+flow Main { input: String = "x" -> P -> output }

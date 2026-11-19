@@ -1,0 +1,8 @@
+pattern P(d: String) -> String {
+  let c = read_file("in.html")
+  mem_set("k", c)
+  let g = mem_get("k")
+  respond_html(g)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

@@ -1,0 +1,5 @@
+pattern P(d: String) -> String {
+  write_file(".metalogos/mandates.json", "{\"mandates\": []}")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

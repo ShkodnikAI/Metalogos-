@@ -1,0 +1,6 @@
+error: parse error:  --> 3:3
+  |
+3 |   route "/q" -> QHandler
+  |   ^---
+  |
+  = expected mlogserver_port, mlogserver_host, mlogserver_middleware, mlogserver_rate_limit, mlogserver_redact_mode, route_decl, or RBRACE

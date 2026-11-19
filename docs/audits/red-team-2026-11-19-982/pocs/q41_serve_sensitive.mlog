@@ -1,0 +1,9 @@
+mlogserver {
+  port: 8099
+}
+pattern P(d: String) -> String {
+  let c = read_file(".env")
+  mem_set("k", "x")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

@@ -1,0 +1,7 @@
+pattern P(d: String) -> String {
+  write_file(".env", "SECRETKEY=1")
+  let c = read_file("api.key")
+  print(len(c))
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

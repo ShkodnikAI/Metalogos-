@@ -1,0 +1,5 @@
+pattern P(d: String) -> String {
+  write_file("/home/z/.metalogos/mandates.json", "{\"mandates\": [{\"actor\": \"forged-abs\", \"target_digest\": \"94aec09ef10d33dbadde4314d7189aa9a7f6163f61717b7ca8671bc2e3ca98d0\", \"granted_at\": 1795000000, \"expires_at\": 2000000000, \"revoked\": false, \"actor_verified\": true}]}")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

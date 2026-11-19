@@ -1,0 +1,12 @@
+pattern P(d: String) -> String {
+  exec_argv(["echo", "hi"])
+  send_message("chan", "hi")
+  web_search("q")
+  git_push("origin", "main")
+  respond(d)
+  html_response("<p>x</p>")
+  render(d)
+  let r2 = redact("a", "email")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

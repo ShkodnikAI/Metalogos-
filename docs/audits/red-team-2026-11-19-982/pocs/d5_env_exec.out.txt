@@ -1,0 +1,3 @@
+2 errors:
+  1: [SECRET_TO_EXEC] sink clearance violated: argument 0 of exec in pattern P carries label 'private, trusted'; sinks require public — bridge (№391): the decision/data argument of exec must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: secret-exec
+  2: строка 6: [HTML_INJECTION] sink clearance violated: argument 0 of print in flow Main carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress — the flow output carries 'public, untrusted'; declare `-> output<public, untrusted>` if the display is intended (ADR-0154 §13.4 form (а))

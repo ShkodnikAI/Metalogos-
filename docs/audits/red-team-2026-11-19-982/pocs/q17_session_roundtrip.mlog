@@ -1,0 +1,8 @@
+pattern P(d: String) -> String {
+  let q = query_param("q")
+  session_set("s1", "k", q)
+  let g = session_get("s1", "k")
+  respond_html(g)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

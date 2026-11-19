@@ -1,0 +1,3 @@
+1 error:
+  1: [UNTRUSTED_EGRESS_NETWORK] sink clearance violated: argument 2 of session_set in pattern P carries label 'public, untrusted'; sinks require public — session_set is classified sink/internal/reversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+exit=1

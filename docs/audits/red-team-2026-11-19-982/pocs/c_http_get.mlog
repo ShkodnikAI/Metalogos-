@@ -1,0 +1,6 @@
+pattern P(d: String) -> String {
+  let h = http_get("http://127.0.0.1:9/")
+  print(h)
+  return d
+}
+flow Main { input: String = "x" -> P -> output }

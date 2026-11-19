@@ -1,0 +1,3 @@
+1 warning:
+  1: строка 1: mlogserver: no 'security_headers' middleware — recommend adding it for OWASP compliance
+exit=0

@@ -1,0 +1,3 @@
+[print] rm -rf /
+ok
+exit=0

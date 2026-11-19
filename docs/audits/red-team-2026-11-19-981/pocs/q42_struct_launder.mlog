@@ -1,0 +1,10 @@
+type Rec {
+  name: String
+}
+pattern P(d: String) -> String {
+  let q = query_param("q")
+  let r = Rec { name: q }
+  let e = exec("echo " + r.name)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

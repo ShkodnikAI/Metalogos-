@@ -1,0 +1,6 @@
+pattern P() -> String {
+  mem_set("k", "v")
+  let r = mem_get("k")
+  return r
+}
+flow Main { input: String = "x" -> P -> output }

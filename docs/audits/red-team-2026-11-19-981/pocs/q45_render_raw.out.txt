@@ -1,0 +1,6 @@
+### CHECK q45_render_raw
+OK: no issues found.
+### CHECK_EXIT=0
+### RUN q45_render_raw
+error: [UNDEFINED_VARIABLE] undefined variable: raw_card
+### RUN_EXIT=1

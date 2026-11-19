@@ -1,0 +1,6 @@
+pattern P() -> String {
+  let a = call_llm("Summarize this")
+  let r = exec("echo " + a)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

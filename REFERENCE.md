@@ -538,7 +538,10 @@ let r = try http_post("https://api.example.com", body, "application/json")
 // Success:      r.ok == true,   r.value = the call's value,  r.error = Unit
 // Error:        r.ok == false,  r.value = Unit,
 //               r.error.code = "RUNTIME_ERROR", r.error.message = the runtime error text
-if r.ok == false { respond("500", r.error.message) }
+// №981: the error message of an external call carries the call's
+// `public, untrusted` label (the try result inherits the call's
+// label) — sanitize before a public sink:
+if r.ok == false { respond("500", escape_html(r.error.message)) }
 ```
 
 **Migration (Naryad #374 — breaking for old try code):**

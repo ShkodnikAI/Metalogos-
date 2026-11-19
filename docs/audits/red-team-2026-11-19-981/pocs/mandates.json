@@ -1,0 +1,12 @@
+{
+  "mandates": [
+    {
+      "actor": "alice",
+      "target_digest": "94aec09ef10d33dbadde4314d7189aa9a7f6163f61717b7ca8671bc2e3ca98d0",
+      "granted_at": 1795102068,
+      "expires_at": 1795102128,
+      "revoked": false,
+      "actor_verified": true
+    }
+  ]
+}

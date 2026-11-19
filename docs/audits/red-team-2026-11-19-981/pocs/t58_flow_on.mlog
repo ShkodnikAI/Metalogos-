@@ -1,0 +1,2 @@
+mlogserver { port: 8080 }
+flow Main on "/hi" { input: String = "x" -> print -> output }

@@ -1,0 +1,8 @@
+### APPROVE (host CLI)
+approved: actor='alice' target='carrier:cron_run' actor_verified=true window=[1795102068, 1795102128) ttl=60s
+store: /tmp/adversary-980/pocs981/mandates.json
+the counted class of the human-oversight coverage (ADR-0211 §3); revoke with approval_revoke (a program) or by deleting the store row — a revoked mandate never revives
+### APPROVE_EXIT=0
+### RUN q28 again with host mandate
+ok
+### RUN_EXIT=0

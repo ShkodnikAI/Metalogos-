@@ -1,0 +1,7 @@
+pattern P() -> String {
+  let c = read_file("in.txt")
+  let safe = escape_html(c)
+  respond_html("<div>" + safe + "</div>")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

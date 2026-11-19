@@ -1,0 +1,8 @@
+pattern P(d: String) -> String {
+  let r = match d {
+    exact "a": "one",
+    else: "other"
+  }
+  return r
+}
+flow Main { input: String = "x" -> P -> output }

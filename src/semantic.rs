@@ -2136,7 +2136,10 @@ fn expr_label(expr: &Expr, env: &BTreeMap<String, Label>) -> Label {
             // `http_post → respond` passed the same remote body through
             // as trusted). After the receipt arm, before the join; the
             // table and the reasons live with the classification
-            // (`sink_receipt::external_sink_return`), read by BOTH lanes.
+            // (`sink_receipt::external_sink_return`), read by ALL FOUR
+            // lanes since №981 (issue #1995) — before it, the VM and TW
+            // runtime arms stood without the rule and the executor
+            // executed what `mlog check` refuses.
             if crate::sink_receipt::external_sink_return(name) {
                 return Label {
                     conf: crate::labels::Conf::Public,

@@ -1,0 +1,3 @@
+### CHECK q13_untrusted_escape_html
+OK: no issues found.
+### CHECK_EXIT=0

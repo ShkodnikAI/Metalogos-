@@ -1,0 +1,10 @@
+template raw_card(name: String) -> Html {
+  "<div>" + name + "</div>"
+}
+pattern P(d: String) -> String {
+  let q = query_param("q")
+  let h = render(raw_card, q)
+  respond_html(h)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

@@ -300,3 +300,73 @@ fn crosscheck_tw_vs_vm_all_golden() {
     assert!(vm_errors.is_empty(), "{} VM errors found", vm_errors.len());
     assert!(tw_errors.is_empty(), "{} TW errors found", tw_errors.len());
 }
+
+// ── №981 (issue #1995): the external-return cross-check — the TW/VM
+// divergence on the external-return class must be caught by this gate,
+// not by a reviewer's eye. The rule: a sink's value that carries
+// EXTERNAL data arrives `public, untrusted` — the TW gate fires at the
+// sink's arm head (before evaluation), the VM's after it (the stack
+// machine evaluates the sink's arguments first), so:
+//   - `exec` under `METALOGOS_ALLOW_EXEC=1` runs on BOTH backends and
+//     both refuse on the LABEL of the return — the same marker, the
+//     divergence-free contract;
+//   - `http_post` refuses on both backends but at DIFFERENT layers (the
+//     TW: the label line, pre-evaluation; the VM: the capability/SSRF
+//     guard, pre-value) — the contract here is «both refuse, the flow
+//     never executes», not «the same text» (the layering is pinned
+//     honestly in tests/naryad_981_external_returns_runtime.rs).
+#[test]
+fn n981_crosscheck_the_exec_return_refuses_identically() {
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
+    std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
+    let src = r#"
+pattern P(d: String) -> String {
+  let _ = respond(exec("echo hi"))
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }
+"#;
+    let base = Path::new("examples");
+    let tw = run_tw(src, base);
+    let vm = run_vm(src, base);
+    for (backend, r) in [("TW", tw), ("VM", vm)] {
+        let err = r.err().unwrap_or_else(|| {
+            panic!("{backend}: the external return executed — no gate saw it (№981)")
+        });
+        assert!(
+            err.contains("[SINK_CLEARANCE_RUNTIME]"),
+            "{backend}: expected the same sink-clearance runtime refusal \
+             on the external return (the divergence-free contract), got: {}",
+            err
+        );
+    }
+}
+
+#[test]
+fn n981_crosscheck_the_http_post_return_refuses_on_both_backends() {
+    std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
+    let src = r#"
+pattern P(d: String) -> String {
+  let _ = respond(http_post("http://127.0.0.1:1/x", "hi"))
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }
+"#;
+    let base = Path::new("examples");
+    let tw = run_tw(src, base);
+    let vm = run_vm(src, base);
+    for (backend, r) in [("TW", tw.clone()), ("VM", vm)] {
+        assert!(
+            r.is_err(),
+            "{backend}: respond(http_post(…)) executed — the flow never \
+             refuses on this backend (№981)"
+        );
+    }
+    // The TW layer detail: the label line, before evaluation.
+    let tw_err = tw.unwrap_err();
+    assert!(
+        tw_err.contains("[SINK_CLEARANCE_RUNTIME]"),
+        "TW: expected the label line's refusal (pre-evaluation), got: {}",
+        tw_err
+    );
+}

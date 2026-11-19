@@ -1,0 +1,8 @@
+mlogserver {
+  port: 8080
+  host: "0.0.0.0"
+}
+pattern P(d: String) -> String {
+  return "hello"
+}
+flow Main { input: String = "x" -> P -> output }

@@ -1,0 +1,5 @@
+pattern P() -> String {
+  let r = web_search("query")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

@@ -1,0 +1,6 @@
+pattern P() -> String {
+  let b = json_body()
+  let f = form_data("name")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

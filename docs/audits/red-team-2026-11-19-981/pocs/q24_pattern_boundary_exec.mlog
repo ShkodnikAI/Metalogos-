@@ -1,0 +1,10 @@
+pattern Q(s: String) -> String {
+  return s
+}
+pattern P() -> String {
+  let q = query_param("q")
+  let r = Q(q)
+  let e = exec("echo " + r)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

@@ -1,0 +1,8 @@
+struct Rec {
+  name: String
+}
+pattern P() -> String {
+  let s = Rec { name: "x" }
+  return s.name
+}
+flow Main { input: String = "x" -> P -> output }

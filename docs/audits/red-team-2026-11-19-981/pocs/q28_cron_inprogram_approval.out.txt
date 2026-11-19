@@ -1,0 +1,6 @@
+### CHECK q28_cron_inprogram_approval
+OK: no issues found.
+### CHECK_EXIT=0
+### RUN q28_cron_inprogram_approval
+error: IRREVERSIBLE_NO_GRANT: approval gate: 'cron_run' is a human-oversight carrier — no live VERIFIED approval mandate (issue one OUTSIDE the program — the host CLI `mlog approve carrier:cron_run --actor <who> [--ttl S]`; a mandate recorded by approval_issue from .mlog is actor_verified=false and never counts — ADR-0205 §2.6, №861, №957/ADR-0211 §3: fail-closed, a silent pass is forbidden; the migration window key is `profile legacy { approval: warn }` in the entry program)
+### RUN_EXIT=1

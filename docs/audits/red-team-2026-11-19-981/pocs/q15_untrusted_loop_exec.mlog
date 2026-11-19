@@ -1,0 +1,9 @@
+pattern P() -> String {
+  let c = read_file("in.txt")
+  let l = [c, c]
+  each x in l {
+    let r = exec("cat " + x)
+  }
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

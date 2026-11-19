@@ -1,0 +1,5 @@
+pattern P() -> String {
+  let r = exec("echo hi")
+  return r
+}
+flow Main { input: String = "x" -> P -> output }

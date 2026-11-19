@@ -200,6 +200,20 @@ impl Interpreter {
         if crate::sink_receipt::is_sink_receipt(name) {
             return Label::bottom();
         }
+        // ── №981: a SINK's value that carries EXTERNAL data — the remote
+        // response body, the host stdout, a human's answer — arrives
+        // `public, untrusted`, not as the argument join. The SAME rule
+        // the static lane applies, the SAME order (after the receipt arm,
+        // before the join): TW is the reference oracle (ADR-0197) — the
+        // oracle and the executor must carry the rule, not only `mlog
+        // check`.
+        if crate::sink_receipt::external_sink_return(name) {
+            return Label {
+                conf: crate::labels::Conf::Public,
+                integrity: crate::labels::Integrity::Untrusted,
+                consent: Default::default(),
+            };
+        }
         // Data flows through ordinary calls: the join of the arguments.
         let mut acc = Label::bottom();
         for a in args {

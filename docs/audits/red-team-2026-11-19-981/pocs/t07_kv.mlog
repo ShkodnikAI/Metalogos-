@@ -1,0 +1,6 @@
+pattern P() -> String {
+  kv_set("k", "v")
+  let r = kv_get("k")
+  return r
+}
+flow Main { input: String = "x" -> P -> output }

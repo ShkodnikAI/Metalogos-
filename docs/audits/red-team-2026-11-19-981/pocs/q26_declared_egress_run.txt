@@ -1,0 +1,3 @@
+### RUN q26_declared_egress
+error: VM: pattern P expects 0 args, got 1
+### RUN_EXIT=1

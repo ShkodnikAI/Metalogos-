@@ -972,10 +972,23 @@ impl Vm {
                 }
                 // №964: a sink's value is a RECEIPT, not the payload.
                 if crate::sink_receipt::is_sink_receipt(name) {
-                    Self::bottom()
-                } else {
-                    joined
+                    return Self::bottom();
                 }
+                // №981: a SINK's value that carries EXTERNAL data — the
+                // remote response body, the host stdout, a human's answer
+                // — arrives `public, untrusted`, not as the argument join.
+                // The SAME rule the static lanes apply, the SAME order
+                // (after the receipt arm, before the join): the VM is the
+                // executor (ADR-0197) — a rule standing only in the static
+                // lanes leaves the executor without it.
+                if crate::sink_receipt::external_sink_return(name) {
+                    return crate::labels::Label {
+                        conf: crate::labels::Conf::Public,
+                        integrity: crate::labels::Integrity::Untrusted,
+                        consent: Default::default(),
+                    };
+                }
+                joined
             }
             Some(Role::Lift) => {
                 if name == "redact" {

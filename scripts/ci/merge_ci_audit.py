@@ -287,6 +287,11 @@ def classify_divergence(line):
                      merge time (`dispatcher_silence`): an
                      infrastructure event to escalate, not a merge
                      performed in disregard of a verdict;
+      `no-ci-workflow-silent` — NO RUN, the dispatcher was LIVE, but
+                     the check's PRODUCING workflow gave no runs in
+                     the floor window while other workflows kept
+                     running (№979): one workflow's own silence —
+                     the same escalation form, scoped to the
       `no-ci`      — a required context has NO RUN on the PR head while
                      the dispatcher was live: the merge happened while
                      the check never reported;
@@ -317,7 +322,11 @@ def classify_divergence(line):
     if "NO row in REQUIRED_CHECKS" in line or "NO producing job" in line:
         return "blind"
     if ": NO RUN" in line:
-        return "no-ci-silent" if "dispatcher silent" in line else "no-ci"
+        if "dispatcher silent" in line:
+            return "no-ci-silent"
+        if "producing workflow was silent" in line:
+            return "no-ci-workflow-silent"  # №979
+        return "no-ci"
     return "not-green"
 
 
@@ -423,6 +432,13 @@ def required_verdict(check_runs, required):
 SILENCE_FLOOR_S = 5400       # 90 min — above the repo's normal quiet gaps
 SILENCE_RESUME_S = 120       # the merge's own push-to-main run, right after
 
+# №979 (issue #1988, the consolidated audit 18.11 line): the workflow-
+# level silence window. Dated constant (the №960 form): 24h — a
+# producing workflow with zero runs in the 24h before the merge while
+# other workflows ran is ITS OWN silence; the dispatcher-level floor
+# (90 min) stays what it was.
+WORKFLOW_SILENCE_FLOOR_S = 86400
+
 
 def dispatcher_silence(merged_at, run_created_times,
                        floor_s=SILENCE_FLOOR_S, resume_s=SILENCE_RESUME_S):
@@ -482,6 +498,58 @@ def dispatcher_silence(merged_at, run_created_times,
     }
 
 
+
+def workflow_silence(merged_at, producer_wf_names, wf_run_times,
+                     floor_s=WORKFLOW_SILENCE_FLOOR_S):
+    """№979: the WORKFLOW-level silence, the dispatcher alive.
+
+    `producer_wf_names` — the workflow display names that produce the
+    missing check; `wf_run_times` — [(created_at, workflow_name), ...]
+    over the audit window. True = no producer run in the floor window
+    before the merge AND at least one OTHER workflow ran in it (the
+    contrast is what makes this the workflow's own silence and not the
+    dispatcher's). None = the timeline is absent or the merge instant
+    unparseable — the caller keeps the plain `no-ci` line (not
+    fail-closed: the class only refines, never acquits).
+    """
+    if not wf_run_times or not producer_wf_names:
+        return None
+    when = _parse_iso(merged_at)
+    if when is None:
+        return None
+    from datetime import timedelta as _td
+    window_start = when - _td(seconds=floor_s)
+    mine_in = False
+    others_in = False
+    for t, wf in wf_run_times:
+        pt = _parse_iso(t)
+        if pt is None:
+            continue
+        if not (window_start <= pt <= when):
+            continue
+        if wf in producer_wf_names:
+            mine_in = True
+        else:
+            others_in = True
+    if not others_in:
+        return None
+    return not mine_in
+
+
+def producers_of_context(context, producers):
+    """№979: the workflow display names producing a check-run context.
+
+    `producers` — {workflow_file_stem_or_name: {display_name, ...}} the
+    live lane built from `scan_workflow_producers`; the lookup walks
+    every workflow's produced names. Empty set = the context's producer
+    is unknown (the tripwire's blind class keeps its own row) — no
+    refinement."""
+    out = set()
+    for wf_name, produced in (producers or {}).items():
+        if context in produced:
+            out.add(wf_name)
+    return out
+
 def human_gap(seconds):
     """'2h07m' / '46m' / '3s' — the report form of a duration."""
     s = int(round(seconds))
@@ -492,7 +560,7 @@ def human_gap(seconds):
     return f"{s}s"
 
 
-def annotate_silence(problems, silence):
+def annotate_silence(problems, silence, wf_silent_lines=None):
     """Tag every `NO RUN` line with the dispatcher state at merge time.
 
     `no-ci (dispatcher silent …)` is an infrastructure event — the one
@@ -502,12 +570,23 @@ def annotate_silence(problems, silence):
     """
     if not silence:
         return problems
-    if silence["silent"]:
-        tail = (f" [dispatcher silent {human_gap(silence['gap_s'])} before the merge, "
-                f"resumed +{human_gap(silence['resume_s'])}]")
-    else:
-        tail = " [dispatcher live at merge time]"
-    return [p + tail if p.endswith("NO RUN") else p for p in problems]
+    wf_silent_lines = wf_silent_lines or set()
+    out = []
+    for p in problems:
+        if not p.endswith("NO RUN"):
+            out.append(p)
+            continue
+        if silence["silent"]:
+            out.append(p + (f" [dispatcher silent {human_gap(silence['gap_s'])} before the merge, "
+                            f"resumed +{human_gap(silence['resume_s'])}]"))
+        else:
+            out.append(p + " [dispatcher live at merge time]")
+        if p in wf_silent_lines:
+            # №979: the dispatcher was live, the PRODUCING workflow was not —
+            # the line refines into its own class (the classify reads the phrase).
+            out[-1] += (" [the producing workflow was silent — no runs in the "
+                        "24h window while other workflows ran]")
+    return out
 
 
 def resolve_associated_pr(assoc):
@@ -518,7 +597,7 @@ def resolve_associated_pr(assoc):
     return merged[0] if len(merged) == 1 else None
 
 
-def decide(commit, pr_map, run_times=None):
+def decide(commit, pr_map, run_times=None, wf_run_times=None, producers=None):
     """The per-commit verdict — `pr_map` carries the API answers.
 
     commit: {"first_line": str, "sha": str, "merged_at": str | None,
@@ -547,8 +626,19 @@ def decide(commit, pr_map, run_times=None):
     ok, problems = required_verdict(
         pr_map[pr].get("check_runs"), required_at(commit.get("merged_at")))
     if not ok:
-        problems = annotate_silence(
-            problems, dispatcher_silence(commit.get("merged_at"), run_times))
+        silence = dispatcher_silence(commit.get("merged_at"), run_times)
+        wf_silent_lines = set()
+        if silence is None or not silence["silent"]:
+            # №979: the dispatcher was live (or unknown) — refine the NO RUN
+            # lines whose PRODUCING workflow was silent on its own.
+            for p in problems:
+                if not p.endswith("NO RUN"):
+                    continue
+                ctx = p.split(": NO RUN")[0]
+                wfs = producers_of_context(ctx, producers)
+                if workflow_silence(commit.get("merged_at"), wfs, wf_run_times) is True:
+                    wf_silent_lines.add(p)
+        problems = annotate_silence(problems, silence, wf_silent_lines)
         return (False, [f"PR #{pr} (head {head_sha[:7]}): {p}" for p in problems])
     return (True, [])
 
@@ -849,7 +939,66 @@ def self_test():
         failures += 1
     if annotate_silence(["x: NO RUN"], None) != ["x: NO RUN"]:
         print("SELF-TEST FAIL annotate_silence: no timeline must not annotate")
-        failures += 1
+    # №979: the workflow-level silence — the third class (the dispatcher
+    # live, ONE producing workflow quiet on its own). The fixtures:
+    # merged 2026-11-18T12:00Z; the floor 24h → the window
+    # [2026-11-17T12:00Z, 2026-11-18T12:00Z].
+    wf_commit = {"first_line": "fix: x (#892)", "sha": "g" * 7,
+                 "merged_at": "2026-11-18T12:00:00Z"}
+    wf_pr_map = {892: {"head_sha": "h" * 40, "check_runs": []}}
+    wf_live = ["2026-11-18T11:00:00Z", "2026-11-18T09:00:00Z"]
+    wf_dead_producer = [("2026-11-18T11:00:00Z", "CI"),
+                        ("2026-11-16T00:00:00Z", "Deploy")]
+    wf_producer_alive = [("2026-11-18T11:00:00Z", "CI"),
+                         ("2026-11-18T10:00:00Z", "Deploy")]
+    wf_all_dead = [("2026-11-16T00:00:00Z", "CI"),
+                   ("2026-11-16T01:00:00Z", "Deploy")]
+    wf_producers = {"Deploy": {"fmt (blocking)"}}
+    wf_cases = [
+        # (name, run_times, wf_run_times, want_class, want_fragment)
+        ("FORM 1: dispatcher live, the producer silent, others ran",
+         wf_live, wf_dead_producer, "no-ci-workflow-silent",
+         "the producing workflow was silent"),
+        ("FORM 2: the dispatcher GLOBALLY silent — no-ci-silent wins",
+         ["2026-11-16T00:00:00Z", "2026-11-18T12:00:30Z"], wf_dead_producer,
+         "no-ci-silent", "dispatcher silent"),
+        ("NEGATIVE: the producer RAN in the window (a long failure, no resume) — plain no-ci",
+         wf_live, wf_producer_alive, "no-ci",
+         "[dispatcher live at merge time]"),
+        ("NEGATIVE: every workflow silent (no contrast) — the dispatcher class owns it",
+         wf_live, wf_all_dead, "no-ci",
+         "[dispatcher live at merge time]"),
+        ("NEGATIVE: no workflow timeline — the stricter plain no-ci",
+         wf_live, [], "no-ci",
+         "[dispatcher live at merge time]"),
+    ]
+    for name, rt, wt, want_class, frag in wf_cases:
+        ok, problems = decide(wf_commit, wf_pr_map, run_times=rt,
+                              wf_run_times=wt, producers=wf_producers)
+        assert not ok, name
+        lines = [f"PR #892 (head hhhh): {p}" for p in problems]
+        got_lines = [classify_divergence(l) for l in lines]
+        if want_class not in got_lines or frag not in " ".join(problems):
+            print(f"SELF-TEST FAIL №979 {name}: classes={sorted(set(got_lines))} "
+                  f"want={want_class} problems={problems}")
+            failures += 1
+    # the pure function's corners
+    ws_cases = [
+        ("producer silent + contrast", workflow_silence(
+            "2026-11-18T12:00:00Z", {"Deploy"}, wf_dead_producer), True),
+        ("producer alive", workflow_silence(
+            "2026-11-18T12:00:00Z", {"Deploy"}, wf_producer_alive), False),
+        ("no contrast", workflow_silence(
+            "2026-11-18T12:00:00Z", {"Deploy"}, wf_all_dead), None),
+        ("empty timeline", workflow_silence(
+            "2026-11-18T12:00:00Z", {"Deploy"}, []), None),
+        ("unknown producer", workflow_silence(
+            "2026-11-18T12:00:00Z", set(), wf_dead_producer), None),
+    ]
+    for name, got, want in ws_cases:
+        if got != want:
+            print(f"SELF-TEST FAIL №979 workflow_silence {name}: {got} want {want}")
+            failures += 1
     if human_gap(3.0) != "3s" or human_gap(127) != "2m" or human_gap(7620) != "2h07m":
         print(f"SELF-TEST FAIL human_gap: {human_gap(3.0)} {human_gap(127)} {human_gap(7620)}")
         failures += 1
@@ -1130,6 +1279,34 @@ def main():
     # into `no-ci-silent`; without it every `no-ci` stays `no-ci`, which
     # is the stricter reading.
     run_times = []
+    wf_run_times = []
+    # №979: the producers map — workflow file → the check-run display
+    # names it produces (the tripwire scan, the repo checkout), keyed
+    # by the workflow's own display name (the runs API's `name`).
+    producers = {}
+    try:
+        _wf_dir = os.path.join(os.getcwd(), ".github", "workflows")
+        _wf_files = {}
+        if os.path.isdir(_wf_dir):
+            produced = scan_workflow_producers(_wf_dir)
+            import glob as _glob
+            for _f in sorted(_glob.glob(os.path.join(_wf_dir, "*.yml"))):
+                _stem = os.path.splitext(os.path.basename(_f))[0]
+                _disp = _stem
+                with open(_f, encoding="utf-8") as _fh:
+                    for _line in _fh:
+                        _m = re.match(r"^name:\s*(.+?)\s*$", _line)
+                        if _m:
+                            _disp = _m.group(1).strip("'\"")
+                            break
+                _wf_files[_f] = _disp
+            for _disp_names, _files in produced.items():
+                for _f in _files:
+                    producers.setdefault(_wf_files.get(_f, _f), set()).add(_disp_names)
+    except Exception as _e:  # noqa: BLE8 — the producers map only refines
+        print(f"merge-ci-audit: the producers map is unavailable ({_e}) — "
+              f"no workflow-silence refinement", file=sys.stderr)
+        producers = {}
     try:
         page = 1
         while page <= 10:
@@ -1138,6 +1315,11 @@ def main():
                 f"?per_page=100&page={page}&created=%3E{since[:10]}", token)
             runs = data.get("workflow_runs", []) if isinstance(data, dict) else []
             run_times.extend(r.get("created_at") for r in runs)
+            # №979: the workflow NAMES ride the same timeline — the
+            # per-workflow silence contrast (the dispatcher was live,
+            # one workflow was not).
+            wf_run_times.extend(
+                (r.get("created_at"), r.get("name")) for r in runs)
             if len(runs) < 100:
                 break
             page += 1
@@ -1147,6 +1329,7 @@ def main():
               f"reading); the dispatcher-silence class is not reported",
               file=sys.stderr)
         run_times = []
+        wf_run_times = []
 
     divergences = []
     div_ts = []             # №972: the merge instant per divergence line
@@ -1191,7 +1374,7 @@ def main():
         ok, problems = decide(
             {"first_line": first, "sha": sha, "merged_at": merged_at,
              "assoc_pr": tailless_resolved.get(sha)},
-            pr_map, run_times)
+            pr_map, run_times, wf_run_times, producers)
         if not ok:
             divergences.append(
                 f"- `{sha[:7]}` {first}\n  - " + "\n  - ".join(problems))
@@ -1297,6 +1480,15 @@ def main():
                           for k, v in sorted(summarize_divergences(divergences).items())))
         # ── №972: the no-ci-silent merges as the №551 escalation form —
         # an infrastructure event, not a process miss (the gh#1892 shape) ──
+        if any(classify_divergence(l) == "no-ci-workflow-silent" for l in divergences):
+            wf_events = [l for l in divergences
+                         if classify_divergence(l) == "no-ci-workflow-silent"]
+            print(f"WORKFLOW-SILENT EVENTS (no-ci-workflow-silent, №979 — the "
+                  f"same escalation form scoped to ONE workflow): "
+                  f"{len(wf_events)} merge(s) where the producing workflow "
+                  f"gave no runs in the 24h window while other workflows ran:")
+            for l in wf_events:
+                print(f"  {l}")
         if infra_events:
             print(f"INFRASTRUCTURE EVENTS (no-ci-silent — escalate per "
                   f"docs/maintainers.md 'When CI is down', №551): "

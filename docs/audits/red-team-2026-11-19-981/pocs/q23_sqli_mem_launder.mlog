@@ -1,0 +1,9 @@
+pattern P() -> String {
+  let q = query_param("q")
+  mem_set("k", "prefix-" + q)
+  let back = mem_get("k")
+  let sql = "SELECT * FROM t WHERE c='" + back + "'"
+  let r = db_execute(sql)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

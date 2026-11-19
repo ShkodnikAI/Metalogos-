@@ -1,0 +1,5 @@
+pattern P() -> String {
+  let r = render("tpl", "data")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

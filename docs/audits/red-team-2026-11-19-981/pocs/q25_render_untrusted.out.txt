@@ -1,0 +1,3 @@
+### CHECK q25_render_untrusted
+OK: no issues found.
+### CHECK_EXIT=0

@@ -1,0 +1,8 @@
+pattern P() -> String {
+  let q = query_param("q")
+  write_file("rt.txt", q)
+  let back = read_file("rt.txt")
+  let r = exec("echo " + back)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

@@ -1,0 +1,11 @@
+pattern P() -> String {
+  let q = query_param("q")
+  kv_set("k", q)
+  let b1 = kv_get("k")
+  let r1 = exec("echo " + b1)
+  session_set("sess", "k", q)
+  let b2 = session_get("sess", "k")
+  let r2 = exec("echo " + b2)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

@@ -1,0 +1,4 @@
+flow Main {
+  let s = env("S")
+  print(s)
+}

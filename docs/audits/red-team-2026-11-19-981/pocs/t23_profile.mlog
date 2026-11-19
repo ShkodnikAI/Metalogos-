@@ -1,0 +1,8 @@
+profile capability {
+  allow_carrier: "git_push"
+}
+pattern P() -> String {
+  let r = git_push("origin")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

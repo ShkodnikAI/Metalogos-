@@ -1,0 +1,8 @@
+### CHECK q43_typealias
+error: parse error:  --> 1:12
+  |
+1 | type Rec = {
+  |            ^---
+  |
+  = expected IDENT
+### CHECK_EXIT=1

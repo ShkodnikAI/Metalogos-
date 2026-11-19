@@ -1,0 +1,5 @@
+### CHECK q22_exec_output_print
+2 errors:
+  1: [HTML_INJECTION] sink clearance violated: argument 0 of print in pattern P carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+  2: строка 6: [HTML_INJECTION] sink clearance violated: argument 0 of print in flow Main carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress — the flow output carries 'public, untrusted'; declare `-> output<public, untrusted>` if the display is intended (ADR-0154 §13.4 form (а))
+### CHECK_EXIT=1

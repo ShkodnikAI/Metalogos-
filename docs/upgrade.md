@@ -819,3 +819,63 @@ all 683 `.mlog` files.
 - `scripts/mutation_verify_980.sh` — M1 semantic / M2 TW / M3 VM /
   M4 typed: each hand removed → exactly that lane's pin reddens,
   restore byte-identical (PASS before the push).
+
+## 0.40.0 → next (№981 — the external-return rule reaches the executor, BREAKING)
+
+> **The version line:** the row lands after the 0.40.0 stable cut; the
+> section number follows the release-train numbering at publication.
+
+№978 gave the rule its static half: a sink's value that carries
+EXTERNAL data — the remote response body (`http_post`, `send_message`,
+…), the host stdout (`exec`), a human's answer (`human_respond`), the
+TTS carrier's response (`tts_send`) — arrives `public, untrusted`, so
+`respond(http_post(…))` refuses `mlog check`. But the coverage was
+measured at 2 of 4 label lanes: the VM (the executor, ADR-0197) and the
+TW (the reference oracle) still took the argument join for those
+returns — `bottom` for a literal URL — and the executor EXECUTED what
+check refuses.
+
+### What changed and where it bites
+
+| Since | Rule | The refusal | The paths |
+|---|---|---|---|
+| the №981 merge | the external-return consult stands in all FOUR label lanes, the same branch order everywhere (`label_source` → private-field bridge → receipt → external → join); `git grep -c external_sink_return` = 1/1/1/1 | on the TW: the sink gate refuses at the call's arm head, BEFORE evaluation; on the VM: after evaluation — so for a NETWORK carrier the capability/SSRF layers refuse first (measured, pinned); for `exec` under the named permit the value is created and the gate refuses on its LABEL | `respond(http_post(…))`, `respond(exec(…))`, the same through variables and flow steps — anywhere the external return reaches a sink that requires trusted-or-public data |
+
+**A program that EXECUTED `respond(http_post(…))` or `respond(exec(…))`
+on ≤ 0.40.0 now REFUSES at runtime — this is the fix.** The static
+verdicts are unchanged (the static hands are №978's; the corpus sweep
+on the common 683 `.mlog` files found zero verdict changes).
+
+### The migration
+
+1. **Sanitize before you forward.** The remote response body is
+   untrusted data: `escape_html`/`render` before an HTML sink,
+   `redact` before anything else, or validate it first. The static
+   refusal (№978) already told you where; the runtime now enforces the
+   same rule when the program runs.
+2. **The capability layer sits in front on the VM.** For a network
+   carrier the VM's capability gate / SSRF guard refuse before the
+   label line can (the stack machine evaluates the sink's arguments
+   first — measured, pinned in
+   `tests/naryad_981_external_returns_runtime.rs`). Grant the carrier a
+   capability only when the egress is intended; the label rule still
+   holds behind it for the value that gets created.
+3. **`http_get` is unchanged.** Its №325 ingress source label already
+   refused the body into public sinks before №981; the verdict is
+   preserved (the controls pin it).
+
+### Pinned by
+
+- `tests/naryad_981_external_returns_runtime.rs` — 6 tests: the TW
+  http_post and exec refusals (pre-evaluation), the VM exec label
+  refusal under the named permit, the VM http_post layering pin (the
+  refusal must come from the EARLIER layer — if the label line ever
+  fires first, the gate order moved and the layering story needs
+  re-measuring), the TW http_get preservation control, the VM http_get
+  control (the refusal stays, any layer).
+- `tests/crosscheck_backends.rs` — the exec return refuses IDENTICALLY
+  on both backends (the divergence-free contract); the http_post return
+  refuses on both (the TW by the label line, the VM by the earlier
+  layer — documented).
+- `scripts/mutation_verify_981.sh` — M1 TW / M2 VM: each hand removed →
+  exactly that lane's pins redden, restore byte-identical.

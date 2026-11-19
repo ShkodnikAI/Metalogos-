@@ -1,0 +1,9 @@
+### CHECK q32_exec_permit
+OK: no issues found.
+### CHECK_EXIT=0
+### RUN without permit
+error: IRREVERSIBLE_NO_GRANT: capability gate: 'exec' is an irreversible carrier — no covering capability grant (issue one with scope "builtin:exec" or wider), no 'profile capability { allow_carrier: "exec" }' permit, or the named host permit (METALOGOS_ALLOW_EXEC=1); the refusal is BEFORE the action (ADR-0203 §2.4, №845 — fail-closed, the profile cannot weaken the GrantAlways classes)
+### RUN_EXIT=1
+### RUN with METALOGOS_ALLOW_EXEC=1
+ok
+### RUN_EXIT=0

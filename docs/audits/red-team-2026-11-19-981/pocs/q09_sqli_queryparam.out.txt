@@ -1,0 +1,4 @@
+### CHECK q09_sqli_queryparam
+1 error:
+  1: строка 1: [SQL_DYNAMIC] SQL injection risk — db_execute() with non-literal SQL at argument 0 (sql)
+### CHECK_EXIT=1

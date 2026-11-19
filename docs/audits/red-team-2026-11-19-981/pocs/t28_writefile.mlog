@@ -1,0 +1,6 @@
+pattern P() -> String {
+  write_file("out.txt", "data")
+  let r = read_file("out.txt")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

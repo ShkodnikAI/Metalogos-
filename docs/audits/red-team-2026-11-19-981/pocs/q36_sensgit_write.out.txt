@@ -1,0 +1,6 @@
+### CHECK q36_sensgit_write
+OK: no issues found.
+### CHECK_EXIT=0
+### RUN q36_sensgit_write
+error: [SANDBOX_SENSITIVE_PATH] write_file('.git/hooks/pre-commit'): writes to the application image (*.mlog, .env*, metalogos.toml, .git/**) are ALWAYS refused — the allowlist does not apply to the application image integrity (Naryad #475)
+### RUN_EXIT=1

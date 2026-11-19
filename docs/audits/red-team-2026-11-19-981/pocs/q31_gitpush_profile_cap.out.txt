@@ -1,0 +1,6 @@
+### CHECK q31_gitpush_profile_cap
+OK: no issues found.
+### CHECK_EXIT=0
+### RUN q31_gitpush_profile_cap
+error: git_push(): git exited with exit status: 128: fatal: not a git repository (or any of the parent directories): .git
+### RUN_EXIT=1

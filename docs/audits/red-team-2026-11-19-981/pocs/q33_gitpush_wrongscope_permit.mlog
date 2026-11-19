@@ -1,0 +1,8 @@
+profile capability {
+  allow_carrier: "send_message"
+}
+pattern P(d: String) -> String {
+  let r = git_push("https://git.example.invalid/repo.git")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

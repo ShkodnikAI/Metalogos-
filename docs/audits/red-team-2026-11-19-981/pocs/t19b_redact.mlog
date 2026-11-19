@@ -1,0 +1,6 @@
+pattern P() -> String {
+  let s = read_file("in.txt")
+  let r = redact(s, "policy")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

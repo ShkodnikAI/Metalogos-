@@ -1,0 +1,6 @@
+pattern P() -> String {
+  let e = escape_html("a<b")
+  respond_html(e)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

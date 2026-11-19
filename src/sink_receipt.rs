@@ -192,14 +192,24 @@ pub fn is_sink_receipt(fn_name: &str) -> bool {
 ///       residual in `docs/limitations.md` — whether it carries the store's
 ///       channel class is the owner's call, not this naryad's.
 ///
-/// The rule lives HERE, one table, and is consulted by BOTH label lanes —
-/// the lattice (`semantic::expr_label`) and the typed secret lane
-/// (`secret_label::label_of_expr`) — exactly like the receipts above, so
-/// the two lanes cannot disagree about what an external return is. The
-/// ROLE predicate is deliberately NOT the mechanism (it is the source of
-/// the №316 asymmetry): the claim is made per name, with a verified
-/// reason, and a reclassified builtin must lose the marking rather than
-/// keep it.
+/// The rule lives HERE, one table, and is consulted by ALL FOUR label
+/// lanes — the lattice (`semantic::expr_label`), the typed secret lane
+/// (`secret_label::label_of_expr`), the TW runtime
+/// (`interpreter/labels.rs`) and the VM runtime
+/// (`vm.rs::builtin_result_label`) — exactly like the receipts above, so
+/// the lanes cannot disagree about what an external return is. THE
+/// COVERAGE IS A MEASUREMENT, not a promise: `git grep -c
+/// external_sink_return` over the four files answers 1/1/1/1. Before
+/// №981 (issue #1995) it answered 1/1/0/0 — the VM (the executor,
+/// ADR-0197) and the TW (the reference oracle) arms stood without the
+/// rule and `respond(http_post(…))` executed where `mlog check`
+/// refuses; №981 closes the gap with the SAME branch order in every
+/// lane (`label_source` → private-field bridge → `is_sink_receipt` →
+/// `external_sink_return` → the argument join) — a reordered arm is a
+/// diverging verdict, and no existing gate catches the order. The ROLE
+/// predicate is deliberately NOT the mechanism (it is the source of the
+/// №316 asymmetry): the claim is made per name, with a verified reason,
+/// and a reclassified builtin must lose the marking rather than keep it.
 pub const EXTERNAL_RETURN_NAMES: &[&str] = &[
     "exec",
     "exec_argv",

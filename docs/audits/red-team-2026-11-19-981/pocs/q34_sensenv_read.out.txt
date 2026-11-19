@@ -1,0 +1,8 @@
+### CHECK q34_sensenv_read
+1 error:
+  1: строка 5: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in flow Main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress — the flow output carries a non-public label; the confidentiality half is not declareable on the terminator (№967): redact() in the foreground contour is the sanctioned downward move (№326)
+### CHECK_EXIT=1
+### RUN q34_sensenv_read
+error: Category A security invariant violated:
+[PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in flow Main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress — the flow output carries a non-public label; the confidentiality half is not declareable on the terminator (№967): redact() in the foreground contour is the sanctioned downward move (№326)
+### RUN_EXIT=1

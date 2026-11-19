@@ -1,0 +1,5 @@
+pattern P() -> String {
+  let r = exec_argv("echo hi")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

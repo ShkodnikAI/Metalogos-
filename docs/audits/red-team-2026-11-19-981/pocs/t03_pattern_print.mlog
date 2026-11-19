@@ -1,0 +1,6 @@
+pattern P() -> String {
+  let s = env("S")
+  print(s)
+  return s
+}
+flow Main { input: String = "x" -> P -> output }

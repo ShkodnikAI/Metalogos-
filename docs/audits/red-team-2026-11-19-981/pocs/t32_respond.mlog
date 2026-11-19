@@ -1,0 +1,5 @@
+pattern P() -> String {
+  respond("<h>hi</h>")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

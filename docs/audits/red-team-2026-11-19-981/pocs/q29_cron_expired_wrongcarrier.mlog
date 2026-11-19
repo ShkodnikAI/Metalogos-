@@ -1,0 +1,6 @@
+pattern P(d: String) -> String {
+  approval_issue("alice", "carrier:send_message", 0)
+  let r = cron_run("job1")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

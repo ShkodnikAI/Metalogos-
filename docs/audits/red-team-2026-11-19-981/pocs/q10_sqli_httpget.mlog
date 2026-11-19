@@ -1,0 +1,7 @@
+pattern P() -> String {
+  let resp = http_get("http://127.0.0.1:9/api")
+  let sql = "INSERT INTO log VALUES ('" + resp + "')"
+  let r = db_execute(sql)
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

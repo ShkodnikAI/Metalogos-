@@ -1,0 +1,5 @@
+pattern P(d: String) -> String {
+  let c = read_file("in.txt")
+  return c
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

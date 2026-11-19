@@ -1,0 +1,6 @@
+pattern P() -> String {
+  let c = read_file("in.txt")
+  respond_html("<div>" + c + "</div>")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

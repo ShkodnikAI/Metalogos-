@@ -1,0 +1,6 @@
+pattern P() -> String {
+  session_set("sess1", "k", "v")
+  let r = session_get("sess1", "k")
+  return "ok"
+}
+flow Main { input: String = "x" -> P -> output }

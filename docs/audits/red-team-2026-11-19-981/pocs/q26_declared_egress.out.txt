@@ -1,0 +1,7 @@
+### CHECK q26_declared_egress (fixed)
+OK: no issues found.
+### CHECK_EXIT=0
+### RUN q26_declared_egress
+benign
+
+### RUN_EXIT=0

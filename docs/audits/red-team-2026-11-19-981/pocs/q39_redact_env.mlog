@@ -1,0 +1,6 @@
+pattern P(d: String) -> String {
+  let s = env("CANARY_TOKEN")
+  let safe = redact(s, "policy")
+  return safe
+}
+flow Main { input: String = "x" -> P -> output<public, untrusted> }

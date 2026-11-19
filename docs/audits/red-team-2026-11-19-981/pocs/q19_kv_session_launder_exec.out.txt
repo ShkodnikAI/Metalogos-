@@ -1,0 +1,6 @@
+### CHECK q19_kv_session_launder_exec
+3 errors:
+  1: [TAINT_PERSISTENCE] sink clearance violated: argument 1 of kv_set in pattern P carries label 'public, untrusted'; sinks require public — kv_set is classified sink/internal/reversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+  2: [UNTRUSTED_EGRESS_NETWORK] sink clearance violated: argument 2 of session_set in pattern P carries label 'public, untrusted'; sinks require public — session_set is classified sink/internal/reversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+  3: строка 11: [HTML_INJECTION] sink clearance violated: argument 0 of print in flow Main carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress — the flow output carries 'public, untrusted'; declare `-> output<public, untrusted>` if the display is intended (ADR-0154 §13.4 form (а))
+### CHECK_EXIT=1

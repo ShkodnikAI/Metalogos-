@@ -879,3 +879,56 @@ on the common 683 `.mlog` files found zero verdict changes).
   layer — documented).
 - `scripts/mutation_verify_981.sh` — M1 TW / M2 VM: each hand removed →
   exactly that lane's pins redden, restore byte-identical.
+
+## 0.40.0 → next (№982 — the store-label sidecar, both streams, BREAKING)
+
+> **The version line:** the row lands after the 0.40.0 stable cut; the section number follows
+> the release-train numbering at publication.
+
+Storage used to erase labels: a value put in untrusted read back as «the program's own» (the
+bare `HashMap`/SQLite stores carry no labels; the file axis read back through the №325
+ingress default). The owner's 19.11 decision (issue #1996) generalizes the №952 kv sidecar to
+ALL storage: `mem_*`/`session_*` and the file axis record the value's label at the write and
+the read-back rides it. **No write gate** — writing untrusted bytes remains legal; the label
+changes on the way out.
+
+### What changed and where it bites
+
+| Since | Rule | The verdict | The paths |
+|---|---|---|---|
+| the №982 merge | one sidecar table, stream-tagged keys (`mem:`, `session:`, `file:`; kv bare); the record at the dispatch gates; the read-back rides the recorded label | a value written untrusted reads back untrusted (the round-trip to a public sink refuses — as the untrusted data always should); a value written TRUSTED reads back trusted — **the lift**: the own-config round-trip that the №325 ingress default refused now passes | `mem_set/mem_get`, `session_set/session_get`, `write_file`/`append_file` → `read_file`, everywhere the value then flows |
+
+**The miss defaults (a read with no recorded write):** `kv`/`mem`/`session` answer `bottom`
+(an unwritten key is not untrusted data — the №951 decision, unchanged); the file stream
+answers `public, untrusted` — a file nobody in THIS process wrote was written by someone
+outside (the №325 ingress default, unchanged in verdict). The №455 sensitive-path vocabulary
+(`.env*`, `*.key`, `.git/**`, …) is NEVER lifted — a recorded label cannot lower the
+confidentiality a sensitive path carries.
+
+### The migration
+
+1. **The untrusted round-trip now refuses** (BREAKING): a program that wrote external content
+   (`exec` output, `http_get` bodies, `read_file` of foreign files) and displayed the
+   read-back must sanitize — `escape_html`/`render` for HTML sinks, `redact` before anything
+   else, or validate before display. This is the audit's 18.11 №978-a/№978-c line closing.
+2. **The trusted own-config round-trip now PASSES** (the fix on the other side): a program
+   writing its own config and reading it back no longer needs a suppression — the recorded
+   trusted label rides the read-back.
+3. **The inter-process boundary**: the sidecar is in-process. A file your PREVIOUS run wrote
+   reads back `public, untrusted` in this run (fail-closed). If your deployment needs the
+   label to survive the process, that is a separate design conversation (the threat-model
+   residual) — do not work around it by storing labels in the file content.
+4. **The stores' untrusted case was already closed at the entrance** (the runtime
+   `TAINT_PERSISTENCE` clearance refuses untrusted into `mem_set`/`session_set`/`kv_set`) —
+   unchanged; the sidecar's read-back arms stand for the recorded-label form.
+
+### Pinned by
+
+- `tests/naryad_982_storage_label_sidecar.rs` — 11 tests: the mem/session/file/kv round-trips
+  on BOTH lanes; the trusted lifts (the mutation targets — the verdict changes iff the
+  record dies); the no-record boundary (out-of-process content refuses); the entrance-closure
+  preservations (framed honestly — the entrance, not the sidecar, refuses those).
+- `scripts/mutation_verify_982.sh` — M1 (the TW arm-head record) / M2 (the VM dispatch-gate
+  record): each removed → exactly that lane's trusted-lift pin reddens, restore
+  byte-identical.
+- ADR-0154 §14 (Proposed) — the principle and the measured boundary.

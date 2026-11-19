@@ -1,0 +1,9 @@
+pattern P(d: String) -> String {
+    let t = env("SP")
+    respond(t)
+    return "ok"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

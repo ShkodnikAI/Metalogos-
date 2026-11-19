@@ -1,0 +1,13 @@
+### PROBE: p03_syntax_let.mlog
+### COMMAND: /home/z/my-project/metalogos-work/rt-977/mlog-candidate check p03_syntax_let.mlog
+--- check (default/VM backend) ---
+OK: no issues found.
+--- check exit code: 0 ---
+### COMMAND: /home/z/my-project/metalogos-work/rt-977/mlog-candidate check --reference p03_syntax_let.mlog
+--- check (reference backend) ---
+OK: no issues found.
+--- check --reference exit code: 0 ---
+### COMMAND: SP=mocksecret /home/z/my-project/metalogos-work/rt-977/mlog-candidate run p03_syntax_let.mlog
+--- run (SP=mocksecret, mock value, never a real credential) ---
+ok
+--- run exit code: 0 ---

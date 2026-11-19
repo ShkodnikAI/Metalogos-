@@ -1,0 +1,19 @@
+### PROBE: p02_direct_untrusted_respond.mlog
+### COMMAND: /home/z/my-project/metalogos-work/rt-977/mlog-candidate check p02_direct_untrusted_respond.mlog
+--- check (default/VM backend) ---
+2 errors:
+  1: [HTML_INJECTION] sink clearance violated: argument 0 of respond in pattern P carries label 'public, untrusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+  2: строка 6: [HTML_INJECTION] sink clearance violated: argument 0 of print in flow Main carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress — the flow output carries 'public, untrusted'; declare `-> output<public, untrusted>` if the display is intended (ADR-0154 §13.4 form (а))
+--- check exit code: 1 ---
+### COMMAND: /home/z/my-project/metalogos-work/rt-977/mlog-candidate check --reference p02_direct_untrusted_respond.mlog
+--- check (reference backend) ---
+2 errors:
+  1: [HTML_INJECTION] sink clearance violated: argument 0 of respond in pattern P carries label 'public, untrusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+  2: строка 6: [HTML_INJECTION] sink clearance violated: argument 0 of print in flow Main carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress — the flow output carries 'public, untrusted'; declare `-> output<public, untrusted>` if the display is intended (ADR-0154 §13.4 form (а))
+--- check --reference exit code: 1 ---
+### COMMAND: SP=mocksecret /home/z/my-project/metalogos-work/rt-977/mlog-candidate run p02_direct_untrusted_respond.mlog
+--- run (SP=mocksecret, mock value, never a real credential) ---
+error: Category A security invariant violated:
+[HTML_INJECTION] sink clearance violated: argument 0 of respond in pattern P carries label 'public, untrusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress
+[HTML_INJECTION] sink clearance violated: argument 0 of print in flow Main carries label 'public, untrusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: untrusted-egress — the flow output carries 'public, untrusted'; declare `-> output<public, untrusted>` if the display is intended (ADR-0154 §13.4 form (а))
+--- run exit code: 1 ---

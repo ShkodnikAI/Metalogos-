@@ -1,0 +1,7 @@
+pattern Store(d: String) -> String {
+    return mem_set("k", env("SP"))
+}
+
+flow Main {
+    input: String = "x" -> Store -> output
+}

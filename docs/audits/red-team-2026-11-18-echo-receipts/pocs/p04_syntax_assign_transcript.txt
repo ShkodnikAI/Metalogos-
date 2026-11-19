@@ -1,0 +1,22 @@
+### PROBE: p04_syntax_assign.mlog
+### COMMAND: /home/z/my-project/metalogos-work/rt-977/mlog-candidate check p04_syntax_assign.mlog
+--- check (default/VM backend) ---
+3 errors:
+  1: строка 2: cannot assign to immutable variable: x (use 'let mut x' to make it mutable)
+  2: строка 2: assignment to undefined variable: x
+  3: undefined variable: x
+--- check exit code: 1 ---
+### COMMAND: /home/z/my-project/metalogos-work/rt-977/mlog-candidate check --reference p04_syntax_assign.mlog
+--- check (reference backend) ---
+3 errors:
+  1: строка 2: cannot assign to immutable variable: x (use 'let mut x' to make it mutable)
+  2: строка 2: assignment to undefined variable: x
+  3: undefined variable: x
+--- check --reference exit code: 1 ---
+### COMMAND: SP=mocksecret /home/z/my-project/metalogos-work/rt-977/mlog-candidate run p04_syntax_assign.mlog
+--- run (SP=mocksecret, mock value, never a real credential) ---
+error: [UNDEFINED_VARIABLE] Compilation error (Naryad #523): semantic findings block execution:
+cannot assign to immutable variable: x (use 'let mut x' to make it mutable) (line 2)
+assignment to undefined variable: x (line 2)
+undefined variable: x
+--- run exit code: 1 ---

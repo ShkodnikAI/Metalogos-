@@ -1,0 +1,10 @@
+pattern P(d: String) -> String {
+    let combined = "prefix-" + env("SP")
+    let stored = mem_set("k", combined)
+    respond(stored)
+    return "ok"
+}
+
+flow Main {
+    input: String = "x" -> P -> output
+}

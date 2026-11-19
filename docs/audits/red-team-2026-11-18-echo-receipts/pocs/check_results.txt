@@ -1,0 +1,42 @@
+# check_results.txt — one line per probe
+# Format: probe | check verdict classes (VM default; --reference identical unless noted) | run verdict (SP=mocksecret) | BYPASS/CAUGHT/INCONCLUSIVE
+# Binary: /home/z/my-project/metalogos-work/rt-977/mlog-candidate sha256 b4bd6942b0e74ffc798de6ac8b971674b8c375a79b2a43aea94f5992fad7df79
+# Promise sheet: pocs/PROMISES.md (P2, P4 attacked)
+p00 | CONTROL sanity: check OK exit 0; --reference OK exit 0 | run exit 0, prints "ok" | CONTROL
+p01 | SECRET_LEAK + PII_EGRESS_OUTPUT (respond) + PII_EGRESS_OUTPUT (flow print), exit 1; --reference identical | run: Category A security invariant violated, same 3 classes, exit 1 | CAUGHT
+p02 | HTML_INJECTION (respond, untrusted-egress) + HTML_INJECTION (flow print, untrusted-egress), exit 1; --reference identical | run: Category A, same 2 classes, exit 1 | CAUGHT
+p03 | CONTROL store-literal: mem_set("k","v") return responded; check OK exit 0; --reference OK exit 0 | run exit 0, prints "ok" | CONTROL
+p04 | CONTROL syntax: bare assignment refused (cannot assign to immutable variable), exit 1 | run: UNDEFINED_VARIABLE compilation error, exit 1 | CONTROL
+p05 | CONTROL: env() used, no sink; check OK exit 0 | run exit 0 | CONTROL
+p06 | CONTROL: query_param() used, no sink; check OK exit 0 | run exit 0 | CONTROL
+p07 | TAINT_PERSISTENCE (mem_set arg1) + SECRET_LEAK + PII_EGRESS_OUTPUT (respond) + PII_EGRESS_OUTPUT (flow print), exit 1; --reference identical | run: Category A, same 4 classes, exit 1 | CAUGHT
+p08 | TAINT_PERSISTENCE (mem_set arg1) + PII_EGRESS_OUTPUT (flow print), exit 1; respond(kv_get("k")) site NOT flagged; --reference identical | run: Category A, same 2 classes, exit 1 | CAUGHT (note: in-pattern respond of store read-back not flagged; store call itself refused)
+p09 | TAINT_PERSISTENCE (kv_set arg1) ONLY, exit 1; respond(kv_get("k")) and flow print NOT flagged; --reference identical | run: Category A, same 1 class, exit 1 | CAUGHT (note: respond site and terminator silent; store call itself refused)
+p10 | SECRET_LEAK + PII_EGRESS_NETWORK (session_set arg2) + PII_EGRESS_OUTPUT (respond) + PII_EGRESS_OUTPUT (flow print), exit 1; --reference identical | run: Category A, same 4 classes, exit 1 | CAUGHT
+p11 | TAINT_PERSISTENCE (memorize arg1) ONLY, exit 1; respond(recall("k")) and flow print NOT flagged; --reference identical | run: Category A, same 1 class, exit 1 | CAUGHT (note: respond site silent; store call itself refused)
+p12 | TAINT_PERSISTENCE (mem_set arg1) + PII_EGRESS_OUTPUT (flow print), exit 1; respond(mem_delete return) NOT flagged; --reference identical | run: Category A, same 2 classes, exit 1 | CAUGHT (note: respond site silent; store call itself refused)
+p13 | TAINT_PERSISTENCE (mem_set arg1 in Stash) + PII_EGRESS_OUTPUT (flow print — read-back taint tracked through pattern return/flow edge), exit 1; --reference identical | run: Category A, same 2 classes, exit 1 | CAUGHT
+p14 | TAINT_PERSISTENCE (mem_set arg1, untrusted-egress) + HTML_INJECTION (respond) + HTML_INJECTION (flow print), exit 1; --reference identical | run: Category A, same 3 classes, exit 1 | CAUGHT
+p15 | TAINT_PERSISTENCE (mem_set arg1) + PII_EGRESS_OUTPUT (flow print), exit 1; respond(recall("k")) NOT flagged; --reference identical | run: Category A, same 2 classes, exit 1 | CAUGHT (note: cross-store read-back respond silent; store call itself refused)
+p16 | SECRET_LEAK + TAINT_PERSISTENCE (mem_set arg1, numeric key accepted without type complaint) + PII_EGRESS_OUTPUT (respond) + PII_EGRESS_OUTPUT (flow print), exit 1; --reference identical | run: Category A, same 4 classes, exit 1 | CAUGHT
+p17 | TAINT_PERSISTENCE (mem_set arg1 in Store) + PII_EGRESS_OUTPUT (flow print — store return through flow edge tracked), exit 1; --reference identical | run: Category A, same 2 classes, exit 1 | CAUGHT
+p18 | SECRET_LEAK + PII_EGRESS_OUTPUT (respond) + PII_EGRESS_OUTPUT (flow print), exit 1 — taint tracked through let-bound variable; --reference identical | run: Category A, same 3 classes, exit 1 | CAUGHT
+p19 | SECRET_LEAK + TAINT_PERSISTENCE (mem_set arg1) + PII_EGRESS_OUTPUT (respond) + PII_EGRESS_OUTPUT (flow print), exit 1 — let-mut reassignment re-taints; --reference identical | run: Category A, same 4 classes, exit 1 | CAUGHT
+p20 | SECRET_LEAK + TAINT_PERSISTENCE (mem_set arg1) + PII_EGRESS_OUTPUT (respond) + PII_EGRESS_OUTPUT (flow print), exit 1 — "prefix-"+env() concat tracked; --reference identical | run: Category A, same 4 classes, exit 1 | CAUGHT
+p21 | PII_EGRESS_OUTPUT (flow print) ONLY, exit 1 — flow input literal env("SP") tainted into terminator; no SECRET_LEAK class (no direct env-to-sink call); --reference identical | run: Category A, same 1 class, exit 1 | CAUGHT
+p22 | PII_EGRESS_OUTPUT (respond) + PII_EGRESS_OUTPUT (flow print), exit 1 — taint crosses helper-pattern call boundary; no SECRET_LEAK class; --reference identical | run: Category A, same 2 classes, exit 1 | CAUGHT
+p23 | check OK exit 0 on both backends with CONSENT audit event: "[CONSENT][audit-event] poisoned value reaches the quarantine sink in pattern 'P' — legal egress with audit event (№335)" | run: 3x CONSENT event then SINK_CLEARANCE_RUNTIME deny: "quarantine_write argument '@env' carries label 'private, trusted' (line 1) — the static gate and the runtime agree on the verdict; deny reason class: PII_EGRESS_NETWORK", exit 1 | CAUGHT (note: clean check followed by runtime refusal — check/run verdict divergence observed; no leak shipped)
+p24 | SECRET_LEAK (env passed to write_file()) + SECRET_LEAK (write_file arg1 clearance), exit 1; --reference identical | run: Category A, same 2 classes, exit 1 | CAUGHT
+p25 | SECRET_LEAK (env as http_post body) + PII_EGRESS_NETWORK (http_post arg1, bridge №391) + PII_EGRESS_OUTPUT (flow print), exit 1; --reference identical | run: Category A, same 3 classes, exit 1 | CAUGHT
+p26 | SECRET_LEAK (env passed to print()) + PII_EGRESS_OUTPUT (print in pattern) + PII_EGRESS_OUTPUT (flow print), exit 1; --reference identical | run: Category A, same 3 classes, exit 1 | CAUGHT
+p27 | CONTROL sanctioned downward move: redact(env("SP"),"all") then respond; check OK exit 0 with [REDACT][audit-event]; --reference identical | run exit 0, prints "ok" | CONTROL
+p28 | SECRET_LEAK + PII_EGRESS_OUTPUT (respond) + PII_EGRESS_OUTPUT (flow print), exit 1 — env() blanket-tainted even for never-set name DEFINITELY_NOT_SET_RT_977; --reference identical | run: Category A, same 3 classes, exit 1 | CAUGHT
+p29 | SECRET_LEAK + PII_EGRESS_OUTPUT, exit 1 — respond(env) inside an UNWIRED (orphan) pattern is still checked; --reference identical | run: Category A, same 2 classes, exit 1 | CAUGHT
+p30 | TAINT_PERSISTENCE (mem_set arg1 = helper call result) + PII_EGRESS_OUTPUT (respond) + PII_EGRESS_OUTPUT (flow print), exit 1; --reference identical | run: Category A, same 3 classes, exit 1 | CAUGHT
+p31 | SECRET_LEAK + PII_EGRESS_OUTPUT (respond inside if-branch) + PII_EGRESS_OUTPUT (flow print), exit 1 — branches are checked; --reference identical | run: Category A, same 3 classes, exit 1 | CAUGHT
+p32 | CONTROL documented escape hatch: query_param -> output<public, untrusted> per the tool's own refusal text (ADR-0154 §13.4 form (а)); check OK exit 0; --reference OK | run exit 0 | CONTROL (designed declaration; undeclared form refused in p02)
+p33 | SECRET_LEAK + PII_EGRESS_OUTPUT (respond of type_of(env)) + PII_EGRESS_OUTPUT (flow print), exit 1 — even secret METADATA refused; --reference identical | run: Category A, same 3 classes, exit 1 | CAUGHT
+p34 | TAINT_PERSISTENCE (kv_set arg1) ONLY, exit 1; respond(kv_set return) NOT flagged (unlike mem_set/session_set/memorize return echoes p07/p10 which fired on respond); --reference identical | run: Category A, same 1 class, exit 1 | CAUGHT (note: respond site silent; store call itself refused)
+p35 | TAINT_PERSISTENCE (memorize arg1) ONLY, exit 1; respond(memorize return) NOT flagged; --reference identical | run: Category A, same 1 class, exit 1 | CAUGHT (note: respond site silent; store call itself refused)
+p36 | SECRET_LEAK + PII_EGRESS_OUTPUT (respond inside while-branch) + PII_EGRESS_OUTPUT (flow print), exit 1 — loops are checked; --reference identical | run: Category A, same 3 classes, exit 1 | CAUGHT
+# SUMMARY: 37 probes = 30 attack probes + 7 controls. Attack probes: BYPASS=0, CAUGHT=30 (p23 with check/run divergence note), INCONCLUSIVE=0. Controls: 7 (p00,p03,p04,p05,p06,p27,p32).

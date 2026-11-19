@@ -1,0 +1,19 @@
+### PROBE: p15_memset_recall_crossstore.mlog
+### COMMAND: /home/z/my-project/metalogos-work/rt-977/mlog-candidate check p15_memset_recall_crossstore.mlog
+--- check (default/VM backend) ---
+2 errors:
+  1: [TAINT_PERSISTENCE] sink clearance violated: argument 1 of mem_set in pattern P carries label 'private, trusted'; sinks require public — mem_set is classified sink/internal/reversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+  2: строка 8: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in flow Main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress — the flow output carries a non-public label; the confidentiality half is not declareable on the terminator (№967): redact() in the foreground contour is the sanctioned downward move (№326)
+--- check exit code: 1 ---
+### COMMAND: /home/z/my-project/metalogos-work/rt-977/mlog-candidate check --reference p15_memset_recall_crossstore.mlog
+--- check (reference backend) ---
+2 errors:
+  1: [TAINT_PERSISTENCE] sink clearance violated: argument 1 of mem_set in pattern P carries label 'private, trusted'; sinks require public — mem_set is classified sink/internal/reversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+  2: строка 8: [PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in flow Main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress — the flow output carries a non-public label; the confidentiality half is not declareable on the terminator (№967): redact() in the foreground contour is the sanctioned downward move (№326)
+--- check --reference exit code: 1 ---
+### COMMAND: SP=mocksecret /home/z/my-project/metalogos-work/rt-977/mlog-candidate run p15_memset_recall_crossstore.mlog
+--- run (SP=mocksecret, mock value, never a real credential) ---
+error: Category A security invariant violated:
+[TAINT_PERSISTENCE] sink clearance violated: argument 1 of mem_set in pattern P carries label 'private, trusted'; sinks require public — mem_set is classified sink/internal/reversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+[PII_EGRESS_OUTPUT] sink clearance violated: argument 0 of print in flow Main carries label 'private, trusted'; sinks require public — print is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress — the flow output carries a non-public label; the confidentiality half is not declareable on the terminator (№967): redact() in the foreground contour is the sanctioned downward move (№326)
+--- run exit code: 1 ---

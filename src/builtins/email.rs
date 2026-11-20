@@ -906,7 +906,7 @@ mod tests {
     use super::*;
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_smtp_send_missing_env() {
         // Without SMTP_HOST set, should return error
         std::env::remove_var("SMTP_HOST");
@@ -920,7 +920,7 @@ mod tests {
     }
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_imap_list_missing_env() {
         std::env::remove_var("IMAP_HOST");
         let result = builtin_imap_list(&[Value::String("INBOX".to_string()), Value::Float(10.0)]);
@@ -929,7 +929,7 @@ mod tests {
     }
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_imap_read_missing_env() {
         std::env::remove_var("IMAP_HOST");
         let result = builtin_imap_read(&[Value::Float(1.0)]);

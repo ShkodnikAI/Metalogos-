@@ -2227,7 +2227,7 @@ mod n455_matcher_tests {
     }
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn n455_allowlist_matches_raw_path_or_file_name() {
         // SAFETY: single-threaded per test binary is NOT enough for env —
         // serial_test is a dev-dependency of tests/, here we only read the

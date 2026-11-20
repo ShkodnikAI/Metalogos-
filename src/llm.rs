@@ -3137,7 +3137,7 @@ mod tests {
     // ── Provider ────────────────────────────────────────────────────
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_provider_from_env_default() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::remove_var("METALOGOS_LLM_PROVIDER");
@@ -3145,7 +3145,7 @@ mod tests {
     }
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_provider_from_env_openai() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_LLM_PROVIDER", "openai");
@@ -3154,7 +3154,7 @@ mod tests {
     }
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_provider_from_env_ollama() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_LLM_PROVIDER", "ollama");
@@ -3163,7 +3163,7 @@ mod tests {
     }
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_provider_from_env_case_insensitive() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_LLM_PROVIDER", "OpenAI");
@@ -3343,7 +3343,7 @@ mod tests {
     // ── RealLlm Construction ────────────────────────────────────────
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_real_llm_new_default_provider() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::remove_var("METALOGOS_LLM_PROVIDER");
@@ -3388,7 +3388,7 @@ mod tests {
     // ── Factory ────────────────────────────────────────────────────
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_create_llm_backend_default_refuses_unconfigured() {
         // №898 (the owner decision 04.11): with NOTHING declared — no
         // mock flag, no provider/key/base-url env, no `llm {}` block —
@@ -3423,7 +3423,7 @@ mod tests {
     }
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_create_llm_backend_declared_external_fails_loud() {
         // №879 (ADR-0208 §2.2/§5): an EXPLICIT external declaration
         // without credentials keeps the №454 fail-loud posture EXACTLY
@@ -3449,7 +3449,7 @@ mod tests {
     }
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_create_llm_backend_explicit_mock_true() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_MOCK_LLM", "true");
@@ -3465,7 +3465,7 @@ mod tests {
     }
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_create_llm_backend_explicit_mock_1() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_MOCK_LLM", "1");
@@ -3513,7 +3513,7 @@ mod tests {
     }
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_mock_llm_requested_explicit_only() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::remove_var("METALOGOS_MOCK_LLM");
@@ -3532,7 +3532,7 @@ mod tests {
     // ── resolve_model unit tests (ADR-0048) ──────────────────────────
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_resolve_model_with_env_alias() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_LLM_MODEL_fast", "claude-haiku-4-5-20251001");
@@ -3541,7 +3541,7 @@ mod tests {
     }
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_resolve_model_without_env_passthrough() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::remove_var("METALOGOS_LLM_MODEL_unknown");
@@ -3549,7 +3549,7 @@ mod tests {
     }
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_resolve_model_direct_model_name() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // "claude-sonnet-4-20250514" is a real model name, not an alias
@@ -3561,7 +3561,7 @@ mod tests {
     }
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_resolve_model_custom_user_alias() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_LLM_MODEL_cheap", "gpt-4o-mini");
@@ -3570,7 +3570,7 @@ mod tests {
     }
 
     #[test]
-#[serial_test::serial]
+    #[serial_test::serial]
     fn test_resolve_model_env_changes_are_reflected() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_LLM_MODEL_volatile", "model-v1");

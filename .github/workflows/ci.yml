@@ -424,11 +424,14 @@ jobs:
           fi
       - name: "Artifact — the №486 declared-type warn count on examples/ (informational, NOT a ratchet — the corpus test prints the line)"
         run: |
-          # №712 line: the step-5 link set (hundreds of debug test binaries)
-          # is no longer needed here, and its disk pressure killed the 486
-          # link three times with SIGBUS (mmap over a full disk). The 486
-          # binary itself is kept; everything else re-links if ever asked.
-          find target/debug -maxdepth 3 -type f -name 'naryad_*' ! -name '*486*' -delete
+          # №712 line: after the step-5 suite the runner disk holds the
+          # full debug link set (~300 test binaries); the 486 artifact
+          # link died five runs in a row (SIGBUS on mmap over disk
+          # pressure, twice the runner agent died silently). The narrow
+          # name-based find was not enough — drop the whole test
+          # artifact set with the fingerprints (the lib rlibs stay, the
+          # single 486 binary re-links alone on a fresh disk).
+          cargo clean --tests
           df -h / | tail -1
           cargo test --test naryad_486_declared_types -- --nocapture corpus_declared
 

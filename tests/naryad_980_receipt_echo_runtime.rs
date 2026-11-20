@@ -1,19 +1,20 @@
-// ── №980 (issue #1994): the RUNTIME pins — the echo hand in the TW and
+// ── №980 (issue #1994): the RUNTIME pins — FLIPPED BY №983
 //    VM lanes ──────────────────────────────────────────────────────────
 //
 // Separate file = separate test binary = its own process env: these
 // pins run with `METALOGOS_STATIC_LABEL_GATE_OFF=1` (the №952 test-only
-// silencer, audit.rs check_sink_clearance) so the refusal can come ONLY
-// from the runtime value-label line — the static lane is out of the
-// picture by construction. Removing the echo consult in
-// `interpreter/labels.rs` reddens the TW pins; removing it in
-// `vm.rs::builtin_result_label` reddens the VM pins — each lane's hand
-// is isolated by its own pin (the dispatch's «снять руку в одном —
-// краснеет ровно этот пин»).
+// silencer) so any refusal would come ONLY from the runtime value-label
+// line.
 //
-// The probes ride env("SP") (a real secret) because the RUNTIME needs a
-// live value; the static-lane probes (query_param as the untrusted
-// NOT-secret reason) live in tests/naryad_980_receipt_echo.rs.
+// №983 (issue #1997) removed the ECHO the hand guarded: the return is
+// the machine id (`qrt-…`), the reason rides the audit journal on
+// stderr. The two echo-refusal pins flipped to their negations: the
+// reason-echo probe now must PASS (no echo exists — nothing to
+// launder); a refusal here means the reason re-entered the return
+// WITHOUT the hand (the №977 hole re-opened). The mutation that
+// re-opens the hole is caught by the №983 pins' machine-id format
+// assertions (tests/naryad_983_quarantine_machine_id.rs), which also
+// carry the stderr journal test. The payload controls are unchanged.
 #![allow(clippy::disallowed_methods)]
 
 use std::path::Path;
@@ -39,22 +40,6 @@ fn seed_env() {
     std::env::set_var("METALOGOS_STATIC_LABEL_GATE_OFF", "1");
 }
 
-fn assert_runtime_refusal(backend: &str, err: &str) {
-    // THE PIN IS THE HAND, not «a refusal somewhere». The reason here is
-    // `query_param` — untrusted (UserInput) but NOT a secret (the №977
-    // probe property), so the Category-A secret line stays SILENT and the
-    // refusal can come ONLY from the sink-clearance runtime line — the
-    // line fed by the echo hand in this backend's lane. A secret reason
-    // (env) would let the Category-A line refuse even with the hand
-    // removed, and the pin would survive its own mutation.
-    assert!(
-        err.contains("[SINK_CLEARANCE_RUNTIME]"),
-        "{backend}: expected the sink-clearance runtime refusal on the \\
-         reason echo, got: {}",
-        err
-    );
-}
-
 // THE PROBE SHAPE: the quarantine call INLINED into the sink argument —
 // `print(quarantine_write(...))`. The runtime gate at the sink's FnCall
 // arm labels its arguments through `label_of_expr` (the walk), and for a
@@ -78,35 +63,36 @@ pattern P(d: String) -> String {
 flow Main { input: String = "x" -> P -> output }
 "#;
 
-/// TW: a SECRET passed AS THE REASON rides the receipt echo — the print
-/// gate refuses at runtime. Mutation target: the echo consult in
-/// `interpreter/labels.rs`.
+/// TW — FLIPPED: since №983 there is NO echo — the untrusted reason
+/// never rides the return, the receipt (the machine id) stays bottom
+/// and the print passes. A refusal here means the reason re-entered the
+/// return WITHOUT the hand (the №977 hole re-opened, worse than before:
+/// nothing labels it anymore).
 #[test]
 fn n980_tw_runtime_the_reason_echo_refuses() {
     seed_env();
-    if let Err(e) = run_tw(REASON_ECHO) {
-        assert_runtime_refusal("TW/reason-echo", &e);
-    } else {
-        panic!(
-            "TW/reason-echo: the secret reason printed — the TW echo \
-             hand is dead"
-        );
+    match run_tw(REASON_ECHO) {
+        Ok(_) => {}
+        Err(e) => panic!(
+            "TW/reason-echo: the receipt refusal fired WITHOUT the hand — \
+             the reason must not ride the return (the №977 hole \
+             re-opened by a body-only change) — got: {}",
+            e
+        ),
     }
 }
 
-/// VM: the same probe on the executor backend. Mutation target: the
-/// echo consult in `vm.rs::builtin_result_label` (the dispatch measured
-/// that lane at ZERO consults of the shared tables before №980).
+/// VM — FLIPPED: the same negation on the executor backend.
 #[test]
 fn n980_vm_runtime_the_reason_echo_refuses() {
     seed_env();
-    if let Err(e) = run_vm(REASON_ECHO) {
-        assert_runtime_refusal("VM/reason-echo", &e);
-    } else {
-        panic!(
-            "VM/reason-echo: the secret reason printed — the VM echo \
-             hand is dead"
-        );
+    match run_vm(REASON_ECHO) {
+        Ok(_) => {}
+        Err(e) => panic!(
+            "VM/reason-echo: the receipt refusal fired WITHOUT the hand — \
+             the №977 hole re-opened on the executor — got: {}",
+            e
+        ),
     }
 }
 
@@ -121,8 +107,8 @@ fn n980_tw_runtime_the_payload_stays_a_receipt() {
         Ok(_) => {}
         Err(e) => panic!(
             "TW/payload-receipt: quarantining a secret and logging the \
-             receipt must stay legal (№325/№964) — the payload must not \
-             ride the return — got: {}",
+             receipt must stay legal (№325/№964) — since №983 neither the \
+             payload NOR the reason rides the return — got: {}",
             e
         ),
     }
@@ -136,8 +122,8 @@ fn n980_vm_runtime_the_payload_stays_a_receipt() {
         Ok(_) => {}
         Err(e) => panic!(
             "VM/payload-receipt: quarantining a secret and logging the \
-             receipt must stay legal (№325/№964) — the payload must not \
-             ride the return — got: {}",
+             receipt must stay legal (№325/№964) — since №983 neither the \
+             payload NOR the reason rides the return — got: {}",
             e
         ),
     }

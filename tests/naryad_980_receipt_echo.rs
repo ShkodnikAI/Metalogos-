@@ -1,37 +1,31 @@
-// ── №980 (issue #1994, the escalations line 19.11 — escalation 1):
-//    the receipt that ECHOES its reason — `quarantine_write` from=1 ────
+// ── №980 (issue #1994, escalation 1) — the echo hand, now RETIRED ────
 //
-// THE FACT (the №977 escalation, resolved by the owner's dispatch
-// gh#2000): `quarantine_write` STAYED in SINK_RECEIPT_NAMES after №977
-// pulled the three echo names out. Its return is the audit text
-// `«[QUARANTINE_EGRESS] … (reason: …)»` embedding args[1] — the
-// caller-supplied reason (src/builtins/consent.rs, read in the bounds
-// of the handler body). A value passed AS THE REASON therefore arrived
-// at every display sink as `Label::bottom()` — not conservative, but
-// ABSENT — while the bare control refuses:
+// HISTORY: the №977 escalation found that `quarantine_write`'s return —
+// the audit text `«[QUARANTINE_EGRESS] … (reason: …)»` embedding args[1]
+// — let a value passed AS THE REASON arrive at every display sink as
+// `Label::bottom()`. №980 resolved it with the exact class: the receipt
+// carried the REASON's label (`RECEIPT_ECHO_ARGS`, `from=1`, four lanes,
+// one table). The pins below asserted that hand.
 //
-//   control  query_param(q) → respond                      = HTML_INJECTION
-//   R2       quarantine_write(v, query_param(r)) → respond = PASS ← the hole
-//   R3       quarantine_write(secret, "benign") → print    = PASS ← stays
+// №983 (issue #1997) removed the ECHO ITSELF — the product fix the hand
+// named as its own removal condition: `quarantine_write` now returns a
+// machine record id (`qrt-<unix>-<seq>`), the reason goes to the audit
+// journal on stderr (the №326 unconditional event), and the hand has
+// nothing to guard. THIS PR flips the pins: the echo must NOT exist.
 //
-// THE FIX: `from=1` — the receipt carries EXACTLY the label of the
-// argument it interpolates (args[1]), never the payload (args[0]).
-// The table is `sink_receipt::RECEIPT_ECHO_ARGS`, one table next to the
-// receipt and external-return tables, consulted by FOUR lanes in the
-// SAME order (after the private-field bridge, before `is_sink_receipt`):
-// the static lattice (semantic.rs), the TW runtime (interpreter/labels.rs),
-// the VM runtime (vm.rs::builtin_result_label) and the typed secret lane
-// (secret_label.rs). One table, no island (§2).
+//   control  query_param(q) → respond                      = HTML_INJECTION (unchanged)
+//   R2       quarantine_write(v, query_param(r)) → respond = PASS (the id is a receipt — no echo to launder)
+//   R3       quarantine_write(secret, "benign") → print    = PASS (the secret rode the JOURNAL, not the return)
 //
-// THE REMOVAL CONDITION (№983): when the machine-id product fix lands —
-// the reason moves into the №335 audit event — the hand is removed BY
-// THAT naryad's PR; the hand outliving the echo it models would make
-// the rule stricter than the code (the §1 drift, the reverse direction).
-//
-// THE MUTATION TARGETS, one per lane, each pin naming its hand: remove
-// the echo consult in `semantic.rs` → n980_static_* reddens; in
-// `interpreter/labels.rs` → n980_tw_runtime_* reddens; in `vm.rs` →
-// n980_vm_runtime_* reddens; in `secret_label.rs` → n980_typed_* reddens.
+// THE MUTATION TARGET (№983's own, `scripts/mutation_verify_983.sh`):
+// restore the reason in the return (`consent.rs`) → with the hand gone
+// the echoed reason arrives bottom again, so R2's shape still PASSES —
+// these flipped pins do NOT catch the mutation (that is the honest
+// mapping); the mutation is caught by the №983 pins' MACHINE-ID
+// assertions (tests/naryad_983_quarantine_machine_id.rs — the return
+// stops matching `qrt-…` and starts carrying the reason), while the
+// secret-reason shape re-opens the №977 hole at the static lanes (the
+// n980_typed_* pin reddens again — the flip asserts the negation).
 #![allow(clippy::disallowed_methods)]
 
 use metalogos::ast::{Expr, Span};
@@ -93,42 +87,43 @@ fn n980_the_control_still_refuses_html_injection() {
     );
 }
 
-/// THE STATIC-LANE PIN (the lattice hand in `semantic.rs`). R2 — the
-/// audit's laundering probe: the reason echo must not arrive at the
-/// public channel as bottom. The class is the INTEGRITY one, and the
-/// typed lane must NOT raise it (query_param is untrusted, not a
-/// secret) — the two lanes agree, the №476 form.
+/// THE STATIC-LANE PIN — FLIPPED BY №983. R2 was the audit's laundering
+/// probe; since №983 the return is the machine id and there is NO echo
+/// to launder: the receipt stays bottom and respond passes. The echo's
+/// return (the reason riding bottom) is now guarded by the №983
+/// mutation pin — if the reason re-enters the return, THIS pin reddens
+/// (the id assertion) and the №983 pin's format assertion reddens with
+/// it.
 #[test]
 fn n980_static_lane_the_reason_echo_no_longer_launder() {
     let v = classes(&prog(
         "let r = quarantine_write(\"q\", query_param(\"r\")) let _ = respond(r)",
     ));
     assert!(
-        v.iter().any(|c| c == "HTML_INJECTION"),
-        "quarantine_write returns the audit text embedding args[1] (the \
-         reason, consent.rs) — the receipt must carry the REASON's label \
-         (from=1, №980), so respond refuses like the control — got {v:?}; \
-         PASS here is the laundering path the №977 escalation named"
-    );
-    assert!(
-        !v.iter().any(|c| c == "SECRET_LEAK"),
-        "query_param is untrusted but NOT a secret — SECRET_LEAK here is \
-         a lane disagreement, not a fix — got {v:?}"
+        v.is_empty(),
+        "since №983 the return is the machine id — no echo, no launder: \
+         the receipt stays bottom and respond passes — got {v:?}; \
+         HTML_INJECTION here means the reason re-entered the return \
+         without the hand (the №977 hole re-opened)"
     );
 }
 
-/// THE SECRET-REASON PROBE (the №980 task 4 form): a SECRET passed AS
-/// THE REASON must refuse end-to-end. The typed lane's class is
-/// SECRET_LEAK; the lattice agrees (env is Private on both).
+/// THE SECRET-REASON PROBE — FLIPPED BY №983. The secret passed AS THE
+/// REASON no longer rides the RETURN (the echo is gone); it rides the
+/// AUDIT JOURNAL — the sanctioned №326 channel, on stderr, exactly as
+/// the №335 policy always claimed. The static check PASSES (the
+/// quarantine sink is the legal egress, №325) and the receipt is clean.
 #[test]
 fn n980_secret_reason_refuses_end_to_end() {
     let v = classes(&prog(
         "let r = quarantine_write(\"q\", env(\"SP\")) let _ = print(r)",
     ));
     assert!(
-        v.iter().any(|c| c == "SECRET_LEAK"),
-        "a secret passed AS THE REASON rides the receipt echo — print \
-         must refuse with SECRET_LEAK (№980 task 4) — got {v:?}"
+        v.is_empty(),
+        "since №983 the secret reason travels to the audit journal only — \
+         the return is the machine id and print passes — got {v:?}; \
+         SECRET_LEAK here means the secret re-entered the RETURN (the \
+         №977 hole re-opened)"
     );
 }
 
@@ -148,8 +143,8 @@ fn n980_the_payload_stays_a_receipt() {
     assert!(
         v.is_empty(),
         "quarantining a secret and logging the receipt is the sanctioned \
-         egress (№325) — the receipt carries the REASON's label only, and \
-         the reason is a benign literal — got {v:?}"
+         egress (№325) — since №983 the receipt is the machine id and \
+         carries NEITHER the payload NOR the reason — got {v:?}"
     );
 }
 
@@ -165,12 +160,11 @@ fn n980_the_unreasoned_receipt_stays_bottom() {
     );
 }
 
-/// THE TYPED-LANE PIN (the hand in `secret_label.rs`), unit form: the
-/// receipt's typed label is the REASON's labeled type. With the hand
-/// removed the lane answers the plain declared base (String) and this
-/// pin reddens — the end-to-end SECRET_LEAK would survive through the
-/// lattice, so this unit pin is the only one that isolates the typed
-/// hand.
+/// THE TYPED-LANE PIN — FLIPPED BY №983, unit form: with the echo gone
+/// the typed lane must NOT type the receipt as the reason's secret type
+/// (the secret rode the journal, not the return). If the echo ever
+/// returns (the hand or the body), this pin reddens first — the
+/// end-to-end SECRET_LEAK would follow through the lattice.
 #[test]
 fn n980_typed_lane_carries_the_secret_reason() {
     let lit = |s: &str| Expr::StringLit {
@@ -189,12 +183,13 @@ fn n980_typed_lane_carries_the_secret_reason() {
     };
     let vars: HashMap<String, metalogos::builtins::sig_types::Type> = HashMap::new();
     let with_secret = label_of_expr(&call(env_call), &vars);
-    assert_eq!(
+    assert_ne!(
         with_secret,
         Some(secret_source_type()),
-        "the typed lane must carry the REASON's secret type through the \
-         receipt echo (№980) — got {with_secret:?}; the plain declared \
-         base here masks a secret that rode args[1]"
+        "since №983 the receipt carries no echo — the typed lane must NOT \
+         type the return as the reason's secret type — got {with_secret:?}; \
+         a secret type here means the echo re-entered the return (the \
+         №977 hole re-opened)"
     );
     let plain = label_of_expr(&call(lit("gdpr revoked")), &vars);
     assert_ne!(
@@ -204,16 +199,20 @@ fn n980_typed_lane_carries_the_secret_reason() {
     );
 }
 
-/// THE TABLE GROUNDING (the №951 lesson — a typo would disable the rule
-/// silently): every echo name is a LIVE Role::Sink, keeps its receipt
-/// membership (the echo REFINES the receipt claim, it does not replace
-/// it), and the declared return is a String that can actually carry the
-/// echo.
+/// THE TABLE GROUNDING — FLIPPED BY №983: the hand's removal condition
+/// fired, the table is EMPTY (the echo no longer exists to guard). The
+/// per-entry checks stay alive for any FUTURE receipt that legitimately
+/// echoes an argument — an entry added without the grounding would
+/// still be caught here (the №951 lesson: a typo would disable or
+/// loosen the rule silently).
 #[test]
 fn n980_the_echo_table_is_grounded() {
     assert!(
-        !RECEIPT_ECHO_ARGS.is_empty(),
-        "the echo table is empty — the rule would be dead"
+        RECEIPT_ECHO_ARGS.is_empty(),
+        "since №983 the echo table must be empty — quarantine_write's \
+         return is the machine id and no name legitimately echoes an \
+         argument; an entry here without the echo existing in the body \
+         would make the rule stricter than the code (the §1 drift)"
     );
     for (name, idx) in RECEIPT_ECHO_ARGS {
         let c = classify(name).unwrap_or_else(|| {

@@ -181,6 +181,9 @@ pub fn run_program_with_dir(
     source: &str,
     base_dir: std::path::PathBuf,
 ) -> Result<Option<String>, String> {
+    // №983: the quarantine record ids are per-RUN deterministic — the
+    // sequence resets at every program start (see Vm::run for the twin).
+    crate::builtins::consent::reset_quarantine_seq();
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
 
     enforce_run_gates(&declarations, &base_dir, source)?;

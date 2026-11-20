@@ -477,6 +477,11 @@ impl Vm {
     /// Execute a compiled program. Returns the flow output (if any),
     /// with mutate log messages prepended if present.
     pub fn run(&mut self, program: Program) -> Result<Option<String>, String> {
+        // №983: the quarantine record ids are per-RUN deterministic —
+        // the sequence resets at every program start (the golden-pair
+        // crosscheck and the journal pins require reproducibility; TW
+        // and VM in one process stay identical).
+        crate::builtins::consent::reset_quarantine_seq();
         // №607: one program run = one budgeted context (the contour budget
         // applies per request/tick/program run — the charges of `embed` et
         // al. accumulate within the run and reset at the next boundary).

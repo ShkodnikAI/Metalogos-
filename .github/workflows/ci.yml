@@ -430,7 +430,10 @@ jobs:
           # agent died silently twice, `cargo clean --tests` is rejected
           # by the runner's cargo once). Run the linked binary directly —
           # no cargo layer, no re-link; a missing binary fails loud.
-          BIN=$(ls -t target/debug/deps/naryad_486_declared_types-* 2>/dev/null | grep -v '\.d$' | head -1)
+          # this crate emits test binaries into the build-script OUT_DIR
+          # (the CI log pins the path: target/debug/build/metalogos/<hash>/out/),
+          # not into deps/ — glob the build dir.
+          BIN=$(ls -t target/debug/build/metalogos/*/out/naryad_486_declared_types-* 2>/dev/null | grep -v '\.d$' | head -1)
           test -n "$BIN" || { echo "::error::the 486 test binary is missing after the step-5 link"; exit 1; }
           df -h / | tail -1
           "$BIN" corpus_declared --nocapture

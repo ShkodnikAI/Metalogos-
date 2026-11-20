@@ -401,6 +401,7 @@ flow Main { input: String = "tick" -> Describe -> output }
 "#;
 
     #[test]
+#[serial_test::serial]
     fn handle_input_equals_string_form_on_both_backends() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::set_var("METALOGOS_MOCK_LLM", "1"); // №478: the mock is explicit
@@ -442,6 +443,7 @@ flow Main { input: String = "tick" -> Describe -> output }
 "#;
 
     #[test]
+#[serial_test::serial]
     fn wrong_media_kind_refuses_loudly_on_both_backends() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::set_var("METALOGOS_MOCK_LLM", "1"); // the refusal is kind-based, not mode-based
@@ -602,6 +604,7 @@ flow Main { input: String = "tick" -> Describe -> output }
 "#;
 
     #[test]
+#[serial_test::serial]
     fn sealed_entry_materializes_for_processing_on_both_backends() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::set_var("METALOGOS_MOCK_LLM", "1");
@@ -636,6 +639,7 @@ flow Main { input: String = "tick" -> Describe -> output }
 "#;
 
     #[test]
+#[serial_test::serial]
     fn media_release_after_use_evicts_and_post_eviction_use_is_loud() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::set_var("METALOGOS_MOCK_LLM", "1");
@@ -664,6 +668,7 @@ flow Main { input: String = "tick" -> Describe -> output }
 "#;
 
     #[test]
+#[serial_test::serial]
     fn statement_position_bridge_runs_on_both_backends() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::set_var("METALOGOS_MOCK_LLM", "1");
@@ -706,6 +711,7 @@ flow Main { input: String = "tick" -> Describe -> output }
 "#;
 
     #[test]
+#[serial_test::serial]
     fn segment_handle_equals_string_form_on_both_backends_byte_identical_twice() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::set_var("METALOGOS_MOCK_LLM", "1"); // №478: the mock is explicit
@@ -928,6 +934,7 @@ flow Main { input: String = "tick" -> Describe -> output }
 "#;
 
     #[test]
+#[serial_test::serial]
     fn sealed_segment_entry_materializes_for_processing_on_both_backends() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::set_var("METALOGOS_MOCK_LLM", "1");
@@ -962,6 +969,7 @@ flow Main { input: String = "tick" -> Describe -> output }
 "#;
 
     #[test]
+#[serial_test::serial]
     fn media_release_after_segment_use_evicts_and_post_eviction_use_is_loud() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::set_var("METALOGOS_MOCK_LLM", "1");
@@ -992,6 +1000,7 @@ flow Main { input: String = "tick" -> Describe -> output }
 "#;
 
     #[test]
+#[serial_test::serial]
     fn statement_position_segment_bridge_runs_on_both_backends() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::set_var("METALOGOS_MOCK_LLM", "1");

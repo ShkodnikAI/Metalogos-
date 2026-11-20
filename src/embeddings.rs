@@ -663,6 +663,7 @@ mod tests {
 
     #[serial_test::serial]
     #[test]
+#[serial_test::serial]
     fn test_embedding_manager_default_is_tfidf() {
         env::remove_var("METALOGOS_EMBEDDING_PROVIDER");
         let mgr = EmbeddingManager::new();
@@ -692,6 +693,7 @@ mod tests {
 
     #[serial_test::serial]
     #[test]
+#[serial_test::serial]
     fn test_openai_embedding_missing_key() {
         env::remove_var("METALOGOS_EMBEDDING_API_KEY");
         let result = OpenAIEmbedding::new();

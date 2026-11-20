@@ -69,6 +69,7 @@ fn manifest() -> DataManifest {
 // ── the registry ────────────────────────────────────────────────────────
 
 #[test]
+#[serial_test::serial]
 fn registry_schema_every_record_carries_the_full_form() {
     assert!(!TEACHER_REGISTRY.is_empty(), "the seed records exist");
     for t in TEACHER_REGISTRY {
@@ -100,6 +101,7 @@ fn registry_schema_every_record_carries_the_full_form() {
 }
 
 #[test]
+#[serial_test::serial]
 fn registry_records_restate_the_tree_license_claims() {
     // Honesty: the overlay RE-STATES the class BACKEND_REGISTRY already
     // carries — never a fabricated upgrade.
@@ -123,6 +125,7 @@ fn registry_records_restate_the_tree_license_claims() {
 // ── the rule ────────────────────────────────────────────────────────────
 
 #[test]
+#[serial_test::serial]
 fn gate_permissive_teachers_pass() {
     let mock = distill_teacher_gate_for("mock").expect("the in-tree mock is a permissive teacher");
     assert_eq!(mock.license_class, LicenseClass::Osi);
@@ -133,6 +136,7 @@ fn gate_permissive_teachers_pass() {
 }
 
 #[test]
+#[serial_test::serial]
 fn gate_unlicensed_teachers_refuse_naming_teacher_and_class() {
     // Closed commercial API models — restrictive (decision 3 refuses).
     for name in ["claude-sonnet-4-20250514", "gpt-4o"] {
@@ -148,6 +152,7 @@ fn gate_unlicensed_teachers_refuse_naming_teacher_and_class() {
 }
 
 #[test]
+#[serial_test::serial]
 fn gate_no_record_is_default_deny() {
     let err = distill_teacher_gate_for("never-registered-teacher").expect_err("default-deny");
     assert!(err.contains("DISTILL_TEACHER_UNLICENSED"), "{}", err);
@@ -156,6 +161,7 @@ fn gate_no_record_is_default_deny() {
 }
 
 #[test]
+#[serial_test::serial]
 fn gate_env_resolution_matches_the_backend_factory() {
     // With the explicit mock lane the teacher IS the in-tree mock — the
     // same predicate create_llm_backend() consults.
@@ -198,6 +204,7 @@ fn certificate_fills_teacher_block_from_the_registry() {
 }
 
 #[test]
+#[serial_test::serial]
 fn certificate_null_teacher_for_no_lineage_with_reason() {
     let model = make_model("DirectHead", 7);
     let spec = spec_with_pattern(None);
@@ -212,6 +219,7 @@ fn certificate_null_teacher_for_no_lineage_with_reason() {
 }
 
 #[test]
+#[serial_test::serial]
 fn certificate_null_teacher_never_invents_a_record() {
     // A distill lineage whose resolved teacher has NO registry record:
     // null WITH the reason naming the gap — the §7.3 encoding. The seam:
@@ -256,6 +264,7 @@ fn mock_record() -> serde_json::Value {
 }
 
 #[test]
+#[serial_test::serial]
 fn verify_refuses_an_unknown_class_word() {
     let cert = cert_json_with_teacher(serde_json::json!({
         "backend": "claude-sonnet-4-20250514",
@@ -269,6 +278,7 @@ fn verify_refuses_an_unknown_class_word() {
 }
 
 #[test]
+#[serial_test::serial]
 fn verify_refuses_an_unknown_backend() {
     let cert = cert_json_with_teacher(serde_json::json!({
         "backend": "shadow-teacher",
@@ -282,6 +292,7 @@ fn verify_refuses_an_unknown_backend() {
 }
 
 #[test]
+#[serial_test::serial]
 fn verify_refuses_a_class_the_registry_disagrees_with() {
     // The cert claims osi for a teacher the registry carries as
     // restrictive — the forged upgrade refuses.
@@ -297,6 +308,7 @@ fn verify_refuses_a_class_the_registry_disagrees_with() {
 }
 
 #[test]
+#[serial_test::serial]
 fn verify_refuses_a_flag_the_registry_disagrees_with() {
     let cert = cert_json_with_teacher(serde_json::json!({
         "backend": "qwen25-vl-7b",
@@ -309,6 +321,7 @@ fn verify_refuses_a_flag_the_registry_disagrees_with() {
 }
 
 #[test]
+#[serial_test::serial]
 fn verify_reports_honest_nonpermissive_teacher_without_a_code() {
     // The verbatim registry record for a restrictive teacher: the story
     // is CONSISTENT — no refusal code, but the reason names the teacher
@@ -327,6 +340,7 @@ fn verify_reports_honest_nonpermissive_teacher_without_a_code() {
 }
 
 #[test]
+#[serial_test::serial]
 fn verify_is_silent_on_the_permissive_teacher() {
     let cert = cert_json_with_teacher(mock_record());
     let line = check_teacher_block(&cert).expect("the permissive record agrees");
@@ -334,6 +348,7 @@ fn verify_is_silent_on_the_permissive_teacher() {
 }
 
 #[test]
+#[serial_test::serial]
 fn verify_refuses_a_weights_id_the_registry_disagrees_with() {
     // The red-team phase-2 bypass axis 1: a forged block pairing the
     // permissive backend's NAME with foreign weights_id — refused.
@@ -352,6 +367,7 @@ fn verify_refuses_a_weights_id_the_registry_disagrees_with() {
 }
 
 #[test]
+#[serial_test::serial]
 fn verify_refuses_a_deleted_teacher_block_on_a_lineage_cert() {
     // The red-team phase-2 bypass axis 2: the block simply DELETED from a
     // distill-lineage certificate — the stripped story refuses.
@@ -367,6 +383,7 @@ fn verify_refuses_a_deleted_teacher_block_on_a_lineage_cert() {
 }
 
 #[test]
+#[serial_test::serial]
 fn verify_refuses_a_silent_null_on_a_lineage_cert() {
     // teacher nulled WITHOUT the machine-true reason — never invented,
     // never silent.
@@ -380,6 +397,7 @@ fn verify_refuses_a_silent_null_on_a_lineage_cert() {
 }
 
 #[test]
+#[serial_test::serial]
 fn verify_accepts_the_pre_w3b_null_with_reason_form() {
     // The honest pre-W3b form: lineage + null + the machine-true reason.
     let mut m: HashMap<String, serde_json::Value> = HashMap::new();
@@ -396,6 +414,7 @@ fn verify_accepts_the_pre_w3b_null_with_reason_form() {
 }
 
 #[test]
+#[serial_test::serial]
 fn verify_ignores_the_null_and_absent_blocks() {
     let mut m = HashMap::new();
     m.insert("model", serde_json::json!("SomeHead"));

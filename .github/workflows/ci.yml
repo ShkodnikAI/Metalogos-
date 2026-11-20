@@ -424,16 +424,16 @@ jobs:
           fi
       - name: "Artifact — the №486 declared-type warn count on examples/ (informational, NOT a ratchet — the corpus test prints the line)"
         run: |
-          # №712 line: after the step-5 suite the runner disk holds the
-          # full debug link set (~300 test binaries); the 486 artifact
-          # link died five runs in a row (SIGBUS on mmap over disk
-          # pressure, twice the runner agent died silently). The narrow
-          # name-based find was not enough — drop the whole test
-          # artifact set with the fingerprints (the lib rlibs stay, the
-          # single 486 binary re-links alone on a fresh disk).
-          cargo clean --tests
+          # №712 line: the step-5 suite links the 486 binary already; the
+          # cargo re-resolve here re-links it under the post-suite disk
+          # pressure and died six runs in a row (SIGBUS twice, the runner
+          # agent died silently twice, `cargo clean --tests` is rejected
+          # by the runner's cargo once). Run the linked binary directly —
+          # no cargo layer, no re-link; a missing binary fails loud.
+          BIN=$(ls -t target/debug/deps/naryad_486_declared_types-* 2>/dev/null | grep -v '\.d$' | head -1)
+          test -n "$BIN" || { echo "::error::the 486 test binary is missing after the step-5 link"; exit 1; }
           df -h / | tail -1
-          cargo test --test naryad_486_declared_types -- --nocapture corpus_declared
+          "$BIN" corpus_declared --nocapture
 
   # Naryad #393 (ADR-0167 §3.6): the 10k-record Action Ledger golden —
   # the chain must sign and externally verify in < 10 s. Release-only

@@ -276,3 +276,9 @@ test asserts its number against the fact itself (the C9 form, naryad №956).
 
 The 1.0 gate's own reading of these counts is the subject of the ADR-0221
 §2.3a amendment — **Proposed**, pending the owner's explicit acceptance.
+
+## Test-Environment Guards (№984, the escalation-5 audit 18.11)
+
+| Limitation | Primary source | Status / condition for removal |
+|---|---|---|
+| The chmod-000 half of n481 does not run as root: the root reader ignores the mode bits, so the `(a)` sub-case of `n481_read_file_unreadable_and_missing_refuse_loudly` (the existing-but-unreadable `read_file` refusal) is skipped under `euid == 0` with a visible `SKIP n481(a): running as root — mode bits do not apply; the refusal path is pinned by the non-root lanes` line in the stdout — the CI runs the integration suite with `--nocapture` since №984, so a bare pass never reads as coverage of the path it skips. The loud refusal itself is NOT weakened: it stays pinned by the non-root lanes and the read-gate tests, and every assertion is byte-identical under the guard. The uniformity sweep over `tests/` and `metalogos-server/tests/` (`set_mode`, `PermissionsExt`) found exactly ONE refusal mode-bit site — the n481(a) half itself; the `0o644` site is the cleanup restore, not a refusal | [metalogos-server/tests/naryad_481_loud_env.rs](../metalogos-server/tests/naryad_481_loud_env.rs); [.github/workflows/ci.yml](../.github/workflows/ci.yml) (the №984 `--nocapture`) | **Documented boundary** — removal condition: a CI lane running as a non-root user lets the half execute everywhere again; until then the guard + the visible SKIP line is the honest posture |

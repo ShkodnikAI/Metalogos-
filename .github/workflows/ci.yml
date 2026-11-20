@@ -409,7 +409,9 @@ jobs:
       # integration suite still runs and still fails the job on its own
       # findings.
       - name: Integration tests (excluding blocking tests)
-        run: cargo test --workspace --tests --no-fail-fast -- --skip crosscheck --skip registry_arity_check --skip llm_cache_contract
+        # №984: --nocapture — the n481 root-guard SKIP line must stay
+        # visible in the log (a bare pass would read as coverage).
+        run: cargo test --workspace --tests --no-fail-fast -- --skip crosscheck --skip registry_arity_check --skip llm_cache_contract --nocapture
       # №676 (A3): the same repo-tree cleanliness gate as test-lib — with
       # the A2 sandbox conversion every integration fixture write lands in
       # a temp dir, so the tree must remain EXACTLY as checked out after

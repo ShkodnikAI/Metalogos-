@@ -3,6 +3,8 @@
 All notable changes to the Metalogos project.
 
 ## [Unreleased]
+- №984 (gh#1998, the escalation-5 audit 18.11 — P2, [ci][hygiene]): **the n481(a) root guard with the visible SKIP.** The `(a)` half of `n481_read_file_unreadable_and_missing_refuse_loudly` (the existing-but-unreadable `read_file` refusal via the 0o000 mode bits) panicked in root CI lanes — the root reader ignores the mode bits, so the `expect_err` fired on a refusal that cannot exist there; the contract is NOT touched: the guard runs the half only under a non-root user and prints the `SKIP n481(a): running as root — mode bits do not apply; the refusal path is pinned by the non-root lanes` line; the integration CI step gained `--nocapture` so the SKIP line is VISIBLE in the log (a bare pass would read as coverage of the skipped path). The uniformity sweep (`set_mode`/`PermissionsExt` over `tests/` and `metalogos-server/tests/`) found exactly one refusal site — the half itself (the `0o644` site is the cleanup restore). The limitation row lives in docs/limitations.md ("Test-Environment Guards"). security: no — test-harness guard, no contract change. BREAKING: none.
+
 
 ### Changed
 

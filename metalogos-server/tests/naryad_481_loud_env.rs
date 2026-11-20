@@ -269,18 +269,32 @@ fn n481_read_file_unreadable_and_missing_refuse_loudly() {
 
     // (a) An EXISTING but unreadable file → the loud IO_ERROR (the config
     //     error the old silent "" masked).
+    //
+    //     №984: the half runs ONLY under a non-root user — the root
+    //     reader ignores the 0o000 mode bits, the expect_err would panic
+    //     in a root CI lane (docs/limitations.md, "Test-Environment
+    //     Guards": the chmod-000 half of n481 does not run as root).
+    //     The skip stays VISIBLE — a bare return would read as PASS and
+    //     hide the uncovered path (the CI runs the suite with
+    //     --nocapture since №984).
     let mut perms = fs::metadata(path).unwrap().permissions();
-    perms.set_mode(0o000);
-    fs::set_permissions(path, perms.clone()).expect("chmod");
+    if unsafe { libc::geteuid() } == 0 {
+        println!(
+            "SKIP n481(a): running as root — mode bits do not apply; the refusal path is pinned by the non-root lanes"
+        );
+    } else {
+        perms.set_mode(0o000);
+        fs::set_permissions(path, perms.clone()).expect("chmod");
 
-    let src = program(&format!("  return read_file(\"{}\")", rel));
-    let err = metalogos::run_program(&src)
-        .expect_err("an existing-but-unreadable file must refuse loudly");
-    assert!(
-        err.contains("[IO_ERROR]") && err.contains(rel),
-        "the refusal must carry the stable code and the path: {}",
-        err
-    );
+        let src = program(&format!("  return read_file(\"{}\")", rel));
+        let err = metalogos::run_program(&src)
+            .expect_err("an existing-but-unreadable file must refuse loudly");
+        assert!(
+            err.contains("[IO_ERROR]") && err.contains(rel),
+            "the refusal must carry the stable code and the path: {}",
+            err
+        );
+    }
 
     // (b) A MISSING file → the LOUD [IO_ERROR] refusal since v0.28.0
     //     (№563: the №254 soft contract ended with the transition

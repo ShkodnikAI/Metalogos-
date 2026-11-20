@@ -423,7 +423,14 @@ jobs:
             exit 1
           fi
       - name: "Artifact — the №486 declared-type warn count on examples/ (informational, NOT a ratchet — the corpus test prints the line)"
-        run: cargo test --test naryad_486_declared_types -- --nocapture corpus_declared
+        run: |
+          # №712 line: the step-5 link set (hundreds of debug test binaries)
+          # is no longer needed here, and its disk pressure killed the 486
+          # link three times with SIGBUS (mmap over a full disk). The 486
+          # binary itself is kept; everything else re-links if ever asked.
+          find target/debug -maxdepth 3 -type f -name 'naryad_*' ! -name '*486*' -delete
+          df -h / | tail -1
+          cargo test --test naryad_486_declared_types -- --nocapture corpus_declared
 
   # Naryad #393 (ADR-0167 §3.6): the 10k-record Action Ledger golden —
   # the chain must sign and externally verify in < 10 s. Release-only

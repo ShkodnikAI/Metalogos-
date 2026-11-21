@@ -1,0 +1,68 @@
+{
+  "experiment": "e4-teacher-baseline-agreement",
+  "definition": "agreement = the share of eval prompts where the teacher's answer string equals the majority-baseline class word (and, separately, the true class word); the eval set is the same fixture corpus",
+  "eval_rows": 400,
+  "majority_word": "alpha",
+  "mock_deterministic": true,
+  "mock_agreement_with_majority_baseline": 0.0,
+  "mock_agreement_with_true_labels": 0.0,
+  "teacher_rows": [
+    {
+      "backend": "mock",
+      "weights_id": "in-tree-mock-teacher",
+      "license_class": "Osi",
+      "training_on_output_allowed": true,
+      "agreement_with_majority_baseline": 0.0,
+      "agreement_with_true_labels": 0.0,
+      "reason": "the ONLY teacher runnable in this sandbox. The canned response is an FNV-1a hash token (`[mock-llm:<hex>]`) that never carries a class word, so agreement with the majority baseline is 0.0 BY CONSTRUCTION \u2014 the mock is a plumbing fixture, never a quality signal (the W6 enablement gate must not read it as one)."
+    },
+    {
+      "backend": "qwen25-vl-7b",
+      "weights_id": "qwen2.5-vl-7b-instruct",
+      "license_class": "Osi",
+      "training_on_output_allowed": true,
+      "agreement_with_majority_baseline": null,
+      "agreement_with_true_labels": null,
+      "reason": "a local-weights vision-language teacher; the weights artifact is not present in this sandbox (no HF download, the candle feature lane is off in the default build) \u2014 the measurement requires the weights and the candle lane; run on a machine that holds the artifact to fill this row."
+    },
+    {
+      "backend": "claude-sonnet-4-20250514",
+      "weights_id": "claude-sonnet-4-20250514",
+      "license_class": "Restrictive",
+      "training_on_output_allowed": false,
+      "agreement_with_majority_baseline": null,
+      "agreement_with_true_labels": null,
+      "reason": "a closed/remote provider teacher; the sandbox holds no network route and no provider credentials \u2014 the measurement requires a live call against the real backend (and decision 3 refuses distillation from it regardless: the row is provenance, not a permission)."
+    },
+    {
+      "backend": "gpt-4o",
+      "weights_id": "gpt-4o",
+      "license_class": "Restrictive",
+      "training_on_output_allowed": false,
+      "agreement_with_majority_baseline": null,
+      "agreement_with_true_labels": null,
+      "reason": "a closed/remote provider teacher; the sandbox holds no network route and no provider credentials \u2014 the measurement requires a live call against the real backend (and decision 3 refuses distillation from it regardless: the row is provenance, not a permission)."
+    },
+    {
+      "backend": "llama3",
+      "weights_id": "llama3",
+      "license_class": "NonOsi",
+      "training_on_output_allowed": false,
+      "agreement_with_majority_baseline": null,
+      "agreement_with_true_labels": null,
+      "reason": "a closed/remote provider teacher; the sandbox holds no network route and no provider credentials \u2014 the measurement requires a live call against the real backend (and decision 3 refuses distillation from it regardless: the row is provenance, not a permission)."
+    }
+  ],
+  "environment": {
+    "captured_at": "2026-11-21T15:06:27Z",
+    "uname": "Linux 5.10.134-013.15.kangaroo.al8.x86_64 x86_64",
+    "cpus": 2,
+    "cpu_model": "model name\t: Intel(R) Xeon(R) Processor",
+    "mem_total": "MemTotal:        4138564 kB",
+    "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+    "cargo": "cargo 1.100.0 (3acc79c0c 2026-11-05)",
+    "toolchain_channel": "channel = \"stable\"",
+    "embed_provider": "tfidf",
+    "mock_llm_lane": true
+  }
+}

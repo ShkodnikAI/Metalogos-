@@ -1,0 +1,86 @@
+{
+  "experiment": "e3-confidence-calibration",
+  "split": "harness LCG stratified 70/30 (seed 20261121+0xE3); the model's internal 80/20 is a separate split",
+  "n_train": 280,
+  "n_held_out": 120,
+  "model_train_final_loss": 1.257505,
+  "model_internal_holdout_accuracy": 0.9286,
+  "held_out_accuracy": 0.8833,
+  "majority_baseline_accuracy": 0.25,
+  "ece": 0.6013,
+  "bins": [
+    {
+      "bin": "[0.0,0.1)",
+      "count": 0,
+      "mean_confidence": null,
+      "accuracy": null
+    },
+    {
+      "bin": "[0.1,0.2)",
+      "count": 0,
+      "mean_confidence": null,
+      "accuracy": null
+    },
+    {
+      "bin": "[0.2,0.3)",
+      "count": 100,
+      "mean_confidence": 0.2766,
+      "accuracy": 0.86
+    },
+    {
+      "bin": "[0.3,0.4)",
+      "count": 20,
+      "mean_confidence": 0.3089,
+      "accuracy": 1.0
+    },
+    {
+      "bin": "[0.4,0.5)",
+      "count": 0,
+      "mean_confidence": null,
+      "accuracy": null
+    },
+    {
+      "bin": "[0.5,0.6)",
+      "count": 0,
+      "mean_confidence": null,
+      "accuracy": null
+    },
+    {
+      "bin": "[0.6,0.7)",
+      "count": 0,
+      "mean_confidence": null,
+      "accuracy": null
+    },
+    {
+      "bin": "[0.7,0.8)",
+      "count": 0,
+      "mean_confidence": null,
+      "accuracy": null
+    },
+    {
+      "bin": "[0.8,0.9)",
+      "count": 0,
+      "mean_confidence": null,
+      "accuracy": null
+    },
+    {
+      "bin": "[0.9,1.0)",
+      "count": 0,
+      "mean_confidence": null,
+      "accuracy": null
+    }
+  ],
+  "note": "measures calibration only; the certificate's eval.calibration literal stays `uncalibrated` \u2014 the flip decision is W5/W6, not this naryad",
+  "environment": {
+    "captured_at": "2026-11-21T15:06:27Z",
+    "uname": "Linux 5.10.134-013.15.kangaroo.al8.x86_64 x86_64",
+    "cpus": 2,
+    "cpu_model": "model name\t: Intel(R) Xeon(R) Processor",
+    "mem_total": "MemTotal:        4138564 kB",
+    "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+    "cargo": "cargo 1.100.0 (3acc79c0c 2026-11-05)",
+    "toolchain_channel": "channel = \"stable\"",
+    "embed_provider": "tfidf",
+    "mock_llm_lane": true
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "experiment": "e2-reflex-train-time",
+  "pipeline": "texts \u2192 embed (TF-IDF) \u2192 dense reflex_train",
+  "rows": 400,
+  "input_size": 256,
+  "layers": "dense(256,64,relu)+dense(64,4,softmax)",
+  "epochs": 30,
+  "learning_rate": 0.1,
+  "metric_note": "the dispatch's fixed lr=0.1; 30 epochs is the hub's \u2116530 training shape",
+  "runs": [
+    {
+      "run": 0,
+      "total_seconds": 0.652443,
+      "per_epoch_seconds": 0.021748,
+      "final_loss": 1.261819,
+      "internal_holdout_accuracy": 0.8625
+    },
+    {
+      "run": 1,
+      "total_seconds": 0.651334,
+      "per_epoch_seconds": 0.021711,
+      "final_loss": 1.284875,
+      "internal_holdout_accuracy": 0.825
+    },
+    {
+      "run": 2,
+      "total_seconds": 0.645058,
+      "per_epoch_seconds": 0.021502,
+      "final_loss": 1.23416,
+      "internal_holdout_accuracy": 0.95
+    }
+  ],
+  "total_seconds_spread": {
+    "min": 0.645058,
+    "max": 0.652443
+  },
+  "per_epoch_series_ms_30x_train1": [
+    22.95,
+    22.08,
+    22.11,
+    22.73,
+    22.03,
+    22.07,
+    22.77,
+    22.7,
+    22.02,
+    22.74,
+    22.76,
+    22.69,
+    22.39,
+    22.12,
+    22.84,
+    22.79,
+    22.79,
+    22.77,
+    22.88,
+    22.74,
+    22.11,
+    22.07,
+    22.72,
+    22.12,
+    22.12,
+    22.05,
+    22.09,
+    22.22,
+    22.26,
+    22.22
+  ],
+  "environment": {
+    "captured_at": "2026-11-21T15:06:27Z",
+    "uname": "Linux 5.10.134-013.15.kangaroo.al8.x86_64 x86_64",
+    "cpus": 2,
+    "cpu_model": "model name\t: Intel(R) Xeon(R) Processor",
+    "mem_total": "MemTotal:        4138564 kB",
+    "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+    "cargo": "cargo 1.100.0 (3acc79c0c 2026-11-05)",
+    "toolchain_channel": "channel = \"stable\"",
+    "embed_provider": "tfidf",
+    "mock_llm_lane": true
+  }
+}

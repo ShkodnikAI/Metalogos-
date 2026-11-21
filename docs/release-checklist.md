@@ -136,6 +136,24 @@ built from sources, the SBOM describes its dependencies — so a
 content. The patch's CHANGELOG section transfers to main by a
 separate doc-only commit.
 
+### The patch tag does not self-verify (№976 follow-up 2)
+
+A patch tag's release-commit-gate verdict does NOT arrive
+automatically: the workflow files do not exist on the patch branch, so
+pushing `v0.40.1` runs no gate. The verdict arrives via a
+`workflow_dispatch` of `release-commit-gate` from main with
+`ref=v0.40.1` (after the owner tags; the pre-tag run resolves the
+branch ref `release/0.40.1`). The gate resolves the ref FAIL-CLOSED
+(the silent `github.sha` fallback is gone — an unresolvable ref is a
+loud refusal naming the ref) and waives a context only under the
+PRINTED conjunction: the context is not defined in the release tree's
+workflow files AND its `REQUIRED_SINCE` is later than the `v0.40.0`
+line moment (the patch line never promised it). Every waiver prints
+its name, both conditions and the line moment; the summary line
+carries both numbers — required and waived. The dispatch-run verdict
+is recorded in `docs/reality/release-0.40.1-verification.md`; write
+the same sentence into the release body.
+
 ## The legacy read (0.27.x)
 
 `unfreeze_gate.py --office-tests <pass|fail>` without `--gate-target` —

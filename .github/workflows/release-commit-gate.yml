@@ -5,6 +5,20 @@
 # the tag path (not a PR): the gate verifies every required context
 # green on the tagged commit and reds the tag push otherwise —
 # fail-closed (an unreadable state is not a pass, №525).
+#
+# №976 follow-up 2 (the owner decision 21.11): the gate learns the
+# PATCH SLICE from an old tag. The ref resolution is FAIL-CLOSED —
+# the silent `|| echo github.sha` fallback is gone (a gate that
+# verifies a DIFFERENT commit and says OK is worse than no gate);
+# the checkout carries the full history and the tags so `rev-parse`
+# of a tag ref works at all, and the patch-slice waiver (the
+# conjunction: not defined in the release tree's workflows AND
+# required since later than the vX.Y.0 line moment) arms on patch
+# refs only.
+#
+# A patch tag does NOT self-verify: the workflow files do not exist
+# on the patch branch, so the tag push runs no gate — the verdict
+# arrives via workflow_dispatch from main with ref=<the patch ref>.
 name: release-commit-gate
 
 on:
@@ -28,6 +42,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -36,8 +53,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           REF="${{ github.event.inputs.ref || github.ref }}"
-          SHA=$(git rev-parse "$REF" 2>/dev/null || echo "${{ github.sha }}")
-          echo "release-commit-gate: verifying $REF @ $SHA"
+          if ! SHA=$(git rev-parse --verify "$REF^{commit}" 2>/dev/null) \
+             && ! SHA=$(git rev-parse --verify "refs/tags/$REF^{commit}" 2>/dev/null) \
+             && ! SHA=$(git rev-parse --verify "refs/remotes/origin/$REF^{commit}" 2>/dev/null); then
+            echo "release-commit-gate: REFUSED — the ref '$REF' does not resolve (fail-closed; the silent github.sha fallback would verify a DIFFERENT commit)"
+            exit 1
+          fi
+          echo "release-commit-gate: REF=$REF"
+          echo "release-commit-gate: SHA=$SHA — verifying exactly this commit"
           python scripts/ci/release_commit_gate.py --sha "$SHA" --ref "$REF"
       - name: The gate's own fixture traps (the mutation contract)
-        run: python scripts/ci/release_commit_gate.py --self-test
+        run: |
+          python scripts/ci/release_commit_gate.py --self-test
+          python scripts/ci/release_commit_gate.py --mutation 1
+          python scripts/ci/release_commit_gate.py --mutation 2

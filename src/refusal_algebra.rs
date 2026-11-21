@@ -87,7 +87,11 @@ impl Reason {
 /// `join` — the MORE SEVERE cause wins (the lower №392 rank): when two
 /// refusals combine, the dominant class carries the verdict.
 ///
-/// ```
+/// ```ignore
+/// // №976: SSOT dual-compile — this file compiles under BOTH crates
+/// // (metalogos and refusal-wasm, the №873 #[path] seam), so no crate
+/// // name works per unit; the semantic pin lives in the module's unit
+/// // tests below (naryad_854).
 /// use metalogos::refusal_algebra::{join, Reason};
 /// let core = Reason::parse("IRREVERSIBLE_NO_GRANT").unwrap();
 /// let legacy = Reason::parse("SECRET_LEAK").unwrap();

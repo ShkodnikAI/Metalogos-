@@ -246,6 +246,23 @@ jobs:
       - name: Doc-tests on REFERENCE/README/docs (Naryad #287)
         run: ./target/debug/mlog test --docs
 
+  # №976 (issue #1985, the consolidated audit 18.11 — finding A): the
+  # BLOCKING set promised `cargo test` but never ran the Rust doctests —
+  # two doc fences were broken since 02.10/31.10 behind green gates.
+  # This job is what it says: every ``` fence in src/ compiles and runs.
+  rust-doc-tests:
+    name: rust-doc-tests (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
+      - name: Rust doctests — cargo test --workspace --doc
+        run: cargo test --workspace --doc
+
   registry-arity-check:
     name: registry-arity-check (blocking)
     runs-on: ubuntu-latest

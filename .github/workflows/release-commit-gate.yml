@@ -1,0 +1,43 @@
+# №976 (issue #1985, the consolidated audit 18.11 — finding A): the
+# release-commit gate — what the release PROMISES (the live required
+# set) is what the release commit actually RAN. The audit fact: v0.40.0
+# was tagged from a commit with ZERO check-runs. This workflow runs on
+# the tag path (not a PR): the gate verifies every required context
+# green on the tagged commit and reds the tag push otherwise —
+# fail-closed (an unreadable state is not a pass, №525).
+name: release-commit-gate
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "The tag or SHA to verify (default: the current ref)"
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+
+jobs:
+  release-commit-gate:
+    name: release-commit-gate (blocking on the tag path)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify the release commit carries every required context green
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REF="${{ github.event.inputs.ref || github.ref }}"
+          SHA=$(git rev-parse "$REF" 2>/dev/null || echo "${{ github.sha }}")
+          echo "release-commit-gate: verifying $REF @ $SHA"
+          python scripts/ci/release_commit_gate.py --sha "$SHA" --ref "$REF"
+      - name: The gate's own fixture traps (the mutation contract)
+        run: python scripts/ci/release_commit_gate.py --self-test

@@ -442,13 +442,13 @@ shifted on main are recorded in this table and in section 0.
 ## 6. The current machine truth (generated — the verbatim machine outputs)
 
 ```
-typed signatures: 377/530 (71.13%)
-precise signatures: 244/530 (46.03%) — №560: the two shares side by side
-parameterized signatures: 100/130 (76.92%) — №623: the third share (among List/Struct)
-field-label signatures: 62/64 (96.87%) — №627: the fourth share (among the parameterized Struct rows)
-stable typed signatures: 366/486 (75.30%) — №809: the PRIMARY definition (ADR-0199; the full-526 figure above stays beside it)
-sensitive-surface coverage: 112/147 (7619 bp) — №644: the fixed-denominator share among Role::Source ∧ label ≠ Public
-  the denominator by label: Internal 111, Network 31, Secret 5 (the Public sources 5 excluded by the definition)
+typed signatures: 379/531 (71.37%)
+precise signatures: 245/531 (46.13%) — №560: the two shares side by side
+parameterized signatures: 101/131 (77.09%) — №623: the third share (among List/Struct)
+field-label signatures: 63/65 (96.92%) — №627: the fourth share (among the parameterized Struct rows)
+stable typed signatures: 367/486 (75.51%) — №809: the PRIMARY definition (ADR-0199; the full-526 figure above stays beside it)
+sensitive-surface coverage: 113/148 (7635 bp) — №644: the fixed-denominator share among Role::Source ∧ label ≠ Public
+  the denominator by label: Internal 112, Network 31, Secret 5 (the Public sources 5 excluded by the definition)
   the uncovered by reason: struct-no-meta 2, typed-coarse 1, untyped 32 — the covered = typed ∧ (scalar ∨ parameterized) ∧ (¬Struct ∨ fields labeled)
 ignore: 8
 ignore_todo: 0
@@ -457,7 +457,7 @@ example_uncovered: 0
 read_file_soft_missing: 0
 mirror records: 5 (the mirror_counter scan; the gate verdict rides the CI job)
 0
-OK: generated index is up to date
+MACHINE UNAVAILABLE: python3 scripts/gen_reference.py --check exit 1 — 
   the ≥20 figure: RATIFIED — the owner's verbatim «вербатим принят» (2026-10-19, ADR-0193 Accepted; the gate wired BLOCKING — the gate_031 §5 form, the floor only-up)
 verdict: GREEN at the start (the report-only mode, exit 0 at 35 closed — the honest 0/20 posture)
 fuzz nesting-pairs floor (the baseline file, only-up): 36
@@ -472,7 +472,8 @@ The §6.x wave-record sections moved to the monthly archive by №810 (the C4-a 
 | [docs/reality/2026-09.md](reality/2026-09.md) | 13 | 6.1 … 6.29 |
 | [docs/reality/2026-10.md](reality/2026-10.md) | 46 | 6.13 … 6.74 |
 | [docs/reality/2026-11.md](reality/2026-11.md) | 5 | 6.76 … 6.80 |
-| **total** | **64** | |
+| [docs/reality/release-0.40.0-retro-verification.md](reality/release-0.40.0-retro-verification.md) | 1 | 6.81 … 6.81 |
+| **total** | **65** | |
 
 <!-- END GENERATED REALITY STUB -->
 

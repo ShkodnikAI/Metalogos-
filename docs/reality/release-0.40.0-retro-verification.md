@@ -10,6 +10,8 @@ release-commit gate (`scripts/ci/release_commit_gate.py` + the
 `release-commit-gate` workflow on the tag path), which refuses the NEXT
 tagged release whose commit lacks a green required context.
 
+### 6.81. The v0.40.0 retro-verification — the recorded act (№976, the consolidated audit 18.11 finding A)
+
 ## The act, as it was actually performed (2026-11-19)
 
 The direct `workflow_dispatch` route is closed by two independent walls:

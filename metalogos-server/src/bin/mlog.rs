@@ -156,6 +156,16 @@ enum Commands {
         #[command(subcommand)]
         cmd: AttestCmd,
     },
+    /// №989 (ADR-0200 W4): the curriculum surface — propose-and-refute
+    /// over the persisted teaching store of a declared learnable
+    /// pattern (`distill_samples`; the quarantine is the three columns
+    /// reviewed/reason/quarantined, no new table; the held-out the
+    /// teacher did not generate is the refutation instrument, never
+    /// training data).
+    Curriculum {
+        #[command(subcommand)]
+        cmd: CurriculumCmd,
+    },
     /// №957 (issue #1924, ADR-0211 §3): issue a VERIFIED human-oversight
     /// mandate OUTSIDE the program — the counted class of the approval
     /// gate. The store is host-owned (`METALOGOS_MANDATE_STORE` or
@@ -174,6 +184,37 @@ enum Commands {
         /// convention). Default: 3600.
         #[arg(long, default_value_t = 3600)]
         ttl: u64,
+    },
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum CurriculumCmd {
+    /// Build the curriculum for one learnable pattern: propose the
+    /// teacher-generated units, refute them against the held-out set and
+    /// the store's own consistency, quarantine the refuted rows (the
+    /// three columns on `distill_samples` — no new table). The last
+    /// output line is always the machine-readable gate verdict.
+    Build {
+        /// Path to .mlog source file (the learnable pattern + the
+        /// `memory { persist: ... }` store)
+        file: PathBuf,
+        /// The learnable pattern name (default: the only declared
+        /// pattern; with several — fail-closed, specify it)
+        #[arg(long)]
+        pattern: Option<String>,
+        /// Optional path to the held-out file: one `input<TAB>output`
+        /// pair per line — loaded into the store with source "held-out"
+        /// before the build (the rows the teacher did NOT generate)
+        #[arg(long)]
+        held_out: Option<PathBuf>,
+        /// The SQLite store path (default: the program's
+        /// `memory { persist: ... }`)
+        #[arg(long)]
+        db: Option<PathBuf>,
+        /// Machine-readable one-line JSON verdict ONLY (the gate line);
+        /// exit codes unchanged (0 = built, 1 = refusal)
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -293,6 +334,7 @@ fn main() {
         Commands::Health { url } => cmd_health(url.as_deref()),
         Commands::Ledger { cmd } => cmd_ledger(cmd),
         Commands::Attest { cmd } => cmd_attest(cmd),
+        Commands::Curriculum { cmd } => cmd_curriculum(cmd),
         Commands::Approve { target, actor, ttl } => cmd_approve(&target, &actor, ttl),
     }
 }
@@ -635,6 +677,181 @@ fn cmd_attest(cmd: AttestCmd) {
             }
             if !report.ok {
                 std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// №989 (ADR-0200 W4): the curriculum build over the persisted teaching
+/// store. Propose the teacher-generated units (`distill_samples`, source
+/// `llm-response`), refute them against the held-out set (source
+/// `held-out`) and the store's own consistency, quarantine the refuted
+/// rows in place (the three columns — no new table). The last output
+/// line is always the machine-readable gate verdict; exit 0 = built,
+/// 1 = refusal (the crossing / the store error).
+fn cmd_curriculum(cmd: CurriculumCmd) {
+    let CurriculumCmd::Build {
+        file,
+        pattern,
+        held_out,
+        db,
+        json,
+    } = cmd;
+
+    let source = match fs::read_to_string(&file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: cannot read {:?}: {}", file, e);
+            std::process::exit(1);
+        }
+    };
+    let declarations = match metalogos::parser::parse(&source) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("error: parse: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let mut pattern_decls: Vec<&metalogos::ast::LearnablePatternDecl> = Vec::new();
+    let mut persist_path: Option<String> = None;
+    for decl in &declarations {
+        match decl {
+            metalogos::ast::Declaration::LearnablePattern(lp) => pattern_decls.push(lp),
+            metalogos::ast::Declaration::Memory(m) => {
+                if let Some(p) = &m.persist {
+                    persist_path = Some(p.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+    if pattern_decls.is_empty() {
+        eprintln!(
+            "error: no learnable pattern in {:?} — nothing to build a curriculum for",
+            file
+        );
+        std::process::exit(1);
+    }
+    let pattern_name: String = match &pattern {
+        Some(name) => match pattern_decls.iter().find(|lp| &lp.name == name) {
+            Some(_) => name.clone(),
+            None => {
+                eprintln!(
+                    "error: no learnable pattern '{}' in {:?} (declared: {:?})",
+                    name,
+                    file,
+                    pattern_decls.iter().map(|lp| lp.name.as_str()).collect::<Vec<_>>()
+                );
+                std::process::exit(1);
+            }
+        },
+        None if pattern_decls.len() == 1 => pattern_decls[0].name.clone(),
+        None => {
+            eprintln!(
+                "error: {} learnable patterns declared — specify --pattern (fail-closed, no guessing)",
+                pattern_decls.len()
+            );
+            std::process::exit(1);
+        }
+    };
+
+    let db_path = match (&db, &persist_path) {
+        (Some(p), _) => p.to_string_lossy().to_string(),
+        (None, Some(p)) => p.clone(),
+        (None, None) => {
+            eprintln!(
+                "error: no `memory {{ persist: \"...\" }}` in {:?} and no --db — the teaching store must live somewhere",
+                file
+            );
+            std::process::exit(1);
+        }
+    };
+
+    #[allow(clippy::disallowed_methods)]
+    let conn = match rusqlite::Connection::open(&db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("error: cannot open db '{}': {}", db_path, e);
+            std::process::exit(1);
+        }
+    };
+    if let Err(e) = metalogos::distill_hub::ensure_distill_store(&conn) {
+        eprintln!("error: {}", e);
+        std::process::exit(1);
+    }
+
+    // The held-out load: the rows the teacher did NOT generate enter the
+    // store with source "held-out" BEFORE the build — the refutation
+    // instrument, never training data. One `input<TAB>output` pair per
+    // line; blank lines skip; a malformed line is a loud usage error.
+    let mut held_loaded = 0usize;
+    if let Some(hp) = &held_out {
+        let text = match fs::read_to_string(hp) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("error: cannot read held-out file {:?}: {}", hp, e);
+                std::process::exit(1);
+            }
+        };
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        for (ln, raw) in text.lines().enumerate() {
+            let line = raw.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let Some((input, output)) = line.split_once('\t') else {
+                eprintln!(
+                    "error: held-out line {} is not input<TAB>output: {:?}",
+                    ln + 1,
+                    line
+                );
+                std::process::exit(1);
+            };
+            if let Err(e) = conn.execute(
+                "INSERT INTO distill_samples \
+                 (pattern_name, input, output, source, created_at, reviewed, reason, quarantined) \
+                 VALUES (?1, ?2, ?3, 'held-out', ?4, 0, NULL, 0)",
+                rusqlite::params![pattern_name, input.trim(), output.trim(), now],
+            ) {
+                eprintln!("error: held-out insert (line {}): {}", ln + 1, e);
+                std::process::exit(1);
+            }
+            held_loaded += 1;
+        }
+    }
+
+    // The audit sink: the journal lines to stderr (the CLI lane's audit
+    // journal — the same [AUDIT] form the hub prints).
+    let mut audit = |line: String| {
+        eprintln!("{}", line);
+    };
+
+    match metalogos::distill_hub::curriculum_build(&conn, &pattern_name, &mut audit) {
+        Ok(v) => {
+            if json {
+                println!("{}", v.gate_line());
+            } else {
+                if held_loaded > 0 {
+                    println!("held-out loaded: {}", held_loaded);
+                }
+                println!("pattern: {}", v.pattern);
+                println!(
+                    "proposed: {} survived: {} quarantined: {} held_out: {}",
+                    v.proposed, v.survived, v.quarantined, v.held_out
+                );
+                for id in &v.quarantine_ids {
+                    println!("quarantined: {}", id);
+                }
+                println!("filter: {}", v.filter_word);
+                println!("{}", v.gate_line());
             }
         }
         Err(e) => {

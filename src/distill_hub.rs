@@ -308,16 +308,7 @@ impl DistillHub {
                 #[allow(clippy::disallowed_methods)]
                 let conn = rusqlite::Connection::open(path)
                     .map_err(|e| format!("distill hub: open {}: {}", path, e))?;
-                conn.execute_batch(
-                    "CREATE TABLE IF NOT EXISTS distill_samples (
-                        pattern_name TEXT NOT NULL,
-                        input        TEXT NOT NULL,
-                        output       TEXT NOT NULL,
-                        source       TEXT NOT NULL,
-                        created_at   INTEGER NOT NULL
-                    );",
-                )
-                .map_err(|e| format!("distill hub: create distill_samples: {}", e))?;
+                ensure_distill_store(&conn)?;
                 Some(Mutex::new(conn))
             }
             None => None,
@@ -341,9 +332,27 @@ impl DistillHub {
         // 0.27.1 boot, then it survives restarts).
         if let Some(persist) = &shared.persist {
             let conn = persist.lock().unwrap_or_else(|e| e.into_inner());
+            // №989 (ADR-0200 W4): the held-out invariant at the hub
+            // boundary — the quarantined and the held-out rows NEVER
+            // enter the training states; the exclusion is loud (the
+            // bootstrap line names the count).
+            let excluded: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM distill_samples WHERE quarantined = 1 OR source = 'held-out'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            if excluded > 0 {
+                bootstrap_lines.push(format!(
+                    "[AUDIT] distill.held-out-excluded: {} row(s) kept out of training (quarantined or held-out — the W4 invariant)",
+                    excluded
+                ));
+            }
             let mut stmt = conn
                 .prepare(
-                    "SELECT pattern_name, input, output, source FROM distill_samples ORDER BY rowid",
+                    "SELECT pattern_name, input, output, source FROM distill_samples \
+                     WHERE quarantined IS NOT 1 AND source IS NOT 'held-out' ORDER BY rowid",
                 )
                 .map_err(|e| format!("distill hub: load distill_samples: {}", e))?;
             let rows = stmt
@@ -1057,4 +1066,288 @@ impl DistillAccess for DistillHub {
 /// №502 metric) moves DOWN as planned by the №502 baseline.
 pub(crate) fn distill_features(input: &str, dim: usize) -> Vec<f64> {
     crate::embeddings::hashed_tfidf_vector(input, dim)
+}
+
+// ── №989 (ADR-0200 W4): the curriculum build — propose-and-refute ────
+//
+// The W4 slot of the provable tier-lowering line. The quarantine is the
+// three columns on `distill_samples` (reviewed / reason / quarantined —
+// ADR-0200 §5 verbatim: NO new table); the held-out invariant — the
+// rows the teacher did not generate never enter training — is enforced
+// at EVERY training-set assembly point (the hub boot load above, the
+// attestation manifest in nn::attest, the filter word) and the proven
+// crossing is the loud refusal below.
+
+/// The `source` vocabulary row a held-out load writes. The teacher
+/// provenance column keeps `"llm-response"` (№495 unchanged); `"held-out"`
+/// is the new word marking the rows the teacher did NOT generate — the
+/// refutation instrument, never training data (the Never-cut invariant).
+pub const DISTILL_SOURCE_HELD_OUT: &str = "held-out";
+
+/// The stable machine id of a quarantined row (the №983 machine-id
+/// form): `dq-<rowid>-<hash8>` — the rowid anchors the physical row,
+/// the hash binds the (pattern, input, output) triple.
+fn quarantine_machine_id(rowid: i64, pattern: &str, input: &str, output: &str) -> String {
+    let h =
+        crate::ledger::sha256_hex(format!("{}\u{1f}{}\u{1f}{}", pattern, input, output).as_bytes());
+    format!("dq-{}-{}", rowid, &h[..8])
+}
+
+fn input_hash8(input: &str) -> String {
+    let h = crate::ledger::sha256_hex(input.as_bytes());
+    h[..8].to_string()
+}
+
+/// The curriculum-build verdict — the machine-readable gate facts (the
+/// gate-facts-sync form: the CLI prints it as one JSON line, the audit
+/// journal carries the same bytes).
+#[derive(Debug, Clone)]
+pub struct CurriculumVerdict {
+    pub pattern: String,
+    /// The teacher-generated candidate units the build examined.
+    pub proposed: usize,
+    /// The units that SURVIVE refutation — the curriculum.
+    pub survived: usize,
+    /// The units the refutation quarantined (quarantined=1, the reason,
+    /// reviewed=0 — the review workflow is the W5 states lane).
+    pub quarantined: usize,
+    /// The held-out rows the refutation consulted (never trained on).
+    pub held_out: usize,
+    /// The recomputed filter word ("curriculum:<sha16>" or "none") — the
+    /// same pure function the certificate's `dataset.filter` writes.
+    pub filter_word: String,
+    /// The quarantined rows' machine ids, in rowid order.
+    pub quarantine_ids: Vec<String>,
+}
+
+impl CurriculumVerdict {
+    /// The one-line machine-readable verdict.
+    pub fn gate_line(&self) -> String {
+        format!(
+            "{{\"gate\":\"curriculum-build\",\"ok\":true,\"pattern\":\"{}\",\"proposed\":{},\"survived\":{},\"quarantined\":{},\"held_out\":{},\"filter\":\"{}\"}}",
+            self.pattern,
+            self.proposed,
+            self.survived,
+            self.quarantined,
+            self.held_out,
+            self.filter_word
+        )
+    }
+}
+
+/// The store schema/migration: the FULL W4 shape on a fresh file, the
+/// three quarantine columns ALTERed onto a pre-W4 file (the honest
+/// migration — an existing database keeps its rows byte-for-byte). No
+/// new table: the columns land on `distill_samples` (ADR-0200 §5 W4).
+pub fn ensure_distill_store(conn: &rusqlite::Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS distill_samples (
+            pattern_name TEXT NOT NULL,
+            input        TEXT NOT NULL,
+            output       TEXT NOT NULL,
+            source       TEXT NOT NULL,
+            created_at   INTEGER NOT NULL,
+            reviewed     INTEGER NOT NULL DEFAULT 0,
+            reason       TEXT,
+            quarantined  INTEGER NOT NULL DEFAULT 0
+        );",
+    )
+    .map_err(|e| format!("distill store: create distill_samples: {}", e))?;
+    let mut have: HashSet<String> = HashSet::new();
+    {
+        let mut stmt = conn
+            .prepare("PRAGMA table_info(distill_samples)")
+            .map_err(|e| format!("distill store: pragma: {}", e))?;
+        let names = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|e| format!("distill store: pragma: {}", e))?;
+        for name in names.filter_map(|n| n.ok()) {
+            have.insert(name);
+        }
+    }
+    for (col, ddl) in [
+        (
+            "reviewed",
+            "ALTER TABLE distill_samples ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 0",
+        ),
+        (
+            "reason",
+            "ALTER TABLE distill_samples ADD COLUMN reason TEXT",
+        ),
+        (
+            "quarantined",
+            "ALTER TABLE distill_samples ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0",
+        ),
+    ] {
+        if !have.contains(col) {
+            conn.execute_batch(ddl)
+                .map_err(|e| format!("distill store: migrate {}: {}", col, e))?;
+        }
+    }
+    Ok(())
+}
+
+/// The curriculum build: propose-and-refute over the pattern's persisted
+/// teaching store.
+///
+/// **Propose:** the teacher-generated units (source `"llm-response"`,
+/// not quarantined) for the pattern — each persisted row is one
+/// candidate unit.
+///
+/// **Refute:** (a) a teacher self-contradiction — the same input taught
+/// two different outputs quarantines the LATER row (first-teacher-wins);
+/// (b) a held-out counterexample — a held-out row (source
+/// `"held-out"`) whose input matches a unit's input with a DIFFERENT
+/// output quarantines the unit (the reason names the counterexample's
+/// rowid). The held-out rows themselves never enter the curriculum.
+///
+/// **The crossing refusal:** a held-out row whose (input, output) pair
+/// EXACTLY duplicates a teacher unit — the «the teacher did not
+/// generate this» provenance story is machine-false for that row, so
+/// the build refuses loudly instead of silently trusting either side.
+///
+/// The mutation: quarantined rows are UPDATEd in place (quarantined=1,
+/// the reason, reviewed=0), each with its machine id, the reason in the
+/// audit journal and a `distill.curriculum-quarantine` ledger record.
+/// Nothing else moves; the filter word is the pure recomputation
+/// (`nn::attest::curriculum_filter_word`) the certificate's
+/// `dataset.filter` writes at save.
+pub fn curriculum_build(
+    conn: &rusqlite::Connection,
+    pattern: &str,
+    audit: &mut dyn FnMut(String),
+) -> Result<CurriculumVerdict, String> {
+    ensure_distill_store(conn)?;
+
+    // ── the two pools ──
+    let mut stmt = conn
+        .prepare(
+            "SELECT rowid, input, output FROM distill_samples \
+             WHERE pattern_name = ?1 AND source = 'llm-response' AND quarantined IS NOT 1 \
+             ORDER BY rowid",
+        )
+        .map_err(|e| format!("curriculum: load teacher units: {}", e))?;
+    let teacher: Vec<(i64, String, String)> = stmt
+        .query_map(rusqlite::params![pattern], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| format!("curriculum: read teacher units: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+    drop(stmt);
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT rowid, input, output FROM distill_samples \
+             WHERE pattern_name = ?1 AND source = 'held-out' ORDER BY rowid",
+        )
+        .map_err(|e| format!("curriculum: load held-out rows: {}", e))?;
+    let held_out: Vec<(i64, String, String)> = stmt
+        .query_map(rusqlite::params![pattern], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| format!("curriculum: read held-out rows: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+    drop(stmt);
+
+    // ── the crossing refusal (the held-out provenance story must be
+    //    machine-true: the teacher did not generate the held-out rows) ──
+    for (h_rid, h_in, h_out) in &held_out {
+        if teacher
+            .iter()
+            .any(|(_, t_in, t_out)| t_in == h_in && t_out == h_out)
+        {
+            return Err(format!(
+                "curriculum: crossing refusal — held-out row {} carries the pair the teacher also taught (input hash {}): the held-out provenance story is machine-false; fix the held-out set or the row's source",
+                h_rid,
+                input_hash8(h_in)
+            ));
+        }
+    }
+
+    // ── propose-and-refute ──
+    let mut quarantine: std::collections::BTreeMap<i64, String> = std::collections::BTreeMap::new();
+    // (a) teacher self-contradiction: the same input taught two
+    // different outputs — the EARLIEST row survives, the later rows
+    // quarantine (deterministic first-teacher-wins).
+    for i in 0..teacher.len() {
+        for j in (i + 1)..teacher.len() {
+            if teacher[i].1 == teacher[j].1 && teacher[i].2 != teacher[j].2 {
+                let reason = format!(
+                    "teacher-self-contradiction: input hash {} was taught two outputs ({:?} by row {}, then {:?} by this row)",
+                    input_hash8(&teacher[i].1),
+                    teacher[i].2,
+                    teacher[i].0,
+                    teacher[j].2
+                );
+                quarantine.entry(teacher[j].0).or_insert(reason);
+            }
+        }
+    }
+    // (b) the held-out counterexamples.
+    for (t_rid, t_in, t_out) in &teacher {
+        for (h_rid, h_in, h_out) in &held_out {
+            if t_in == h_in && t_out != h_out {
+                let reason = format!(
+                    "contradicted-by-held-out: held-out counterexample {} pins a different output ({:?} vs this row's {:?})",
+                    h_rid, h_out, t_out
+                );
+                quarantine.entry(*t_rid).or_insert(reason);
+            }
+        }
+    }
+
+    // ── write the quarantine (in place; the machine id + the reason
+    //    ride the audit journal and the ledger) ──
+    let mut quarantine_ids: Vec<String> = Vec::new();
+    // The quarantine map's every rowid IS a teacher rowid by
+    // construction, so iterating the teacher pool (rowid order) visits
+    // exactly the quarantined units — no lookup can miss.
+    for (rid, t_in, t_out) in &teacher {
+        let Some(reason) = quarantine.get(rid) else {
+            continue;
+        };
+        conn.execute(
+            "UPDATE distill_samples SET quarantined = 1, reason = ?2, reviewed = 0 WHERE rowid = ?1",
+            rusqlite::params![rid, reason],
+        )
+        .map_err(|e| format!("curriculum: quarantine row {}: {}", rid, e))?;
+        let id = quarantine_machine_id(*rid, pattern, t_in, t_out);
+        audit(format!(
+            "[AUDIT] distill.curriculum-quarantine: {} — {}",
+            id, reason
+        ));
+        crate::ledger::record(
+            "distill.curriculum-quarantine",
+            "runtime",
+            "reflex",
+            &format!("pattern={};id={};{}", pattern, id, reason),
+        );
+        quarantine_ids.push(id);
+    }
+
+    let filter_word = crate::nn::attest::curriculum_filter_word(conn, Some(pattern));
+    let verdict = CurriculumVerdict {
+        pattern: pattern.to_string(),
+        proposed: teacher.len(),
+        survived: teacher.len() - quarantine.len(),
+        quarantined: quarantine.len(),
+        held_out: held_out.len(),
+        filter_word,
+        quarantine_ids,
+    };
+    audit(format!(
+        "[AUDIT] distill.curriculum-build: {}",
+        verdict.gate_line()
+    ));
+    Ok(verdict)
 }

@@ -633,6 +633,34 @@ mod stage4 {
     }
 
     pub fn main() -> i32 {
+        // №991 (issue #2030): the №806 REDACT anchor at BOTH harness
+        // entries. №968 gave the PARENT the key before the child spawn;
+        // the child entry itself was still naked — any harness variation
+        // that runs the serving process without the parent's set_var
+        // (the llvm-cov target invocation on a tree without №968, a
+        // direct exec) hit the corpus's keyed fingerprints and
+        // loud-failed on the first keyed route: run 44879922775,
+        // `[ROUTE_HANDLER_ERROR] POST /db/orders -> 500 id=err-000001:
+        // redact(…, "hash_keyed"): METALOGOS_REDACT_KEY is not set — the
+        // keyed fingerprint refuses fail-closed (B1/№806)`. Not a
+        // readiness race, not an llvm-cov timeout — the deterministic
+        // fail-closed refusal on the pre-№968 trees. The anchor is the
+        // benchmark fixture's own key (the №968 discipline:
+        // "stage4-parity-key"), SET-IF-UNSET so a real operator key is
+        // never clobbered, with a loud line when it lands here.
+        const ANCHORS: [(&str, &str); 3] = [
+            ("METALOGOS_MOCK_LLM", "true"),
+            ("METALOGOS_LLM_MOCK", "true"),
+            ("METALOGOS_REDACT_KEY", "stage4-parity-key"),
+        ];
+        for (k, v) in ANCHORS {
+            if std::env::var(k).is_err() {
+                std::env::set_var(k, v);
+                eprintln!(
+                    "[stage4 anchor] {k} set (№991: the harness entry self-sufficiency — the №806 keyed redact refuses fail-closed without it)"
+                );
+            }
+        }
         let args: Vec<String> = std::env::args().collect();
         // `cargo bench` passes --bench <name>; custom flags come from STAGE4_ARGS
         // or directly on the command line.

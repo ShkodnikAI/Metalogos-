@@ -1470,6 +1470,7 @@ jobs:
       # pipefail обязателен: иначе красный llvm-cov маскируется exit-кодом tee
       # (первый прогон PR #298: тест упал — джоба «зелёная», тишина = ложь).
       - name: Coverage baseline summary
+        id: cov
         run: |
           set -o pipefail
           cargo llvm-cov --workspace --all-targets --summary-only | tee coverage-summary.txt
@@ -1488,3 +1489,24 @@ jobs:
       - name: Coverage floor check (advisory — the owner decision 2А)
         run: |
           python3 scripts/ci/coverage_floor_check.py coverage-summary.txt
+      # №991 (issue #2030): the non-blocking redness must be VISIBLE —
+      # a red coverage lane that nobody reads is indistinguishable from
+      # a green one for everyone outside the full check list (the
+      # №976/№979 class: the set reports, the silence inside it goes
+      # unnoticed; the №991 diagnosis found the flake only by reading
+      # the full run count). The lane stays non-blocking (it does not
+      # gate the merge), but the run's Summary page now carries the red
+      # line and the log carries the loud banner. The attribution note
+      # names the known tree-versioned cause so a reader does not
+      # re-derive it from scratch.
+      - name: Non-blocking redness visible (№991)
+        if: always() && steps.cov.outcome == 'failure'
+        run: |
+          {
+            echo "## ⚠ Coverage lane (non-blocking) RED"
+            echo ""
+            echo "The coverage job failed on this run. It does NOT block the merge (not in the required set), but the redness is real: read the job log before trusting the green merge gate."
+            echo ""
+            echo "**Known attribution:** the pre-№968 trees red with the keyed-redact refusal — \`redact(…, \"hash_keyed\"): METALOGOS_REDACT_KEY is not set\` (the №968 bench anchor lives on main only; the patch/retro slices predate it). A fresh main red with the anchor present is a NEW defect — the failure text is in the job log, not here."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "⚠ NON-BLOCKING RED: the coverage lane failed on this run — the run Summary carries the line; the job log carries the failure text (the №955 contract: the handler error text lives in the log, not the client body)"

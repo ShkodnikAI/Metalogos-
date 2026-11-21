@@ -2,6 +2,36 @@
 
 All notable changes to the Metalogos project.
 
+## [0.40.1] - 2026-11-21
+
+A PATCH cut of the 0.40.0 line, published on the owner's explicit order
+(the decision of 2026-11-21). It replaces ONE dependency and changes
+nothing else: no language change, no builtin, no gate, no documented
+behaviour. The 0.40.0 tree is otherwise carried over verbatim, so the
+diff against `v0.40.0` is the lock entry plus the version stamp.
+
+Why the cut exists: the published `v0.40.0` assets ship a prebuilt
+binary linked against `lettre 0.11.23`, and the CycloneDX SBOM beside
+them declares that component, so every consumer scanning the SBOM gets
+six advisory hits. The advisories were published on 2026-11-17, one day
+AFTER the `v0.40.0` tag (2026-11-16), which is why the release CI could
+not have caught them; the retro-verification run of 2026-11-19 recorded
+exactly this (see `docs/reality/release-0.40.0-retro-verification.md`).
+
+### Security
+
+- `lettre` 0.11.23 -> 0.11.24 in `Cargo.lock` (RUSTSEC-2026-0560 through
+  RUSTSEC-2026-0565, all patched in >= 0.11.24): STARTTLS response
+  injection (crypto-failure), missing dot-stuffing after a bare LF or CR
+  (SMTP command injection), a message for an address with a quoted local
+  part delivered TO A DIFFERENT ADDRESS (the class that decided this cut
+  — a mailer that can deliver somewhere other than the computed
+  recipient contradicts the guarantee the language is built to make),
+  and three denial-of-service panics / unbounded buffering in the
+  sender's own process. The `Cargo.toml` requirement stays `"0.11"` and
+  is unchanged: a source build already resolved to the patched version,
+  so only the published binary and `--locked` builds were exposed.
+
 ## [0.40.0] - 2026-11-16
 
 The STABLE cut of the 0.40.0 window (the release-slice discipline,

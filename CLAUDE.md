@@ -172,6 +172,11 @@ for the dispatcher timeline, and `/rulesets` before blaming classic
 protection. When the facts cannot separate two mechanisms, name both and
 say which read would settle it — the audit log needs owner access, and
 an inference dressed as a fact is the one output the project cannot use.
+This shelf is also the ONLY record, and it can be dismantled by hand: the
+owner deletes red runs in the Actions UI, and a deleted run leaves NO
+trace — the check-suite dies with its run (№979, the `ace53a5a`
+experiment), so the shelf's silence is the absence of a RECORD, never
+proof that a run did not happen.
 
 **A polling detective cannot witness an event between its polls.** The
 protection audit ran weekly, so both gh#1892 merges sat inside one

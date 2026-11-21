@@ -17,6 +17,19 @@ jobs:
           fetch-depth: 0
       - name: Check PR base is not stale relative to main
         run: |
+          # №976 follow-up (gh#1985, the owner decision 21.11): the freshness
+          # bound keys on the PR BASE, not the branch name (a branch name is
+          # one `git push` away from anything). A PR whose base is NOT main
+          # cannot revert main work — its merge does not touch main — so the
+          # bound does not apply: the job SUCCEEDS with the printed reason
+          # (never skipped — the release-commit gate is fail-closed on
+          # missing/red/pending/skipped, a skipped release-branch job would
+          # refuse exactly the patch release this path exists to validate).
+          BASE_REF="${{ github.base_ref }}"
+          if [ -n "${BASE_REF}" ] && [ "${BASE_REF}" != "main" ]; then
+            echo "branch-freshness: base is ${BASE_REF}, not main — merging this PR does not touch main, so the freshness bound does not apply"
+            exit 0
+          fi
           git fetch origin main --quiet
           MERGE_BASE=$(git merge-base HEAD origin/main)
           BEHIND=$(git rev-list --count "${MERGE_BASE}..origin/main")

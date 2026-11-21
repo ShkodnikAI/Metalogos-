@@ -512,6 +512,26 @@ impl DistillHub {
         shared: &HubShared,
         job: &TrainJob,
     ) -> crate::interpreter::learnable::DistillTrainOutcome {
+        // №990 (ADR-0200 W5, decision 6): the frozen gate BEFORE the
+        // teacher gate — a Frozen pattern refuses distill moves even
+        // with a licensed teacher; the bounded auto-unfreeze rides the
+        // attempt (the lazy evaluation point). The audit closure bridges
+        // the lifecycle trace into the shared journal.
+        if let Some(conn) = shared.persist.as_ref() {
+            let c = conn.lock().unwrap_or_else(|e| e.into_inner());
+            let audit_ref = |l: String| DistillHub::audit_line(shared, l);
+            if let Err(reason) =
+                lifecycle_gate(&c, &job.pattern_name, distill_now_secs(), &audit_ref)
+            {
+                return crate::interpreter::learnable::DistillTrainOutcome {
+                    pattern_name: job.pattern_name.clone(),
+                    switched: false,
+                    gate_rejected: false,
+                    error: Some(reason),
+                    audit_lines: Vec::new(),
+                };
+            }
+        }
         // №975 (ADR-0200 W3b, decision 3): the DISTILL_TEACHER_UNLICENSED
         // rule at the hub boundary — the serve/hub lane refuses the same
         // way the TW and VM runtime boundaries do (one gate fn, three
@@ -526,6 +546,26 @@ impl DistillHub {
                 "reflex",
                 &format!("pattern={};{}", job.pattern_name, gate),
             );
+            // №990: the hysteresis feed — the violation enters the
+            // pattern's ring; crossing the threshold inside the window
+            // auto-freezes (the anti-flap band). A single violation
+            // stays refusal-only.
+            if let Some(conn) = shared.persist.as_ref() {
+                let c = conn.lock().unwrap_or_else(|e| e.into_inner());
+                let audit_ref = |l: String| DistillHub::audit_line(shared, l);
+                if let Err(lifecycle_err) = record_violation(
+                    &c,
+                    &job.pattern_name,
+                    "DISTILL_TEACHER_UNLICENSED",
+                    distill_now_secs(),
+                    &audit_ref,
+                ) {
+                    DistillHub::audit_line(
+                        shared,
+                        format!("[AUDIT] distill.lifecycle-error: {}", lifecycle_err),
+                    );
+                }
+            }
             return crate::interpreter::learnable::DistillTrainOutcome {
                 pattern_name: job.pattern_name.clone(),
                 switched: false,
@@ -1182,6 +1222,735 @@ pub fn ensure_distill_store(conn: &rusqlite::Connection) -> Result<(), String> {
         if !have.contains(col) {
             conn.execute_batch(ddl)
                 .map_err(|e| format!("distill store: migrate {}: {}", col, e))?;
+        }
+    }
+    // №990 (ADR-0200 W5, decision 6): the per-pattern lifecycle table —
+    // Active/Frozen with the transition metadata. Additive CREATE IF NOT
+    // EXISTS: a pre-W4/pre-W5 database gains the table on the next
+    // ensure call and keeps every existing row byte-for-byte (the same
+    // honest-migration form as the W4 columns above; the lifecycle is a
+    // DIFFERENT concern than the sample quarantine — its own table, the
+    // W4 "no new table" rule was scoped to the quarantine columns).
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS distill_states (
+            pattern             TEXT PRIMARY KEY,
+            phase               TEXT NOT NULL,
+            entered_at          INTEGER NOT NULL,
+            violations          TEXT NOT NULL DEFAULT '',
+            last_violation_code TEXT,
+            auto_unfroze_at     INTEGER,
+            refroze_in_window   INTEGER NOT NULL DEFAULT 0,
+            operator_lock       INTEGER NOT NULL DEFAULT 0
+        );",
+    )
+    .map_err(|e| format!("distill store: create distill_states: {}", e))?;
+    Ok(())
+}
+
+// ===========================================================================
+// №990 (ADR-0200 W5, decision 6): the per-pattern lifecycle machine.
+// Active / Frozen, the hysteresis (the anti-flap violation ring), the
+// 24h-bounded auto-unfreeze (decision 6 verbatim: the auto-exit no more
+// than once per the cooldown, every auto-exit ledger-records the reason
+// and the metrics, a re-freeze within the window stays frozen until the
+// explicit external command). The durable home is the `distill_states`
+// table in the persist DB (the hub lane) — VMs are pooled and per-request
+// state resets, so the lifecycle NEVER lives in a per-request container.
+// The state is a safety interlock over the distill lane: a Frozen pattern
+// refuses distill MOVES (training/teaching/curriculum build) with the
+// machine reason `[DISTILL_FROZEN]`; serving continues.
+// ===========================================================================
+
+/// The lifecycle phase of a distill pattern (№990).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DistillPhase {
+    /// Normal operation.
+    Active,
+    /// Distill moves refuse with `[DISTILL_FROZEN]`; serving continues.
+    Frozen,
+}
+
+impl DistillPhase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DistillPhase::Active => "active",
+            DistillPhase::Frozen => "frozen",
+        }
+    }
+
+    fn parse(s: &str) -> DistillPhase {
+        match s {
+            "frozen" => DistillPhase::Frozen,
+            _ => DistillPhase::Active,
+        }
+    }
+}
+
+/// The per-pattern lifecycle state (№990) — one `distill_states` row.
+#[derive(Debug, Clone)]
+pub struct DistillLifecycle {
+    pub pattern: String,
+    pub phase: DistillPhase,
+    /// When the CURRENT phase was entered (epoch seconds).
+    pub entered_at: u64,
+    /// The hysteresis ring: the violation timestamps inside the freeze
+    /// window (epoch seconds, ascending; trimmed to the window on write).
+    pub violations: Vec<u64>,
+    /// The code of the last violation (e.g. `DISTILL_TEACHER_UNLICENSED`).
+    pub last_violation_code: Option<String>,
+    /// The last bounded auto-unfreeze — the 24h clock anchor (decision 6).
+    pub auto_unfroze_at: Option<u64>,
+    /// Re-frozen after an auto-unfreeze within the cooldown window: no
+    /// further auto-unfreeze until the explicit external command.
+    pub refroze_in_window: bool,
+    /// An OPERATOR freeze (`mlog distill freeze`) — the bounded
+    /// auto-exit does not release it: the operator's authority anchor
+    /// (the recovery checks are machine-true, the operator's reason is
+    /// not); only `mlog distill unfreeze` lifts it. This is the W5-fixed
+    /// parameter surface (decision 6's own mandate: the concrete
+    /// recovery conditions and the parameter surface are fixed in W5).
+    pub operator_lock: bool,
+}
+
+impl DistillLifecycle {
+    fn fresh(pattern: &str) -> DistillLifecycle {
+        DistillLifecycle {
+            pattern: pattern.to_string(),
+            phase: DistillPhase::Active,
+            entered_at: 0,
+            violations: Vec::new(),
+            last_violation_code: None,
+            auto_unfroze_at: None,
+            refroze_in_window: false,
+            operator_lock: false,
+        }
+    }
+}
+
+/// The lifecycle verdict — the machine-readable gate facts (the
+/// gate-facts-sync form: the CLI prints it as one JSON line, the audit
+/// journal carries the same bytes).
+#[derive(Debug, Clone)]
+pub struct LifecycleVerdict {
+    pub pattern: String,
+    /// freeze | unfreeze | auto-unfreeze | violation | status | refused
+    pub op: &'static str,
+    pub ok: bool,
+    pub phase: DistillPhase,
+    pub changed: bool,
+    pub reason: String,
+    /// The recovery checks (the name, the result) — the recovery
+    /// conditions this naryad fixes (decision 6's W5 mandate).
+    pub recovery: Vec<(&'static str, bool)>,
+    /// Whether the bounded auto-unfreeze is currently allowed (the 24h
+    /// clock + the re-freeze lock).
+    pub auto_unfreeze_allowed: bool,
+}
+
+impl LifecycleVerdict {
+    pub fn gate_line(&self) -> String {
+        let recovery: Vec<String> = self
+            .recovery
+            .iter()
+            .map(|(k, v)| format!("\"{}\":{}", k, v))
+            .collect();
+        serde_json::json!({
+            "gate": format!("distill-{}", self.op),
+            "ok": self.ok,
+            "pattern": self.pattern,
+            "phase": self.phase.as_str(),
+            "changed": self.changed,
+            "reason": self.reason,
+            "recovery": recovery.join(","),
+            "auto_unfreeze_allowed": self.auto_unfreeze_allowed,
+        })
+        .to_string()
+    }
+}
+
+/// Epoch seconds (the callers pass their own clock where purity matters;
+/// the hub and CLI call sites use this).
+pub fn distill_now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+/// The hysteresis parameters (№990 fixes the surface; the defaults are
+/// the recorded values — env-tunable, read at call time).
+fn distill_freeze_threshold() -> u32 {
+    std::env::var("METALOGOS_DISTILL_FREEZE_THRESHOLD")
+        .ok()
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .filter(|v| *v >= 1)
+        .unwrap_or(2)
+}
+
+fn distill_freeze_window_secs() -> u64 {
+    std::env::var("METALOGOS_DISTILL_FREEZE_WINDOW_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(3600)
+}
+
+/// Decision 6's bound: the auto-unfreeze no more than once per 24 hours
+/// (the default parameter — 86400s).
+fn distill_auto_unfreeze_cooldown_secs() -> u64 {
+    std::env::var("METALOGOS_DISTILL_AUTO_UNFREEZE_COOLDOWN_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(86400)
+}
+
+/// `--trace-distill`: the trace switch (the CLI flag sets the env var at
+/// startup — one SSOT; the runtime reads it here).
+pub fn distill_trace_enabled() -> bool {
+    std::env::var("METALOGOS_TRACE_DISTILL").as_deref() == Ok("1")
+}
+
+/// The `--trace-distill` line — the same bytes to stderr and the audit
+/// journal (the gate-line form: one event, both sinks, identical text).
+pub fn trace_distill(audit: &dyn Fn(String), line: &str) {
+    if !distill_trace_enabled() {
+        return;
+    }
+    let l = format!("[TRACE] {}", line);
+    eprintln!("{}", l);
+    audit(l);
+}
+
+/// Read the pattern's lifecycle row; `None` for a pattern without W5
+/// state (a pre-W5 database — the byte-compat no-op form).
+pub fn read_lifecycle(
+    conn: &rusqlite::Connection,
+    pattern: &str,
+) -> Result<Option<DistillLifecycle>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT phase, entered_at, violations, last_violation_code, \
+             auto_unfroze_at, refroze_in_window, operator_lock FROM distill_states \
+             WHERE pattern = ?1",
+        )
+        .map_err(|e| format!("distill states: read {}: {}", pattern, e))?;
+    let mut rows = stmt
+        .query([pattern])
+        .map_err(|e| format!("distill states: read {}: {}", pattern, e))?;
+    let Some(row) = rows
+        .next()
+        .map_err(|e| format!("distill states: read {}: {}", pattern, e))?
+    else {
+        return Ok(None);
+    };
+    let phase: String = row
+        .get(0)
+        .map_err(|e| format!("distill states: read {}: {}", pattern, e))?;
+    let entered_at: i64 = row
+        .get(1)
+        .map_err(|e| format!("distill states: read {}: {}", pattern, e))?;
+    let violations: String = row
+        .get(2)
+        .map_err(|e| format!("distill states: read {}: {}", pattern, e))?;
+    let code: Option<String> = row
+        .get(3)
+        .map_err(|e| format!("distill states: read {}: {}", pattern, e))?;
+    let auto: Option<i64> = row
+        .get(4)
+        .map_err(|e| format!("distill states: read {}: {}", pattern, e))?;
+    let refroze: i64 = row
+        .get(5)
+        .map_err(|e| format!("distill states: read {}: {}", pattern, e))?;
+    let op_lock: i64 = row
+        .get(6)
+        .map_err(|e| format!("distill states: read {}: {}", pattern, e))?;
+    Ok(Some(DistillLifecycle {
+        pattern: pattern.to_string(),
+        phase: DistillPhase::parse(&phase),
+        entered_at: entered_at.max(0) as u64,
+        violations: violations
+            .split(',')
+            .filter_map(|s| s.trim().parse::<u64>().ok())
+            .collect(),
+        last_violation_code: code,
+        auto_unfroze_at: auto.filter(|t| *t >= 0).map(|t| t as u64),
+        refroze_in_window: refroze != 0,
+        operator_lock: op_lock != 0,
+    }))
+}
+
+fn write_lifecycle(conn: &rusqlite::Connection, lc: &DistillLifecycle) -> Result<(), String> {
+    let violations = lc
+        .violations
+        .iter()
+        .map(|t| t.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    conn.execute(
+        "INSERT OR REPLACE INTO distill_states \
+         (pattern, phase, entered_at, violations, last_violation_code, \
+          auto_unfroze_at, refroze_in_window, operator_lock) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        rusqlite::params![
+            lc.pattern,
+            lc.phase.as_str(),
+            lc.entered_at as i64,
+            violations,
+            lc.last_violation_code,
+            lc.auto_unfroze_at.map(|t| t as i64),
+            lc.refroze_in_window as i64,
+            lc.operator_lock as i64,
+        ],
+    )
+    .map_err(|e| format!("distill states: write {}: {}", lc.pattern, e))?;
+    Ok(())
+}
+
+/// The store counts for the pattern (the auto-unfreeze ledger record's
+/// metrics — the transition trains nothing, so the counts do not move;
+/// the record carries them once, with the check results).
+fn lifecycle_store_counts(conn: &rusqlite::Connection, pattern: &str) -> (usize, usize, usize) {
+    let q = |source: &str, excluded: i64| -> usize {
+        conn.query_row(
+            "SELECT COUNT(*) FROM distill_samples WHERE pattern_name = ?1 \
+             AND source = ?2 AND quarantined = ?3",
+            rusqlite::params![pattern, source, excluded],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0) as usize
+    };
+    let surviving = q("llm-response", 0);
+    let quarantined = q("llm-response", 1);
+    let held_out = q("held-out", 0);
+    (surviving, quarantined, held_out)
+}
+
+/// The recovery conditions №990 fixes (decision 6: "the concrete
+/// recovery conditions and the parameter surface are fixed in W5 and in
+/// the implementation record of this ADR"):
+/// (1) `teacher-gate-ok` — the teacher registry gate passes (the direct
+///     cause of the `DISTILL_TEACHER_UNLICENSED` violation is cleared);
+/// (2) `store-integrity-ok` — the persist store opens and the schema
+///     completes (`ensure_distill_store`).
+/// Both are machine-true and computable from the conn + the env alone.
+pub fn evaluate_recovery(conn: &rusqlite::Connection) -> Result<Vec<(&'static str, bool)>, String> {
+    let teacher_ok = crate::interpreter::learnable::distill_teacher_gate().is_ok();
+    let store_ok = ensure_distill_store(conn).is_ok();
+    Ok(vec![
+        ("teacher-gate-ok", teacher_ok),
+        ("store-integrity-ok", store_ok),
+    ])
+}
+
+/// The bounded auto-unfreeze (decision 6): when Frozen, the recovery
+/// checks pass, the cooldown clock allows it and no re-freeze lock sits
+/// on the pattern — exit Frozen automatically, ledger-record
+/// `distill.auto-unfreeze` (the reason, the metrics), trace loudly.
+/// Returns `Ok(true)` when the transition happened.
+fn try_auto_unfreeze(
+    conn: &rusqlite::Connection,
+    lc: &mut DistillLifecycle,
+    now: u64,
+    audit: &dyn Fn(String),
+) -> Result<bool, String> {
+    if lc.phase != DistillPhase::Frozen {
+        return Ok(false);
+    }
+    let cooldown = distill_auto_unfreeze_cooldown_secs();
+    if lc.operator_lock {
+        trace_distill(
+            audit,
+            &format!(
+                "distill.auto-unfreeze withheld: {} carries an operator lock — the explicit external command is required (decision 6, the W5 parameter surface)",
+                lc.pattern
+            ),
+        );
+        return Ok(false);
+    }
+    if lc.refroze_in_window {
+        trace_distill(
+            audit,
+            &format!(
+                "distill.auto-unfreeze withheld: {} re-froze within the cooldown window — the explicit external command is required (decision 6)",
+                lc.pattern
+            ),
+        );
+        return Ok(false);
+    }
+    if let Some(t) = lc.auto_unfroze_at {
+        if now.saturating_sub(t) < cooldown {
+            trace_distill(
+                audit,
+                &format!(
+                    "distill.auto-unfreeze withheld: {} is inside the {}s cooldown (last auto-unfreeze {}s ago)",
+                    lc.pattern,
+                    cooldown,
+                    now.saturating_sub(t)
+                ),
+            );
+            return Ok(false);
+        }
+    }
+    let recovery = evaluate_recovery(conn)?;
+    if !recovery.iter().all(|(_, ok)| *ok) {
+        let failed: Vec<String> = recovery
+            .iter()
+            .filter(|(_, ok)| !ok)
+            .map(|(k, _)| k.to_string())
+            .collect();
+        trace_distill(
+            audit,
+            &format!(
+                "distill.auto-unfreeze withheld: {} recovery failed: {}",
+                lc.pattern,
+                failed.join(",")
+            ),
+        );
+        return Ok(false);
+    }
+    let counts = lifecycle_store_counts(conn, &lc.pattern);
+    let reason = format!(
+        "recovery passed: teacher-gate-ok=true,store-integrity-ok=true; counts surviving={},quarantined={},held_out={}",
+        counts.0, counts.1, counts.2
+    );
+    lc.phase = DistillPhase::Active;
+    lc.entered_at = now;
+    lc.auto_unfroze_at = Some(now);
+    lc.refroze_in_window = false;
+    lc.violations.clear();
+    write_lifecycle(conn, lc)?;
+    crate::ledger::record(
+        "distill.auto-unfreeze",
+        "runtime",
+        "reflex",
+        &format!("pattern={};{}", lc.pattern, reason),
+    );
+    trace_distill(
+        audit,
+        &format!(
+            "distill.auto-unfreeze: {} exited Frozen (bounded auto-exit, decision 6)",
+            lc.pattern
+        ),
+    );
+    Ok(true)
+}
+
+/// The violation feed (the hysteresis input): the refusal sites call
+/// this with their code. A single violation is refusal-only (no state
+/// change); crossing the threshold inside the window auto-freezes (the
+/// anti-flap band). A freeze inside the post-auto-unfreeze cooldown
+/// window sets the re-freeze lock (decision 6).
+pub fn record_violation(
+    conn: &rusqlite::Connection,
+    pattern: &str,
+    code: &str,
+    now: u64,
+    audit: &dyn Fn(String),
+) -> Result<LifecycleVerdict, String> {
+    let mut lc = read_lifecycle(conn, pattern)?.unwrap_or_else(|| DistillLifecycle::fresh(pattern));
+    if lc.phase == DistillPhase::Frozen {
+        return Ok(LifecycleVerdict {
+            pattern: pattern.to_string(),
+            op: "violation",
+            ok: true,
+            phase: lc.phase,
+            changed: false,
+            reason: format!(
+                "{} already frozen — the violation {} noted, no state change",
+                pattern, code
+            ),
+            recovery: Vec::new(),
+            auto_unfreeze_allowed: false,
+        });
+    }
+    lc.violations.push(now);
+    let cutoff = now.saturating_sub(distill_freeze_window_secs());
+    lc.violations.retain(|t| *t >= cutoff);
+    lc.last_violation_code = Some(code.to_string());
+    let threshold = distill_freeze_threshold();
+    if (lc.violations.len() as u32) >= threshold {
+        let cooldown = distill_auto_unfreeze_cooldown_secs();
+        let in_window = lc
+            .auto_unfroze_at
+            .map(|t| now.saturating_sub(t) < cooldown)
+            .unwrap_or(false);
+        if in_window {
+            lc.refroze_in_window = true;
+        }
+        lc.phase = DistillPhase::Frozen;
+        lc.entered_at = now;
+        let ring = lc.violations.len();
+        lc.violations.clear();
+        // The automation freeze is NOT an operator freeze — the bounded
+        // auto-exit stays available for it (decision 6).
+        lc.operator_lock = false;
+        write_lifecycle(conn, &lc)?;
+        crate::ledger::record(
+            "distill.freeze",
+            "runtime",
+            "reflex",
+            &format!(
+                "pattern={};auto;code={};violations={};window={}s;refroze_in_window={}",
+                pattern,
+                code,
+                ring,
+                distill_freeze_window_secs(),
+                in_window
+            ),
+        );
+        trace_distill(
+            audit,
+            &format!(
+                "distill.freeze: {} entered Frozen ({} violations within {}s; code {})",
+                pattern,
+                ring,
+                distill_freeze_window_secs(),
+                code
+            ),
+        );
+        return Ok(LifecycleVerdict {
+            pattern: pattern.to_string(),
+            op: "violation",
+            ok: true,
+            phase: DistillPhase::Frozen,
+            changed: true,
+            reason: format!(
+                "the hysteresis crossed: {} violations within the window (code {})",
+                ring, code
+            ),
+            recovery: Vec::new(),
+            auto_unfreeze_allowed: !in_window,
+        });
+    }
+    write_lifecycle(conn, &lc)?;
+    trace_distill(
+        audit,
+        &format!(
+            "distill.violation: {} recorded {} ({} in the window; threshold {})",
+            pattern,
+            code,
+            lc.violations.len(),
+            threshold
+        ),
+    );
+    Ok(LifecycleVerdict {
+        pattern: pattern.to_string(),
+        op: "violation",
+        ok: true,
+        phase: lc.phase,
+        changed: false,
+        reason: format!(
+            "the violation {} noted — {} of the threshold {} inside the window",
+            code,
+            lc.violations.len(),
+            threshold
+        ),
+        recovery: Vec::new(),
+        auto_unfreeze_allowed: false,
+    })
+}
+
+/// The explicit operator freeze (`mlog distill freeze`) — always works,
+/// ledger-records `distill.freeze` (source=operator).
+pub fn freeze_explicit(
+    conn: &rusqlite::Connection,
+    pattern: &str,
+    reason: &str,
+    now: u64,
+    audit: &dyn Fn(String),
+) -> Result<LifecycleVerdict, String> {
+    let mut lc = read_lifecycle(conn, pattern)?.unwrap_or_else(|| DistillLifecycle::fresh(pattern));
+    let already = lc.phase == DistillPhase::Frozen;
+    if !already {
+        let cooldown = distill_auto_unfreeze_cooldown_secs();
+        let in_window = lc
+            .auto_unfroze_at
+            .map(|t| now.saturating_sub(t) < cooldown)
+            .unwrap_or(false);
+        if in_window {
+            lc.refroze_in_window = true;
+        }
+        lc.phase = DistillPhase::Frozen;
+        lc.entered_at = now;
+        lc.violations.clear();
+        // The operator's freeze is the authority anchor — the bounded
+        // auto-exit never releases it (the W5-fixed surface).
+        lc.operator_lock = true;
+        write_lifecycle(conn, &lc)?;
+    }
+    crate::ledger::record(
+        "distill.freeze",
+        "operator",
+        "reflex",
+        &format!(
+            "pattern={};explicit;already={};reason={}",
+            pattern, already, reason
+        ),
+    );
+    trace_distill(
+        audit,
+        &format!(
+            "distill.freeze: {} entered Frozen (explicit operator command{})",
+            pattern,
+            if already { "; was already frozen" } else { "" }
+        ),
+    );
+    Ok(LifecycleVerdict {
+        pattern: pattern.to_string(),
+        op: "freeze",
+        ok: true,
+        phase: DistillPhase::Frozen,
+        changed: !already,
+        reason: if already {
+            format!("{} was already frozen", pattern)
+        } else {
+            reason.to_string()
+        },
+        recovery: Vec::new(),
+        auto_unfreeze_allowed: false,
+    })
+}
+
+/// The explicit external unfreeze (decision 6: the re-frozen pattern
+/// stays frozen until an explicit external command) — always works,
+/// clears the re-freeze lock, ledger-records `distill.unfreeze`.
+pub fn unfreeze_explicit(
+    conn: &rusqlite::Connection,
+    pattern: &str,
+    reason: &str,
+    now: u64,
+    audit: &dyn Fn(String),
+) -> Result<LifecycleVerdict, String> {
+    let mut lc = read_lifecycle(conn, pattern)?.unwrap_or_else(|| DistillLifecycle::fresh(pattern));
+    let was = lc.phase == DistillPhase::Frozen;
+    if was {
+        lc.phase = DistillPhase::Active;
+        lc.entered_at = now;
+        lc.refroze_in_window = false;
+        lc.operator_lock = false;
+        lc.violations.clear();
+        write_lifecycle(conn, &lc)?;
+    }
+    crate::ledger::record(
+        "distill.unfreeze",
+        "operator",
+        "reflex",
+        &format!(
+            "pattern={};explicit;was_frozen={};reason={}",
+            pattern, was, reason
+        ),
+    );
+    trace_distill(
+        audit,
+        &format!(
+            "distill.unfreeze: {} exited Frozen (explicit external command{})",
+            pattern,
+            if was { "" } else { "; was not frozen" }
+        ),
+    );
+    Ok(LifecycleVerdict {
+        pattern: pattern.to_string(),
+        op: "unfreeze",
+        ok: true,
+        phase: lc.phase,
+        changed: was,
+        reason: if was {
+            reason.to_string()
+        } else {
+            format!("{} was not frozen", pattern)
+        },
+        recovery: Vec::new(),
+        auto_unfreeze_allowed: true,
+    })
+}
+
+/// The read-only status snapshot (the recovery checks run and are
+/// REPORTED; no transition happens here — the bounded auto-unfreeze
+/// fires on the distill-move attempts, not on reads).
+pub fn lifecycle_status(
+    conn: &rusqlite::Connection,
+    pattern: &str,
+    now: u64,
+) -> Result<LifecycleVerdict, String> {
+    let lc = read_lifecycle(conn, pattern)?.unwrap_or_else(|| DistillLifecycle::fresh(pattern));
+    let recovery = evaluate_recovery(conn)?;
+    let cooldown = distill_auto_unfreeze_cooldown_secs();
+    let clock_ok = lc
+        .auto_unfroze_at
+        .map(|t| now.saturating_sub(t) >= cooldown)
+        .unwrap_or(true);
+    let allowed = lc.phase == DistillPhase::Frozen
+        && !lc.refroze_in_window
+        && !lc.operator_lock
+        && clock_ok
+        && recovery.iter().all(|(_, ok)| *ok);
+    Ok(LifecycleVerdict {
+        pattern: pattern.to_string(),
+        op: "status",
+        ok: true,
+        phase: lc.phase,
+        changed: false,
+        reason: format!(
+            "violations in window: {}; last code: {}; cooldown: {}s {}; operator lock: {}",
+            lc.violations.len(),
+            lc.last_violation_code
+                .clone()
+                .unwrap_or_else(|| "none".into()),
+            cooldown,
+            if lc.refroze_in_window {
+                "withheld (re-froze within the window — explicit command required)"
+            } else {
+                "clear"
+            },
+            if lc.operator_lock {
+                "set (explicit command required)"
+            } else {
+                "none"
+            },
+        ),
+        recovery,
+        auto_unfreeze_allowed: allowed,
+    })
+}
+
+/// The enforcement gate — the ONE check every distill move consults
+/// (the hub worker, the CLI curriculum build). Lazy evaluation point:
+/// the bounded auto-unfreeze (decision 6) rides the move attempt, then
+/// a still-Frozen pattern refuses with `[DISTILL_FROZEN]` (audited +
+/// ledger-recorded). A pattern without W5 state passes (the byte-compat
+/// no-op form).
+pub fn lifecycle_gate(
+    conn: &rusqlite::Connection,
+    pattern: &str,
+    now: u64,
+    audit: &dyn Fn(String),
+) -> Result<(), String> {
+    let Some(mut lc) = read_lifecycle(conn, pattern)? else {
+        return Ok(());
+    };
+    if lc.phase == DistillPhase::Frozen {
+        try_auto_unfreeze(conn, &mut lc, now, audit)?;
+        let lc = read_lifecycle(conn, pattern)?.unwrap_or_else(|| DistillLifecycle::fresh(pattern));
+        if lc.phase == DistillPhase::Frozen {
+            let reason = format!(
+                "[DISTILL_FROZEN] pattern '{}' is frozen since epoch {} (last code: {}) — distill moves refuse; the bounded auto-unfreeze is {} ; the explicit external command: mlog distill unfreeze",
+                pattern,
+                lc.entered_at,
+                lc.last_violation_code.clone().unwrap_or_else(|| "none".into()),
+                if lc.operator_lock {
+                    "withheld (operator lock — the explicit command releases)"
+                } else if lc.refroze_in_window {
+                    "withheld (re-froze within the cooldown window)"
+                } else {
+                    "pending the recovery checks"
+                },
+            );
+            crate::ledger::record(
+                "distill.frozen-refused",
+                "runtime",
+                "reflex",
+                &format!("pattern={};{}", pattern, reason),
+            );
+            trace_distill(audit, &format!("distill.frozen-refused: {}", pattern));
+            return Err(reason);
         }
     }
     Ok(())

@@ -1,6 +1,8 @@
 # The v0.40.1 release-commit-gate verification — the recorded act
 # (№976 follow-up 2, issue #1985; the owner decision 21.11 «принимаю»)
 
+### 6.82. The v0.40.1 gate — the patch-slice fact and the closure (№976 follow-up 2, issue #1985)
+
 ## The fact
 
 The patch slice 0.40.1 (`release/0.40.1`, head `6232bf93`) is a cut
@@ -32,6 +34,8 @@ The pre-tag verification (measured, the executor's run on the branch
 ref): `release_commit_gate.py --ref release/0.40.1` →
 `required 26, waived 2, present 24, missing 0, not-green 0` → **OK**
 with both waivers printed by name.
+
+### 6.83. The v0.40.1 verdict — the act and the result place (the owner, after tagging)
 
 ## The act, as it must be performed (the owner, after tagging)
 

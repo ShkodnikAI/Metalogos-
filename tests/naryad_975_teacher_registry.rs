@@ -166,6 +166,15 @@ fn gate_env_resolution_matches_the_backend_factory() {
     // With the explicit mock lane the teacher IS the in-tree mock — the
     // same predicate create_llm_backend() consults.
     std::env::set_var("METALOGOS_MOCK_LLM", "1");
+    // №987: the env channel is the SSOT the process-scoped teacher reads;
+    // assert it HERE so a scheduling flake (the CI 20.11 case: the teacher
+    // resolved `claude` while `mock` was set — the rand 0.10.4 bump merely
+    // changed the schedule) fails AT the channel, with its name, not as a
+    // cross-vocabulary "claude != mock" confusion downstream.
+    assert!(
+        metalogos::llm::mock_llm_requested(),
+        "the env channel lost the mock flag between set_var and the read —          the serial mutex did not hold the env-exchanging tests apart (№987)"
+    );
     assert_eq!(current_teacher_backend(), "mock");
     let gate = distill_teacher_gate().expect("the mock teacher passes");
     assert_eq!(gate.backend, "mock");
@@ -186,6 +195,15 @@ fn gate_env_resolution_matches_the_backend_factory() {
 #[serial_test::serial]
 fn certificate_fills_teacher_block_from_the_registry() {
     std::env::set_var("METALOGOS_MOCK_LLM", "1");
+    // №987: the env channel is the SSOT the process-scoped teacher reads;
+    // assert it HERE so a scheduling flake (the CI 20.11 case: the teacher
+    // resolved `claude` while `mock` was set — the rand 0.10.4 bump merely
+    // changed the schedule) fails AT the channel, with its name, not as a
+    // cross-vocabulary "claude != mock" confusion downstream.
+    assert!(
+        metalogos::llm::mock_llm_requested(),
+        "the env channel lost the mock flag between set_var and the read —          the serial mutex did not hold the env-exchanging tests apart (№987)"
+    );
     let model = make_model("TeacherHead", 7);
     let spec = spec_with_pattern(Some("Classify"));
     let cert = build_certificate(&model, &spec, &manifest(), "s-hash", "w-sha", None);

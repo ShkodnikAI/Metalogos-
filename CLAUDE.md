@@ -90,6 +90,16 @@ If `git fetch` prints `xxxxx..yyyyy main -> origin/main` — it means
 the branch REALLY advanced just now, was not already up to date
 earlier.
 
+**The sequence above assumes the agent is ON main — and that
+assumption is checked nowhere in it (caught 21.11, №976 follow-up):
+a `git reset --hard origin/main` executed WHILE STANDING ON A
+FEATURE BRANCH silently rewrites that branch** (the local label
+`release/0.40.1` jumped to the main HEAD; only the unpushed-state
+of the remote and the non-fast-forward push refusal saved the work).
+Before `reset --hard origin/main`, check `git branch --show-current`:
+anything that is not `main` gets a dedicated `git switch main` first,
+and a feature branch is never reset to main's HEAD.
+
 ## 5. Where the truth lives — by class of question
 
 | Question | Do NOT look at (may be stale) | Look at (source of truth) |

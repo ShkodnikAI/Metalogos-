@@ -83,7 +83,7 @@ const REQUIRED_SET: [&str; 26] = [
     "xml-tests (blocking)",
     "release-train-gate (blocking)",
     "Red-team gate (blocking on the security class — №961)",
-    "rust-doc-tests (blocking)",  // №976 — the Rust doctests join the blocking set
+    "rust-doc-tests (blocking)", // №976 — the Rust doctests join the blocking set
 ];
 
 #[test]

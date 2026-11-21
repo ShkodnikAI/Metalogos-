@@ -328,3 +328,76 @@ machine facts (deviations are named, never silent):
    records are claims with named bases (the limitations.md №975-b row
    carries this verbatim). The cut-order record holds: the rule's
    check_id is kept first when the line is trimmed (§5).
+
+## §10. The implementation record — W4, the curriculum build (№989, 2026-11-21)
+
+The W4 slot landed (the dispatch wave В99 — W-AC, №AC2, after №988/№AC1
+measured E1–E4). This section records the machine facts (deviations are
+named, never silent):
+
+1. **The propose-and-refute core is a store function, not a server.**
+   `curriculum_build(conn, pattern, audit)` in `src/distill_hub.rs`
+   (the file the ADR names) — propose: the teacher-generated units
+   (`source = 'llm-response'`, not quarantined) are the candidates, one
+   persisted row per unit; refute: (a) a teacher self-contradiction
+   (the same input taught two outputs — the LATER row quarantines,
+   first-teacher-wins) and (b) a held-out counterexample (a held-out
+   row whose input matches a unit's input with a DIFFERENT output —
+   the unit quarantines, the reason names the counterexample's rowid).
+   The CLI `mlog curriculum build` rides it (the machine-readable gate
+   line `{"gate":"curriculum-build",...}` is the verdict's last output
+   line and the audit journal's line — the same bytes both ways).
+2. **The quarantine is the three columns, no new table** (verbatim
+   §5): `reviewed INTEGER DEFAULT 0`, `reason TEXT`,
+   `quarantined INTEGER DEFAULT 0` ALTERed onto an existing
+   `distill_samples` and present in the fresh-schema DDL — the honest
+   migration keeps every pre-W4 row byte-identical. A quarantined row
+   carries the №983-form machine id `dq-<rowid>-<hash8>` in the audit
+   journal and a `distill.curriculum-quarantine` ledger record.
+3. **The held-out provenance has a machine-false refusal.** A held-out
+   row (source `held-out`) whose (input, output) pair EXACTLY
+   duplicates a teacher unit — the «the teacher did not generate this»
+   story is false for that row — the build REFUSES loudly and
+   quarantines nothing. The held-out rows themselves never enter any
+   training-set assembly point: the hub boot load (the WHERE
+   exclusion + the loud `distill.held-out-excluded` count), the
+   attestation manifest (`read_distill_samples` is W4-aware with a
+   pragma guard — a pre-W4 schema reads all rows and says "none", the
+   byte-compat form) and the filter word all exclude them.
+4. **The filter word went live.** `dataset.filter` stops being the
+   hardcoded "none": `curriculum_filter_word(conn, pattern)` — a PURE
+   function of the pattern's store state — answers "none" until the
+   store carries W4 state (a quarantined, held-out or reviewed row for
+   the pattern), then `curriculum:<sha16>` over the SORTED surviving
+   units (order-independent, reproducible). The save-side certificate
+   writes the computed word (`build_certificate` reads the manifest's
+   `filter` field); the verify side recomputes and — the `data_hash`
+   form — a moved word is the INFORMATIONAL
+   `[ATTESTATION_FILTER_CHANGED]` (never a refusal), naming both
+   words. The stored pre-W4 certificates ("none") are untouched.
+5. **The level precedence flipped exactly as §7.4 promised.** The
+   verify output level is the certificate's OWN level
+   (`signed`/`unsigned`) once the STORED word is live; `none` keeps
+   the decision-5 shape (`unfiltered`). The verify code carried the
+   mechanism since W1 (dormant behind the hardcoded "none") — W4 makes
+   it reachable, the leak-suite pins both sides.
+6. **The honest boundary.** The curriculum is NOT a quality guarantee
+   (§6.1): the filter speaks provenance; E3's underconfidence
+   measurement (ECE 0.6013, the limitations.md W4 row) is why the
+   `eval.calibration` literal stays `uncalibrated` — the flip is
+   W5/W6's. The E4 teacher-agreement rows for real teachers are null
+   WITH the reason in this environment (the limitations row names the
+   removal condition). W5/W6 material (states, hysteresis, cooldown,
+   the differential gate) is NOT built here — the §5 boundary holds;
+   the reviewed column is the W5 review workflow's landing spot, the
+   build only writes 0.
+7. **The leak-suite.** `tests/naryad_989_curriculum.rs` — 7 tests: the
+   refutation positive (the machine id + the reason + the journal),
+   the crossing refusal (a no-op on the store), the
+   self-contradiction first-wins, the held-out manifest exclusion
+   (positive + the pre-W4 compat), the filter word purity
+   (order-independence, the state move, the recompute agreement), the
+   informational filter code (ok stays true, the code names both
+   words, the stored word decides the level) and the signed/unsigned
+   surfacing (no key → `unsigned`; the configured key → `signed`).
+   The mutation contract lives in `scripts/mutation_verify_989.sh`.

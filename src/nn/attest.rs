@@ -105,6 +105,11 @@ pub const CODE_ANCHOR_MISMATCH: &str = "[ATTESTATION_ANCHOR_MISMATCH]";
 /// reports it loudly (provenance consistency holds; the W6 enablement
 /// gate is the policy enforcer — decision 5's boundary).
 pub const CODE_TEACHER_MISMATCH: &str = "[ATTESTATION_TEACHER_MISMATCH]";
+/// №989 (ADR-0200 W4): the dataset filter word moved since save — the
+/// `data_hash` form: INFORMATIONAL, never a refusal (the store's
+/// curriculum state is a data fact, not a spec fact). The stored word
+/// and the recomputed word both ride in the reason line.
+pub const CODE_FILTER_CHANGED: &str = "[ATTESTATION_FILTER_CHANGED]";
 /// №832 (H-3): the reason word when the anchor record cannot be located
 /// (the process-local ledger does not carry `ledger_seq` — the honest
 /// cross-process shape per ADR-0167).
@@ -343,6 +348,12 @@ pub struct DataManifest {
     /// "runtime-teaching" | "distill_samples" | "none".
     pub provenance: String,
     pub hash: String,
+    /// №989 (ADR-0200 W4): the dataset filter word — "none" until the
+    /// store carries curriculum state for the pattern, then
+    /// "curriculum:<sha16>" (a pure function of the surviving units).
+    /// The §4 sketch's `filter` key is verbatim; pre-W4 certificates
+    /// keep their stored "none" untouched.
+    pub filter: String,
 }
 
 pub fn data_manifest(
@@ -378,16 +389,111 @@ pub fn data_manifest(
         provenance = "none".to_string();
     }
     let hash = sha256_hex(lines.join("\n").as_bytes());
+    let filter = curriculum_filter_word(conn, pattern_name);
     DataManifest {
         rows: lines.len(),
         provenance,
         hash,
+        filter,
     }
+}
+
+/// №989 (ADR-0200 W4): the dataset filter word — a PURE function of the
+/// pattern's `distill_samples` state. "none" until the store carries
+/// curriculum state for the pattern (a quarantined row, a held-out row
+/// or a reviewed row — the quarantine columns the W4 build writes);
+/// then "curriculum:<sha16>" over the SURVIVING units (the rows
+/// training consumes: not quarantined, not held-out), sorted, joined.
+/// A pre-W4 store (no quarantine columns) is honestly "none" — the
+/// pragma guard keeps every old database file byte-compatible.
+pub fn curriculum_filter_word(conn: &rusqlite::Connection, pattern_name: Option<&str>) -> String {
+    let Some(pattern) = pattern_name else {
+        return "none".to_string();
+    };
+    if !distill_store_has_w4_columns(conn) {
+        return "none".to_string();
+    }
+    let has_state: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM distill_samples WHERE pattern_name = ?1 \
+             AND (quarantined = 1 OR source = 'held-out' OR reviewed = 1))",
+            rusqlite::params![pattern],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+    if !has_state {
+        return "none".to_string();
+    }
+    let mut lines: Vec<String> = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT input, output FROM distill_samples \
+         WHERE pattern_name = ?1 AND quarantined IS NOT 1 AND source IS NOT 'held-out' \
+         ORDER BY input, output",
+    ) {
+        if let Ok(rows) = stmt.query_map(rusqlite::params![pattern], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }) {
+            for row in rows.filter_map(|r| r.ok()) {
+                lines.push(
+                    serde_json::to_string(&serde_json::json!({
+                        "input": row.0,
+                        "output": row.1
+                    }))
+                    .unwrap_or_default(),
+                );
+            }
+        }
+    }
+    format!(
+        "curriculum:{}",
+        &sha256_hex(lines.join("\n").as_bytes())[..16]
+    )
+}
+
+/// №989: does the `distill_samples` table carry the W4 quarantine
+/// columns? A missing table or an old (pre-W4) schema answers false —
+/// the W4-aware reads then behave exactly as the pre-W4 reads.
+fn distill_store_has_w4_columns(conn: &rusqlite::Connection) -> bool {
+    let Ok(mut stmt) = conn.prepare("PRAGMA table_info(distill_samples)") else {
+        return false;
+    };
+    let Ok(names) = stmt.query_map([], |row| row.get::<_, String>(1)) else {
+        return false;
+    };
+    let mut have_quarantined = false;
+    let mut have_source = false;
+    for name in names.filter_map(|n| n.ok()) {
+        if name == "quarantined" {
+            have_quarantined = true;
+        }
+        if name == "source" {
+            have_source = true;
+        }
+    }
+    have_quarantined && have_source
 }
 
 /// Read the persisted teaching rows for one pattern. A missing table is
 /// an empty set (the hub-less lane never creates one) — NOT an error.
+/// №989 (W4): on a W4-schema store the rows training consumes exclude
+/// the quarantined and the held-out rows — the held-out invariant (the
+/// crossing refusal lives at the curriculum build gate, distill_hub.rs).
 fn read_distill_samples(conn: &rusqlite::Connection, pattern: &str) -> Vec<(String, String)> {
+    if distill_store_has_w4_columns(conn) {
+        let Ok(mut stmt) = conn.prepare(
+            "SELECT input, output FROM distill_samples \
+             WHERE pattern_name = ?1 AND quarantined IS NOT 1 AND source IS NOT 'held-out' \
+             ORDER BY rowid",
+        ) else {
+            return Vec::new();
+        };
+        let Ok(rows) = stmt.query_map(rusqlite::params![pattern], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }) else {
+            return Vec::new();
+        };
+        return rows.filter_map(|r| r.ok()).collect();
+    }
     let Ok(mut stmt) = conn.prepare(
         "SELECT input, output FROM distill_samples WHERE pattern_name = ?1 ORDER BY rowid",
     ) else {
@@ -660,7 +766,9 @@ pub fn build_certificate(
             );
         }
     }
-    // Dataset: filter is "none" until W4 (verbatim ADR-0200 §4).
+    // Dataset: the filter word went LIVE with W4 (№989) — the store's
+    // curriculum state computes it; "none" stays the honest word while
+    // no curriculum state exists (verbatim ADR-0200 §4 key set).
     let provenance: Vec<String> = if manifest.provenance == "none" {
         vec![]
     } else {
@@ -670,7 +778,7 @@ pub fn build_certificate(
         "dataset".into(),
         serde_json::json!({
             "rows": manifest.rows,
-            "filter": "none",
+            "filter": manifest.filter,
             "provenance": provenance,
         }),
     );
@@ -1180,6 +1288,34 @@ pub fn verify_attestation(
         );
     }
 
+    // 4.2 №989 (ADR-0200 W4): the dataset filter word — the data_hash
+    // form: the stored word vs the word the store recomputes NOW.
+    // Informational, never a refusal (a quarantine or a held-out load
+    // legitimately moves the word; the certificate keeps its story and
+    // the reason line names both words).
+    let stored_filter_word = stored
+        .cert_json
+        .parse::<serde_json::Value>()
+        .ok()
+        .and_then(|v| {
+            v.get("dataset")
+                .and_then(|d| d.get("filter"))
+                .and_then(|f| f.as_str())
+                .map(String::from)
+        })
+        .unwrap_or_else(|| "none".to_string());
+    if manifest.filter != stored_filter_word {
+        let filter_line = format!(
+            "{} the dataset filter word changed since save: the certificate stores '{}', the store now recomputes '{}' (informational, not a refusal)",
+            CODE_FILTER_CHANGED, stored_filter_word, manifest.filter
+        );
+        if reason.is_empty() {
+            reason = filter_line;
+        } else {
+            reason = format!("{}; {}", reason, filter_line);
+        }
+    }
+
     // 4.5 №975 (ADR-0200 W3b): the teacher block — a forged story (an
     // unknown class word, an unknown backend, a class/flag that differs
     // from the teacher registry) is the loud refusal; an honest teacher
@@ -1205,20 +1341,12 @@ pub fn verify_attestation(
         Ok(None) => {}
     }
 
-    // 5. All three hashes agree — provenance consistency holds. The W1
-    //    dataset filter is "none" by construction (the cert's own word
-    //    is authoritative when present).
-    let cert_filter = stored
-        .cert_json
-        .parse::<serde_json::Value>()
-        .ok()
-        .and_then(|v| {
-            v.get("dataset")
-                .and_then(|d| d.get("filter"))
-                .and_then(|f| f.as_str())
-                .map(String::from)
-        });
-    let data_unfiltered = cert_filter.map(|f| f == "none").unwrap_or(true);
+    // 5. All three hashes agree — provenance consistency holds. The
+    //    filter word decides the data level: "none" keeps the W1 shape
+    //    (`unfiltered` dominates, decision 5); a live curriculum filter
+    //    surfaces the certificate's own level (the §7.4 record —
+    //    signed/unsigned from W4 on).
+    let data_unfiltered = stored_filter_word == "none";
 
     // 6. Owner decision 4 (variant б): an `unsigned` certificate (no
     //    configured ledger key at save — the per-process random key is

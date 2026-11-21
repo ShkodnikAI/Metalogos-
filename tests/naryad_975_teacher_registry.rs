@@ -63,6 +63,9 @@ fn manifest() -> DataManifest {
         rows: 2,
         provenance: "runtime-teaching".to_string(),
         hash: "deadbeef".to_string(),
+        // №989: the W4 filter word — the pre-W4 honest word "none" (the
+        // registry lane never touches the store's curriculum state).
+        filter: "none".to_string(),
     }
 }
 

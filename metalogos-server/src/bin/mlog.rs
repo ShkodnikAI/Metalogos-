@@ -34,6 +34,12 @@ struct Cli {
     /// release windows from the V3 landing, ADR-0197 §4.3).
     #[arg(long, global = true)]
     reference: bool,
+    /// №990 (ADR-0200 W5): trace the distill lifecycle — every
+    /// transition, violation, recovery evaluation and bounded
+    /// auto-unfreeze emits the `[TRACE]` line (the same bytes to stderr
+    /// and the audit journal). The env twin: METALOGOS_TRACE_DISTILL=1.
+    #[arg(long, global = true)]
+    trace_distill: bool,
 }
 
 #[derive(clap::Subcommand, Debug)]
@@ -165,6 +171,15 @@ enum Commands {
     Curriculum {
         #[command(subcommand)]
         cmd: CurriculumCmd,
+    },
+    /// №990 (ADR-0200 W5, decision 6): the distill lifecycle surface —
+    /// the operator's explicit freeze, the explicit external unfreeze
+    /// (the re-frozen pattern's ONLY exit) and the read-only status.
+    /// The store is a SQLite path; the last output line is always the
+    /// machine-readable gate verdict.
+    Distill {
+        #[command(subcommand)]
+        cmd: DistillCmd,
     },
     /// №957 (issue #1924, ADR-0211 §3): issue a VERIFIED human-oversight
     /// mandate OUTSIDE the program — the counted class of the approval
@@ -335,6 +350,14 @@ fn main() {
         Commands::Ledger { cmd } => cmd_ledger(cmd),
         Commands::Attest { cmd } => cmd_attest(cmd),
         Commands::Curriculum { cmd } => cmd_curriculum(cmd),
+        Commands::Distill { cmd } => {
+            // №990: --trace-distill sets the env var — one SSOT (the
+            // runtime reads METALOGOS_TRACE_DISTILL; the flag feeds it).
+            if cli.trace_distill {
+                std::env::set_var("METALOGOS_TRACE_DISTILL", "1");
+            }
+            cmd_distill(cmd);
+        }
         Commands::Approve { target, actor, ttl } => cmd_approve(&target, &actor, ttl),
     }
 }
@@ -788,6 +811,30 @@ fn cmd_curriculum(cmd: CurriculumCmd) {
         std::process::exit(1);
     }
 
+    // №990 (ADR-0200 W5): the build is a distill move — a Frozen pattern
+    // refuses (the bounded auto-unfreeze rides the attempt, decision 6).
+    {
+        let audit_ref = |line: String| {
+            eprintln!("{}", line);
+        };
+        if let Err(e) = metalogos::distill_hub::lifecycle_gate(
+            &conn,
+            &pattern_name,
+            metalogos::distill_hub::distill_now_secs(),
+            &audit_ref,
+        ) {
+            if json {
+                println!(
+                    "{{\"gate\":\"curriculum-build\",\"ok\":false,\"pattern\":\"{}\",\"reason\":\"{}\"}}",
+                    pattern_name, e
+                );
+            } else {
+                eprintln!("error: {}", e);
+            }
+            std::process::exit(1);
+        }
+    }
+
     // The held-out load: the rows the teacher did NOT generate enter the
     // store with source "held-out" BEFORE the build — the refutation
     // instrument, never training data. One `input<TAB>output` pair per
@@ -854,6 +901,131 @@ fn cmd_curriculum(cmd: CurriculumCmd) {
                     println!("quarantined: {}", id);
                 }
                 println!("filter: {}", v.filter_word);
+                println!("{}", v.gate_line());
+            }
+        }
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// №990 (ADR-0200 W5, decision 6): the distill lifecycle subcommands —
+/// `mlog distill freeze|unfreeze|status --pattern <P> --db <FILE>`.
+/// The explicit unfreeze is decision 6's external command (the ONLY
+/// exit for a pattern re-frozen within the cooldown window). Every op
+/// ledger-records (except the read-only status) and prints the
+/// machine-readable gate verdict as the last line.
+#[derive(clap::Subcommand, Debug)]
+enum DistillCmd {
+    /// Freeze the pattern's distill lane (explicit operator command;
+    /// ledger `distill.freeze`, source operator; serving continues).
+    Freeze {
+        /// The learnable pattern name
+        #[arg(long)]
+        pattern: String,
+        /// The SQLite store path (the `distill_states` table lives here)
+        #[arg(long)]
+        db: PathBuf,
+        /// The freeze reason (ledger-recorded verbatim)
+        #[arg(long, default_value = "explicit operator freeze")]
+        reason: String,
+        /// Machine-readable one-line JSON verdict ONLY
+        #[arg(long)]
+        json: bool,
+    },
+    /// Unfreeze the pattern (the explicit external command — decision
+    /// 6: the re-frozen pattern stays frozen until this; ledger
+    /// `distill.unfreeze`, clears the re-freeze lock).
+    Unfreeze {
+        #[arg(long)]
+        pattern: String,
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long, default_value = "explicit external unfreeze (decision 6)")]
+        reason: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Read-only status: the phase, the violation ring, the recovery
+    /// checks and the auto-unfreeze eligibility. NO transition happens
+    /// (the bounded auto-unfreeze fires on distill-move attempts, not
+    /// on reads).
+    Status {
+        #[arg(long)]
+        pattern: String,
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+fn cmd_distill(cmd: DistillCmd) {
+    let (op, pattern, db_path, reason, json) = match cmd {
+        DistillCmd::Freeze {
+            pattern,
+            db,
+            reason,
+            json,
+        } => ("freeze", pattern, db, reason, json),
+        DistillCmd::Unfreeze {
+            pattern,
+            db,
+            reason,
+            json,
+        } => ("unfreeze", pattern, db, reason, json),
+        DistillCmd::Status { pattern, db, json } => (
+            "status",
+            pattern,
+            db,
+            "status (read-only)".to_string(),
+            json,
+        ),
+    };
+
+    #[allow(clippy::disallowed_methods)]
+    let conn = match rusqlite::Connection::open(&db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("error: cannot open db '{}': {}", db_path.display(), e);
+            std::process::exit(1);
+        }
+    };
+    if let Err(e) = metalogos::distill_hub::ensure_distill_store(&conn) {
+        eprintln!("error: {}", e);
+        std::process::exit(1);
+    }
+
+    // The audit sink: the journal lines to stderr (the CLI lane's audit
+    // journal — the same [AUDIT]/[TRACE] form the hub prints).
+    let audit = |line: String| {
+        eprintln!("{}", line);
+    };
+    let now = metalogos::distill_hub::distill_now_secs();
+
+    let result = match op {
+        "freeze" => metalogos::distill_hub::freeze_explicit(&conn, &pattern, &reason, now, &audit),
+        "unfreeze" => {
+            metalogos::distill_hub::unfreeze_explicit(&conn, &pattern, &reason, now, &audit)
+        }
+        _ => metalogos::distill_hub::lifecycle_status(&conn, &pattern, now),
+    };
+
+    match result {
+        Ok(v) => {
+            if json {
+                println!("{}", v.gate_line());
+            } else {
+                println!("pattern: {}", v.pattern);
+                println!("op: {}", v.op);
+                println!("phase: {}", v.phase.as_str());
+                println!("reason: {}", v.reason);
+                for (k, ok) in &v.recovery {
+                    println!("recovery: {} = {}", k, ok);
+                }
+                println!("auto-unfreeze allowed: {}", v.auto_unfreeze_allowed);
                 println!("{}", v.gate_line());
             }
         }

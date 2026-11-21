@@ -401,3 +401,87 @@ named, never silent):
    words, the stored word decides the level) and the signed/unsigned
    surfacing (no key → `unsigned`; the configured key → `signed`).
    The mutation contract lives in `scripts/mutation_verify_989.sh`.
+
+### The W5 record — the lifecycle machine (№990, 2026-11-21)
+
+The W5 slot landed (the dispatch wave В100 — W-AD, one row; the
+dependencies W4/E2/E3 closed by №989/№988). The machine facts
+(deviations are named, never silent):
+
+1. **The states machine is a store function over the persist DB, not a
+   server.** The durable home is the additive `distill_states` table
+   (`pattern` PRIMARY KEY, phase, entered_at, the violation ring, the
+   auto-unfreeze clock anchor, the re-freeze lock, the operator lock) —
+   CREATE IF NOT EXISTS in `ensure_distill_store`; a pre-W4/pre-W5
+   database gains the table on the next ensure and keeps every row
+   byte-for-byte. VMs are pooled and per-request state resets, so the
+   lifecycle NEVER lives in a per-request container — the hub lane and
+   the CLI lane share the same table. `Active`/`Frozen`: a Frozen
+   pattern refuses distill MOVES (the hub worker's training jobs, the
+   CLI `curriculum build`) with the machine reason
+   `[DISTILL_FROZEN]` (audited + ledger-recorded
+   `distill.frozen-refused`); serving continues.
+2. **The hysteresis (the anti-flap band).** A single violation is
+   refusal-only (audit + ledger via the existing sites); crossing the
+   threshold INSIDE the window auto-freezes. The violation feed rides
+   the hub worker's `DISTILL_TEACHER_UNLICENSED` refusal (№975's site —
+   one gate, now feeding the lifecycle). The ring trims to the window
+   on every write.
+3. **The parameter surface is fixed HERE (decision 6's own mandate).**
+   `METALOGOS_DISTILL_FREEZE_THRESHOLD` (default 2),
+   `METALOGOS_DISTILL_FREEZE_WINDOW_SECS` (default 3600),
+   `METALOGOS_DISTILL_AUTO_UNFREEZE_COOLDOWN_SECS` (default 86400 —
+   decision 6's 24h). Read at call time; the machine fns take `now`
+   explicitly (pure, testable).
+4. **The bounded auto-unfreeze (decision 6 verbatim).** The lazy
+   evaluation rides every distill-move attempt: the recovery checks —
+   fixed HERE as `teacher-gate-ok` (the direct
+   `DISTILL_TEACHER_UNLICENSED` cause) + `store-integrity-ok`
+   (`ensure_distill_store`) — pass, the cooldown clock allows (the
+   anchor is the LAST auto-exit), no re-freeze lock and no operator
+   lock sit on the pattern → exit Frozen, ledger-record
+   `distill.auto-unfreeze` (the reason + the metrics: the check results
+   and the store counts — the transition trains nothing, so the counts
+   do not move, the record names them once), trace loudly.
+5. **The re-freeze lock (decision 6 verbatim):** a freeze inside the
+   cooldown window after an auto-exit sets `refroze_in_window` — the
+   pattern stays frozen until the explicit external command
+   `mlog distill unfreeze` (ledger `distill.unfreeze`, the lock clears).
+6. **The operator lock (the W5-fixed surface):** the explicit operator
+   freeze does NOT auto-release — the recovery checks are machine-true,
+   the operator's reason is not; only `mlog distill unfreeze` lifts it.
+   The automation freezes (the hysteresis) remain subject to the
+   bounded auto-exit; an operator freeze never does.
+7. **`--trace-distill`** (the global CLI flag; it sets
+   `METALOGOS_TRACE_DISTILL=1` — one SSOT): every transition,
+   violation, recovery evaluation and withholding emits `[TRACE]`
+   lines — the same bytes to stderr and the audit journal (the
+   gate-line form). The CLI:
+   `mlog distill {freeze,unfreeze,status} --pattern <P> --db <F>
+   [--json]` — the gate line `{"gate":"distill-<op>",...}` is the
+   verdict's last output line; `status` is read-only (the auto-exit
+   fires on move attempts, not on reads — the eligibility is REPORTED).
+8. **The honest deviations.** (a) `ATTESTATION_STALE` is NOT wired as
+   an auto-freeze trigger — the verify lane keeps the decision-4/5
+   shape; the operator path (`mlog distill freeze`) covers it; the
+   wiring is a W7-audit-lane candidate. (b) The `rollback_if` capture
+   (the mutate_rollback rules as stored state) is NOT here — it needs
+   the session rules plumbed through the save path (W1 territory, the
+   never-cut lane); it rides the W7 audit lane. The certificate is
+   UNTOUCHED by W5: the lifecycle is operational state, not provenance
+   (the attestation reason string at the §7.4 record stays as written).
+   (c) The offline TW/interpreter lane without the hub has NO durable
+   lifecycle (its per-process anti-retry throttle stays as it was) —
+   the durable home is the hub/persist DB. (d) `eval.calibration`
+   stays `uncalibrated` (E3's ECE 0.6013 — the flip is W6's).
+9. **The leak-suite.** `tests/naryad_990_states.rs` — 8 tests: the
+   pre-W5 byte-compat no-op, the explicit freeze → the move refusal →
+   the explicit release, the hysteresis threshold inside the window,
+   the violations outside the window, the bounded auto-exit (the first
+   exit fires, ledger + trace), the re-freeze-within-window lock (the
+   explicit command is the only exit), the cooldown clock (withheld
+   inside 24h, fires beyond), the trace bytes + the gate-line JSON
+   shapes. The mutation contract `scripts/mutation_verify_990.sh`:
+   M1 the 24h bound dropped, M2 the re-freeze window ignored, M3 the
+   operator lock ignored — each RED, the inverse-replace restores
+   byte-identically.

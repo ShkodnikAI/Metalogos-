@@ -1,0 +1,114 @@
+{
+  "experiment": "e1-embed-speed",
+  "backend": "in-process TF-IDF (the `embed` builtin's default lane, METALOGOS_EMBEDDING_PROVIDER=tfidf)",
+  "batching_primitive": "none \u2014 the lane embeds one text per call; batch_size groups the corpus into chunks of embed() calls",
+  "corpus": {
+    "rows": 400,
+    "classes": 4,
+    "words_per_text": 5,
+    "vocab_class_pools": 24,
+    "seed": 20261121
+  },
+  "batch_results": [
+    {
+      "batch_size": 1,
+      "reps": [
+        {
+          "rep": 0,
+          "seconds": 0.000982,
+          "examples_per_sec": 407454.4
+        },
+        {
+          "rep": 1,
+          "seconds": 0.000913,
+          "examples_per_sec": 437895.5
+        },
+        {
+          "rep": 2,
+          "seconds": 0.00091,
+          "examples_per_sec": 439689.0
+        }
+      ],
+      "median_examples_per_sec": 437895.5,
+      "embedding_dim": 256
+    },
+    {
+      "batch_size": 8,
+      "reps": [
+        {
+          "rep": 0,
+          "seconds": 0.000944,
+          "examples_per_sec": 423917.9
+        },
+        {
+          "rep": 1,
+          "seconds": 0.00091,
+          "examples_per_sec": 439700.6
+        },
+        {
+          "rep": 2,
+          "seconds": 0.000912,
+          "examples_per_sec": 438407.6
+        }
+      ],
+      "median_examples_per_sec": 438407.6,
+      "embedding_dim": 256
+    },
+    {
+      "batch_size": 32,
+      "reps": [
+        {
+          "rep": 0,
+          "seconds": 0.000897,
+          "examples_per_sec": 445699.3
+        },
+        {
+          "rep": 1,
+          "seconds": 0.000896,
+          "examples_per_sec": 446237.8
+        },
+        {
+          "rep": 2,
+          "seconds": 0.000897,
+          "examples_per_sec": 446011.4
+        }
+      ],
+      "median_examples_per_sec": 446011.4,
+      "embedding_dim": 256
+    },
+    {
+      "batch_size": 128,
+      "reps": [
+        {
+          "rep": 0,
+          "seconds": 0.000921,
+          "examples_per_sec": 434180.4
+        },
+        {
+          "rep": 1,
+          "seconds": 0.000897,
+          "examples_per_sec": 446160.2
+        },
+        {
+          "rep": 2,
+          "seconds": 0.000895,
+          "examples_per_sec": 447028.8
+        }
+      ],
+      "median_examples_per_sec": 446160.2,
+      "embedding_dim": 256
+    }
+  ],
+  "environment": {
+    "captured_at": "2026-11-21T15:06:27Z",
+    "uname": "Linux 5.10.134-013.15.kangaroo.al8.x86_64 x86_64",
+    "cpus": 2,
+    "cpu_model": "model name\t: Intel(R) Xeon(R) Processor",
+    "mem_total": "MemTotal:        4138564 kB",
+    "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+    "cargo": "cargo 1.100.0 (3acc79c0c 2026-11-05)",
+    "toolchain_channel": "channel = \"stable\"",
+    "embed_provider": "tfidf",
+    "mock_llm_lane": true
+  }
+}

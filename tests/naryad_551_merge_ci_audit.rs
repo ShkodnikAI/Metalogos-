@@ -57,7 +57,7 @@ const SCRIPT: &str = include_str!("../scripts/ci/merge_ci_audit.py");
 /// (`2026-11-17T20:11:03Z`) is the first verifiable enforcement point;
 /// №971 only syncs the detective records to the live rule — the
 /// №824 named-divergence class, resolved.)
-const REQUIRED_SET: [&str; 25] = [
+const REQUIRED_SET: [&str; 26] = [
     "test-lib (blocking)",
     "test-integration (blocking)",
     "crosscheck (blocking)",
@@ -83,6 +83,7 @@ const REQUIRED_SET: [&str; 25] = [
     "xml-tests (blocking)",
     "release-train-gate (blocking)",
     "Red-team gate (blocking on the security class — №961)",
+    "rust-doc-tests (blocking)", // №976 — the Rust doctests join the blocking set
 ];
 
 #[test]
@@ -202,7 +203,7 @@ fn merge_ci_audit_tripwire_is_green_on_live_workflows() {
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.contains("TRIPWIRE OK: all 25"),
-        "the tripwire must cover all 25 required contexts, got: {stdout}"
+        stdout.contains("TRIPWIRE OK: all 26"),
+        "the tripwire must cover all 26 required contexts, got: {stdout}"
     );
 }

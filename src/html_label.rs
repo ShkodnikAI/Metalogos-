@@ -10,7 +10,9 @@
 //! and every declared learnable pattern — №201, ADR-0117: the model
 //! output is untrusted text) is a value of the type
 //!
-//!     Labeled(String, Untrusted)
+//! ```text
+//! Labeled(String, Untrusted)
+//! ```
 //!
 //! — the stage-2 label the HTML lane adds to the stage-0 vocabulary.
 //! The UserInput KIND of the old machinery (form_data / json_body /

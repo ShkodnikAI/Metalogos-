@@ -122,6 +122,8 @@ REQUIRED_CHECKS = [
     "xml-tests (blocking)",
     "release-train-gate (blocking)",  # №899 (issue #1793, 2026-11-05) — the calendar-train gate
     "Red-team gate (blocking on the security class — №961)",  # №971 (issue #1976) — the security-class red-team pass gate; the owner's toggle verified by the gate's success run on the №969 merge SHA (2026-11-17T20:11:03Z), the live-protection read of 2026-11-18: 25 contexts
+
+    "rust-doc-tests (blocking)",  # №976 (issue #1985) — the Rust doctests join the blocking set; the job lands with №976
 ]
 
 # №960 (issue #1927): WHEN each context became required.
@@ -152,6 +154,8 @@ REQUIRED_SINCE = {
     # the first verifiable enforcement point; the job-birth instant is
     # the map's honest row per the №960 form above.
     "Red-team gate (blocking on the security class — №961)": "2026-11-17T04:45:53Z",
+
+    "rust-doc-tests (blocking)": "2026-11-19T00:00:00Z",  # №976 — the job lands with №976 (the map's honest row: the landing instant, the №960 form)
 }
 
 

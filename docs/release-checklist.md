@@ -121,6 +121,21 @@ precedent); a patch cut does not require an rc candidate.
    machine still never publishes: this step only decorates a release the
    owner already published.
 
+## The patch cut from an old tag (0.40.1 form, №976 follow-up — gh#1985)
+
+A patch cut FROM AN OLD TAG is a lawful mechanism, not a shadow
+release: the supplied artifact stays the tag tree plus the lockstep
+dep, and the cut's validation runs through a PR whose head AND base
+sit on that tag (`v0.40.0` → `release/0.40.1`/`release/0.40.1-base`
+— never merged into main). The `branch-freshness` bound keys on the
+PR BASE: a PR into a non-main base succeeds with the printed reason
+(its merge does not touch main). CI-specific files (`.github/`,
+`scripts/ci/`) are NOT part of the supplied artifact — the binary is
+built from sources, the SBOM describes its dependencies — so a
+`ci.yml` change cherry-picked onto the patch branch is not patch
+content. The patch's CHANGELOG section transfers to main by a
+separate doc-only commit.
+
 ## The legacy read (0.27.x)
 
 `unfreeze_gate.py --office-tests <pass|fail>` without `--gate-target` —

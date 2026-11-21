@@ -745,7 +745,10 @@ fn cmd_curriculum(cmd: CurriculumCmd) {
                     "error: no learnable pattern '{}' in {:?} (declared: {:?})",
                     name,
                     file,
-                    pattern_decls.iter().map(|lp| lp.name.as_str()).collect::<Vec<_>>()
+                    pattern_decls
+                        .iter()
+                        .map(|lp| lp.name.as_str())
+                        .collect::<Vec<_>>()
                 );
                 std::process::exit(1);
             }

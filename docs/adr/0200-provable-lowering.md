@@ -485,3 +485,93 @@ dependencies W4/E2/E3 closed by №989/№988). The machine facts
    M1 the 24h bound dropped, M2 the re-freeze window ignored, M3 the
    operator lock ignored — each RED, the inverse-replace restores
    byte-identically.
+
+### The W6 record — the differential enablement gate (№994, 2026-11-22)
+
+The W6 slot landed (the dispatch wave В101 — W-AE, one row; the
+dependencies W5/E4 closed by №990/№988). The gate facts (deviations are
+named, never silent):
+
+1. **The gate is the policy enforcer at the enablement boundary
+   (decision 5's), and it is NEW — there was no enablement operation
+   before W6.** `mlog distill enable-differential --pattern <P> --db <F>
+   [--research-dir <D>] [--json]` (the default research dir is
+   `docs/research`). The gate refuses the effective level `unfiltered`
+   with the machine code
+   `[ATTESTATION_ENABLEMENT_UNFILTERED]` — the reason line names the
+   field (`level`) and the cause (decision 5's dominance: the data
+   filter word `none` keeps the W1 `unfiltered` shape). A refusal
+   writes NOTHING (the certificate row stays byte-identical), is
+   ledger-recorded (`distill.enablement-refused`) and rides
+   `--trace-distill`. The check_id registry itself is W7's (§5) — W6
+   introduces the refusal, W7 fixes the registry.
+2. **The level predicate is decision 5's dominance, read from the
+   STORED certificate** (`effective_level_from_cert`: the data filter
+   word `none` → `unfiltered`, else the certificate's own `level`). The
+   verify path itself is UNTOUCHED — the W1 never-cut lane: `attest_verify`
+   on unfiltered data stays allowed with the mandatory `unfiltered`
+   marker (decision 5), `ok: true` keeps its semantics (provenance
+   consistency, not quality).
+3. **The №530 atomicity is preserved by construction.** The flip runs
+   INSIDE one caller transaction: the new ledger anchor
+   (`reflex.attest-flip`, the ledger-first order the save path uses —
+   a ledger failure is a loud error and the flip is not applied) and
+   the superseding `reflex_attestation` row land together — either both
+   persist or neither does. The unchanged facts (the weights bytes, the
+   spec hash, the data hash, the embed signature) are COPIED into the
+   superseding row — the flip changes the eval record only; the
+   `reflex_models` weights BLOB is never touched (the leak-suite pins
+   the bytes).
+4. **The inputs are ONLY the recorded E3/E4 artifacts** (`docs/research/`):
+   E3's `ece` is the measured calibration value the flip writes; E4's
+   real-teacher `agreement_with_majority_baseline` rides the verdict.
+   Read without recomputation; every failure mode (the missing file,
+   the unparseable JSON, the missing key) lands null-with-reason naming
+   the path and the cause. The mock row's 0.0 agreement is NOT read as
+   one (the E4 artifact's own reason says so verbatim); the real
+   teachers' nulls stay null-with-reason. When E3 carries no measured
+   number the flip is WITHHELD loudly (the certificate stays
+   "uncalibrated", the verdict reports the missing input) — the gate
+   still answers the policy question (the level), the measured step
+   waits for the number.
+5. **The certificate §4 form is unchanged, the value is honest about
+   being measured.** The `eval` keys stay (`held_out_accuracy`,
+   `metric`, `calibration`); the `calibration` value switches from the
+   literal `"uncalibrated"` (a string) to the measured ECE (a number) —
+   the §4 record is the flip's carrier, named HERE. The superseding row
+   re-anchors the certificate in the ledger (the two-step the save path
+   uses: the provisional cert → the sha → the anchor record → the seq
+   into the cert).
+6. **The lifecycle interlock composes (W5).** A Frozen pattern refuses
+   the enablement like any other distill move (`[DISTILL_FROZEN]` via
+   `lifecycle_gate` — the interlock runs BEFORE the policy gate); a
+   pattern with no attestation certificate (saved before W1) refuses
+   loudly with `[ATTESTATION_NONE]`.
+7. **`--trace-distill`** — the inputs line, the refusal line and the
+   flip line emit `[TRACE]` bytes (the same bytes to stderr and the
+   audit journal, `trace_distill` — one SSOT); the CLI gate line
+   `{"gate":"distill-enable-differential",...}` is the verdict's last
+   output line (the JSON carries the null-with-reason inputs as JSON
+   nulls, the reason lines name them).
+8. **The honest deviations.** (a) The gate does not enforce the
+   non-permissive-teacher policy (decision 3) — the teacher-lane
+   reasons stay informational in verify (the W3b shape), and the W6
+   gate reads only the data level; the teacher-policy enforcement is a
+   W7-audit-lane candidate and is NOT silently dropped — it is
+   deferred, named here. (b) The baseline_agreement fact rides the
+   verdict and the records but does not GATE the flip (E4's real-teacher
+   rows are null-with-reason at the baseline date — there is no measured
+   number to gate on; the W7 registry decides the check-id set). (c) The
+   mutation contract is NOT part of W6's checklist (the naryad's check
+   list names the gate, the inputs, the trace, §10 and the merge rule) —
+   the leak-suite pins the behaviors; the mutation sweep rides W7's
+   audit lane.
+9. **The leak-suite.** `tests/naryad_994_enablement.rs` — 9 tests: the
+   unfiltered refusal (the code, the named field, zero writes), the
+   filtered flip to the measured ECE (the superseding row, the anchor
+   advance), the weights/facts untouched (the W1 lane pinned), the
+   missing-artifacts null-with-reason (the loud no-op, the certificate
+   stays "uncalibrated"), the mock 0.0 not read as one, the frozen
+   interlock, the no-certificate refusal, the trace bytes on the audit
+   sink, the gate-line JSON shape (the nulls carrying the
+   null-with-reason fields).

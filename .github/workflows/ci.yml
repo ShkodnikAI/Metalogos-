@@ -382,6 +382,23 @@ jobs:
   test-integration:
     name: test-integration (blocking)
     runs-on: ubuntu-latest
+    env:
+      # №994 (the round-8 catch, the №693 class — issue #1271's form):
+      # the integration suite outgrew the runner disk MID-SUITE — two
+      # deterministic ENOSPC deaths at naryad_763 (the agent-index gate
+      # self-test's `git add` loose-object write; the runs 45058851251
+      # and 45064979024; the round-7 re-run passed on a luckier runner —
+      # the re-run lottery is not a fix). The №712/№868/№955 reclaim at
+      # the step start is spent by the time the suite reaches its middle:
+      # the write load is the suite's own debug artifacts. The №693 fix
+      # form: debug=0 halves the built tree (verified there: 1.7G → 855M,
+      # the coverage tables bit-identical) and CARGO_INCREMENTAL=0 drops
+      # the doubled incremental artifacts. No check weakened: the same
+      # tests run, the panic locations are compiled-in, the backtrace
+      # symbolication is the only thing debug info carried here.
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v7
       # №712 (gh#1319, the movement №4 PR): the hosted runner's disk no

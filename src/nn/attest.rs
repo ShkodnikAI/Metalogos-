@@ -1594,3 +1594,309 @@ pub fn verdict_to_struct(verdict: &AttestVerdict) -> crate::interpreter::Value {
         fields,
     }
 }
+
+// ===========================================================================
+// №994 (ADR-0200 W6, the dispatch wave В101 — W-AE): the differential
+// enablement gate — the data side. The gate is the policy enforcer at the
+// enablement boundary (decision 5's: «the provenance story is consistent,
+// the policy gate is W6»). Three pieces live here:
+//
+//   1. the refusal code — the field and the reason ride the reason line
+//      (the `[ATTESTATION_*]` form); the check_id registry itself is W7's
+//      (§5) — W6 introduces the refusal, W7 fixes the registry;
+//   2. `read_research_facts` — the gate inputs are ONLY the recorded
+//      E3/E4 artifacts (`docs/research/`), read without recomputation; a
+//      missing number is null-with-reason, never silent; the mock's 0.0
+//      agreement is NOT read as one (the E4 artifact's own reason says
+//      verbatim "the W6 enablement gate must not read it as one");
+//   3. `flip_calibration_tx` — `eval.calibration` switches from the
+//      literal `"uncalibrated"` to the measured E3 value through the
+//      №530-atomic shape (№825's twin): the new ledger anchor and the
+//      superseding certificate row land through ONE caller transaction —
+//      either both persist or neither does. The weights bytes, the spec
+//      hash, the data hash and the embed signature are the SAME facts
+//      (the flip changes the eval record only — the W1 signature lane is
+//      untouched). The certificate §4 form is unchanged: the `eval` keys
+//      stay, the `calibration` value becomes the measured number — the
+//      §10 record names that honestly.
+// ===========================================================================
+
+/// №994 (ADR-0200 W6): the enablement gate's refusal code. The reason
+/// line names the field (`level`) and the cause (decision 5's dominance:
+/// the data filter word `none` keeps the W1 `unfiltered` shape).
+pub const CODE_ENABLEMENT_UNFILTERED: &str = "[ATTESTATION_ENABLEMENT_UNFILTERED]";
+
+/// №994 (ADR-0200 W6): the effective attestation level of a STORED
+/// certificate — decision 5's dominance predicate, the same shape the
+/// verify path computes inline (the data level dominates: the filter
+/// word `none` keeps the W1 `unfiltered` shape). The gate reads the
+/// stored certificate only; the verify path itself is untouched (the W1
+/// never-cut lane — decision 5's `ok: true` semantics stay as-is).
+pub fn effective_level_from_cert(cert_json: &str) -> String {
+    let parsed: serde_json::Value = match serde_json::from_str(cert_json) {
+        Ok(v) => v,
+        Err(_) => return "unsigned".to_string(),
+    };
+    let filter = parsed
+        .get("dataset")
+        .and_then(|d| d.get("filter"))
+        .and_then(|f| f.as_str())
+        .unwrap_or("none");
+    if filter == "none" {
+        return "unfiltered".to_string();
+    }
+    parsed
+        .get("level")
+        .and_then(|l| l.as_str())
+        .unwrap_or("unsigned")
+        .to_string()
+}
+
+/// №994 (ADR-0200 W6): the gate inputs — the recorded E3/E4 facts. The
+/// struct carries the null-with-reason discipline: every missing piece
+/// is `None` plus a reason string naming the path and the cause, never
+/// a silent default.
+pub struct ResearchFacts {
+    /// E3: the calibration ECE — the measured value the flip writes.
+    pub calibration_ece: Option<f64>,
+    pub calibration_reason: String,
+    /// E4: the real-teacher agreement with the majority baseline (the
+    /// mock row's 0.0 is not read as one).
+    pub baseline_agreement: Option<f64>,
+    pub baseline_reason: String,
+}
+
+/// №994 (ADR-0200 W6): read the E3/E4 artifacts without recomputation.
+/// Infallible by design — every failure mode (the missing file, the
+/// unparseable JSON, the missing key) lands in a null-with-reason, and
+/// the gate verdict surfaces the reasons loudly.
+///
+/// The raw `std::fs` reads are the №475-ratchet exception by the
+/// persist.rs class (the weights store): the research dir is the
+/// OPERATOR-provided CLI path (the recorded E3/E4 artifacts, read-only,
+/// infallible-by-design) — not a serve-route surface, so the serve
+/// data-dir sandbox does not apply; the reads are justified here with
+/// this reason, per the ratchet's "explicitly justified with a reason
+/// in the code" form.
+#[allow(clippy::disallowed_methods)]
+pub fn read_research_facts(research_dir: &std::path::Path) -> ResearchFacts {
+    // E3: the calibration ECE (the flip's measured value).
+    let e3_path = research_dir.join("e3-confidence-calibration.json");
+    let (calibration_ece, calibration_reason) = match std::fs::read_to_string(&e3_path) {
+        Err(e) => (
+            None,
+            format!(
+                "null-with-reason: the E3 artifact is unreadable at {}: {}",
+                e3_path.display(),
+                e
+            ),
+        ),
+        Ok(s) => match serde_json::from_str::<serde_json::Value>(&s) {
+            Err(e) => (
+                None,
+                format!(
+                    "null-with-reason: the E3 artifact does not parse ({}): {}",
+                    e3_path.display(),
+                    e
+                ),
+            ),
+            Ok(v) => match v.get("ece").and_then(|x| x.as_f64()) {
+                Some(ece) => (
+                    Some(ece),
+                    format!("E3 ece={} read from {}", ece, e3_path.display()),
+                ),
+                None => (
+                    None,
+                    format!(
+                        "null-with-reason: the E3 artifact carries no numeric `ece` at {}",
+                        e3_path.display()
+                    ),
+                ),
+            },
+        },
+    };
+    // E4: the baseline agreement — the real teacher rows only. The mock
+    // row's 0.0 is not read as one (the artifact's own reason), and the
+    // real teachers' nulls are null-with-reason.
+    let e4_path = research_dir.join("e4-teacher-baseline-agreement.json");
+    let (baseline_agreement, baseline_reason) = match std::fs::read_to_string(&e4_path) {
+        Err(e) => (
+            None,
+            format!(
+                "null-with-reason: the E4 artifact is unreadable at {}: {}",
+                e4_path.display(),
+                e
+            ),
+        ),
+        Ok(s) => match serde_json::from_str::<serde_json::Value>(&s) {
+            Err(e) => (
+                None,
+                format!(
+                    "null-with-reason: the E4 artifact does not parse ({}): {}",
+                    e4_path.display(),
+                    e
+                ),
+            ),
+            Ok(v) => {
+                let mut found: Option<f64> = None;
+                let mut mocks = 0usize;
+                let mut nulls = 0usize;
+                if let Some(rows) = v.get("teacher_rows").and_then(|r| r.as_array()) {
+                    for row in rows {
+                        let backend = row
+                            .get("backend")
+                            .and_then(|b| b.as_str())
+                            .unwrap_or("")
+                            .to_lowercase();
+                        let reason = row
+                            .get("reason")
+                            .and_then(|r| r.as_str())
+                            .unwrap_or("")
+                            .to_lowercase();
+                        let agreement = row.get("agreement_with_majority_baseline");
+                        if agreement.and_then(|a| a.as_f64()).is_some() {
+                            if backend.contains("mock") || reason.contains("must not read") {
+                                mocks += 1; // not read as one — the artifact says so
+                            } else {
+                                found = agreement.and_then(|a| a.as_f64());
+                            }
+                        } else {
+                            nulls += 1;
+                        }
+                    }
+                }
+                if let Some(a) = found {
+                    (
+                        Some(a),
+                        format!(
+                            "E4 real-teacher agreement_with_majority_baseline={} read from {}",
+                            a,
+                            e4_path.display()
+                        ),
+                    )
+                } else if mocks > 0 && nulls == 0 {
+                    (
+                        None,
+                        "null-with-reason: the E4 artifact carries only the mock row \
+                         (agreement 0.0) — not read as one (the artifact's own reason)"
+                            .to_string(),
+                    )
+                } else {
+                    (
+                        None,
+                        format!(
+                            "null-with-reason: the E4 real-teacher rows carry null \
+                             agreement ({} rows, the reasons ride the artifact)",
+                            nulls
+                        ),
+                    )
+                }
+            }
+        },
+    };
+    ResearchFacts {
+        calibration_ece,
+        calibration_reason,
+        baseline_agreement,
+        baseline_reason,
+    }
+}
+
+/// №994 (ADR-0200 W6): the flip outcome — what landed and where the
+/// anchor points.
+pub struct FlipOutcome {
+    pub new_cert_sha: String,
+    pub ledger_seq: i64,
+    pub ece: f64,
+}
+
+/// №994 (ADR-0200 W6): the measured-calibration flip. Runs INSIDE the
+/// caller's transaction (the caller commits — the №530 shape: the gate
+/// decision and the write are one atomic step, no new windows). The
+/// ledger anchor goes first (the artifact rule, ADR-0200 §4: a loud
+/// failure, never a silent side effect); the superseding row copies the
+/// unchanged facts (the weights bytes, the spec hash, the data hash,
+/// the embed signature) and carries the new certificate.
+pub fn flip_calibration_tx(
+    conn: &rusqlite::Connection,
+    model_name: &str,
+    ece: f64,
+) -> Result<FlipOutcome, String> {
+    let stored = current_cert(conn, model_name)?.ok_or_else(|| {
+        format!(
+            "reflex attest flip: no current certificate for '{}' (saved before W1)",
+            model_name
+        )
+    })?;
+    let mut cert: serde_json::Value = serde_json::from_str(&stored.cert_json).map_err(|e| {
+        format!(
+            "reflex attest flip: the stored certificate does not parse: {}",
+            e
+        )
+    })?;
+    let eval = cert
+        .get_mut("eval")
+        .ok_or_else(|| "reflex attest flip: the certificate carries no `eval` block".to_string())?;
+    eval["calibration"] = serde_json::json!(ece);
+
+    // 1. The provisional certificate (ledger_seq null) → the anchor sha
+    //    (the same two-step the save path uses).
+    cert["ledger_seq"] = serde_json::Value::Null;
+    let provisional = serde_json::to_string(&cert)
+        .map_err(|e| format!("reflex attest flip: serialize: {}", e))?;
+    let cert_sha = sha256_hex(provisional.as_bytes());
+    let record = crate::ledger::append_record(
+        "action",
+        "runtime",
+        "reflex.attest-flip",
+        model_name,
+        &cert_sha,
+        None,
+    )
+    .map_err(|e| {
+        format!(
+            "reflex attest flip: the ledger write failed: {} — the flip is NOT applied \
+             (the attestation is the artifact; ADR-0200 §4: a loud error, never a \
+             silent flip)",
+            e
+        )
+    })?;
+
+    // 2. The certificate WITH the ledger seq, superseding the previous
+    //    row — inside the caller's transaction (№530 atomicity).
+    cert["ledger_seq"] = serde_json::json!(record.seq as i64);
+    let cert_json = serde_json::to_string(&cert)
+        .map_err(|e| format!("reflex attest flip: serialize: {}", e))?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    conn.execute(
+        "UPDATE reflex_attestation SET superseded = 1 WHERE model = ?1 AND superseded = 0",
+        rusqlite::params![model_name],
+    )
+    .map_err(|e| format!("reflex attest flip: supersede previous: {}", e))?;
+    conn.execute(
+        "INSERT INTO reflex_attestation \
+         (model, spec_hash, data_hash, embed_signature, weights_sha256, cert_json, ledger_seq, created_at, superseded, spec_json) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9)",
+        rusqlite::params![
+            model_name,
+            stored.spec_hash,
+            stored.data_hash,
+            stored.embed_signature,
+            stored.weights_sha256,
+            cert_json,
+            record.seq as i64,
+            now,
+            stored.spec_json,
+        ],
+    )
+    .map_err(|e| format!("reflex attest flip: insert row: {}", e))?;
+
+    Ok(FlipOutcome {
+        new_cert_sha: cert_sha,
+        ledger_seq: record.seq as i64,
+        ece,
+    })
+}

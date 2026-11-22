@@ -91,6 +91,7 @@ they ride the next wave).
 - №928 (gh#1863, wave 87 — W-R, P1, [docs][reference][testing][ci]): the REFERENCE.md head re-synced with the machine — `Version: 0.20.0` → `0.39.0` (Cargo.toml `[workspace.package]`), `Synced with code` → `2026-11-07 (naryad №928) · 530 builtins · 209 ADR files` (the unverifiable «149 accepted + 7 reserved» split removed, the №900 form), the §4 coverage note stamp `(v0.20)` → `(v0.39)`; the head is now PINNED by `tests/reference_consistency.rs` (three asserts: Version == Cargo.toml, builtins == named `spec!` count, ADR == `docs/adr/*.md` − README index) — the «шапка вне пина» drift class (6 weeks of silent drift under a green 57/57 CI, the R67 find) is closed.
 
 ## [Unreleased]
+- №993 (gh#2036, the follow-up to the owner's 22.11 tech-watchlist decision, P3, [ci][process], the fix/audit date 2026-11-22): **the weekly I&W digest — the scheduled workflow `watchlist-weekly` (Mon 09:00 MSK = 06:00 UTC + workflow_dispatch), the six-repo registry WL-01…WL-06 with the Yellow/Orange/Red levels and the T-365/180/90/30 horizons, the 22.11 baseline (the stars / the latest releases / the crates.io downloads), the digest issue pinned at the first run and commented EVERY week (the №979 visibility), the report files ride the rolling digest PR — main is protected by design, the direct artifact commits are not possible.** security: no — the observation-only lane over the public APIs, no secrets, no runtime surface. BREAKING: none
 
 ### Security
 

@@ -1,0 +1,74 @@
+# №993 (issue #2036 — the follow-up to the owner's 22.11 tech-watchlist
+# decision): the weekly I&W digest over the six external repositories.
+#
+# THE №979 FORM (no-ci-workflow-silent): a scheduled workflow leaves a
+# visible trace EVERY run — the report file, the digest comment in the
+# pinned issue «I&W watchlist digest», the report artifacts on the rolling
+# digest PR. A quiet week is a one-liner «всё на baseline» — never unseen.
+#
+# WHY A ROLLING PR, NOT A DIRECT COMMIT: main is protected (enforce-admins,
+# no bypass actors) — a workflow push to main is rejected by the required
+# status checks by design. The reports ride the `watchlist-digest` branch
+# and the rolling PR; the digest issue carries the full report text
+# regardless. The observation is read-only over the public APIs; the only
+# writes are the digest issue/comments, the report files and the baseline
+# refresh — all inside this lane.
+#
+# The calibration, the horizons and the anomaly rules:
+# docs/watchlist/registry.md. The numbers: docs/watchlist/baseline.json.
+
+name: watchlist-weekly
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mon 09:00 MSK = 06:00 UTC (Moscow has no DST)
+  workflow_dispatch:
+
+permissions:
+  contents: write        # the report/baseline commits on the digest branch
+  issues: write          # the digest comments (the №979 visibility)
+  pull-requests: write   # the rolling digest PR
+
+jobs:
+  digest:
+    name: watchlist digest (Mon 09:00 MSK)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The report + the baseline refresh land in the working tree; the
+      # digest comment lands in the pinned issue. The script exits 0 even
+      # with the flagged anomalies (the trace, not the verdict, is the job).
+      - name: Run the watchlist check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/watchlist_check.py --repo-dir .
+
+      # The rolling digest PR: one branch, force-updated weekly; the PR
+      # carries the report files and the baseline refresh through the
+      # regular CI (main's protection holds).
+      - name: Land the artifacts on the rolling digest PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet docs/watchlist/; then
+            echo "no report/baseline changes to land"
+            exit 0
+          fi
+          git config user.name "metalogos-watchlist-bot"
+          git config user.email "watchlist@metalogos.local"
+          git checkout -B watchlist-digest
+          git add docs/watchlist/
+          git commit -m "watchlist: the weekly digest artifacts ($(date -u +%Y-%m-%d)) (№993, gh#2036)"
+          git push -q -f origin watchlist-digest
+          if gh pr view watchlist-digest --json number >/dev/null 2>&1; then
+            gh pr edit watchlist-digest --title "watchlist: the rolling I&W digest" --body "The weekly report files and the baseline refreshes ride this PR (№993, gh#2036). Merge periodically; the digest issue carries the full report every week."
+          else
+            gh pr create --base main --head watchlist-digest --title "watchlist: the rolling I&W digest" --body "The weekly report files and the baseline refreshes ride this PR (№993, gh#2036). Merge periodically; the digest issue carries the full report every week."
+          fi

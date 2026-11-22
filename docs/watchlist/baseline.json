@@ -1,0 +1,60 @@
+{
+  "captured_at": "2026-11-22",
+  "note": "№993 (gh#2036) — the I&W watchlist baseline, captured 22.11 from the live GitHub/crates.io APIs. The null fields (forks, open_issues, pushed_at) are completed by the first workflow run without flagging; the anomalies never overwrite the baseline (the flag rides the digest until the owner's manual decision).",
+  "repos": {
+    "erkamyaman/rust-anything": {
+      "scenario": "WL-01",
+      "stars": 7708,
+      "forks": null,
+      "open_issues": null,
+      "pushed_at": null,
+      "latest_release": "v3.2.0",
+      "crates_downloads": 2770
+    },
+    "TauricResearch/TradingAgents": {
+      "scenario": "WL-02",
+      "stars": 123441,
+      "forks": null,
+      "open_issues": null,
+      "pushed_at": null,
+      "latest_release": "v0.7.1",
+      "crates_downloads": null
+    },
+    "stacklok/toolhive": {
+      "scenario": "WL-03",
+      "stars": 2349,
+      "forks": null,
+      "open_issues": null,
+      "pushed_at": null,
+      "latest_release": "v0.67.1",
+      "crates_downloads": null
+    },
+    "NVIDIA/auto-ontology": {
+      "scenario": "WL-04",
+      "stars": 14254,
+      "forks": null,
+      "open_issues": null,
+      "pushed_at": null,
+      "latest_release": null,
+      "crates_downloads": null
+    },
+    "deepset-ai/haystack": {
+      "scenario": "WL-05",
+      "stars": 27073,
+      "forks": null,
+      "open_issues": null,
+      "pushed_at": null,
+      "latest_release": "v3.5.0",
+      "crates_downloads": null
+    },
+    "MervinPraison/PraisonAI": {
+      "scenario": "WL-06",
+      "stars": 9379,
+      "forks": null,
+      "open_issues": null,
+      "pushed_at": null,
+      "latest_release": "v4.8.0",
+      "crates_downloads": null
+    }
+  }
+}

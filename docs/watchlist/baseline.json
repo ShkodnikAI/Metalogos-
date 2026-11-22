@@ -3,56 +3,50 @@
   "note": "№993 (gh#2036) — the I&W watchlist baseline, captured 22.11 from the live GitHub/crates.io APIs. The null fields (forks, open_issues, pushed_at) are completed by the first workflow run without flagging; the anomalies never overwrite the baseline (the flag rides the digest until the owner's manual decision).",
   "repos": {
     "erkamyaman/rust-anything": {
-      "scenario": "WL-01",
-      "stars": 7708,
-      "forks": null,
-      "open_issues": null,
-      "pushed_at": null,
-      "latest_release": "v3.2.0",
-      "crates_downloads": 2770
+      "stars": 7868,
+      "forks": 626,
+      "open_issues": 5,
+      "pushed_at": "2026-11-22T12:26:06Z",
+      "latest_release": "v3.3.0",
+      "crates_downloads": 2917
     },
     "TauricResearch/TradingAgents": {
-      "scenario": "WL-02",
-      "stars": 123441,
-      "forks": null,
-      "open_issues": null,
-      "pushed_at": null,
+      "stars": 123473,
+      "forks": 23651,
+      "open_issues": 161,
+      "pushed_at": "2026-11-17T03:59:28Z",
       "latest_release": "v0.7.1",
       "crates_downloads": null
     },
     "stacklok/toolhive": {
-      "scenario": "WL-03",
-      "stars": 2349,
-      "forks": null,
-      "open_issues": null,
-      "pushed_at": null,
+      "stars": 2350,
+      "forks": 336,
+      "open_issues": 436,
+      "pushed_at": "2026-11-22T14:07:29Z",
       "latest_release": "v0.67.1",
       "crates_downloads": null
     },
     "NVIDIA/auto-ontology": {
-      "scenario": "WL-04",
-      "stars": 14254,
-      "forks": null,
-      "open_issues": null,
-      "pushed_at": null,
+      "stars": 14310,
+      "forks": 1271,
+      "open_issues": 136,
+      "pushed_at": "2026-11-22T17:13:33Z",
       "latest_release": null,
       "crates_downloads": null
     },
     "deepset-ai/haystack": {
-      "scenario": "WL-05",
-      "stars": 27073,
-      "forks": null,
-      "open_issues": null,
-      "pushed_at": null,
+      "stars": 27076,
+      "forks": 3491,
+      "open_issues": 173,
+      "pushed_at": "2026-11-21T02:10:41Z",
       "latest_release": "v3.5.0",
       "crates_downloads": null
     },
     "MervinPraison/PraisonAI": {
-      "scenario": "WL-06",
-      "stars": 9379,
-      "forks": null,
-      "open_issues": null,
-      "pushed_at": null,
+      "stars": 9380,
+      "forks": 1524,
+      "open_issues": 129,
+      "pushed_at": "2026-11-20T11:39:39Z",
       "latest_release": "v4.8.0",
       "crates_downloads": null
     }

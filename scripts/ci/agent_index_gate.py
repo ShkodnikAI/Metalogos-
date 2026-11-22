@@ -43,6 +43,9 @@ import gen_metrics  # noqa: E402 — the machine counters (the №566 form)
 
 NARYAD_RE = re.compile(r"(?iu)\b(?:naryad|наряд)\s*№?\s*(\d+)", re.UNICODE)
 LINK_RE = re.compile(r"\]\(([^)]+)\)")
+# №992 (issue #2031): the CHANGELOG bullet register — the presence
+# record of what the TREE declares it carries.
+CHANGELOG_BULLET_RE = re.compile(r"(?m)^-\s*№(\d+)")
 
 
 def git_history_naryads(repo: Path) -> list[int]:
@@ -54,6 +57,59 @@ def git_history_naryads(repo: Path) -> list[int]:
         check=True,
     ).stdout
     return [int(m.group(1)) for m in NARYAD_RE.finditer(out)]
+
+
+def base_merge_base(repo: Path) -> str | None:
+    """№992: the base of the current branch — the merge-base with
+    origin/main. None = the base cannot be computed here (no
+    origin/main — a bare temp copy, an odd CI shape) → the caller
+    falls back to the FULL branch history (today's semantics), loudly."""
+    r = subprocess.run(
+        ["git", "merge-base", "HEAD", "origin/main"],
+        cwd=repo, capture_output=True, text=True,
+    )
+    s = r.stdout.strip()
+    return s if (r.returncode == 0 and s) else None
+
+
+def history_naryads_up_to(repo: Path, upto: str | None) -> list[int]:
+    """The naryad numbers in the commit subjects UP TO the base (the
+    base's merged history — `git log <merge-base>`), or the full branch
+    history when upto is None."""
+    args = ["git", "log", "--format=%s"] + ([upto] if upto else [])
+    out = subprocess.run(args, cwd=repo, capture_output=True, text=True, check=True).stdout
+    return [int(m.group(1)) for m in NARYAD_RE.finditer(out)]
+
+
+def changelog_naryads(repo: Path) -> list[int]:
+    """The naryad numbers the tree's CHANGELOG declares (the bullet
+    register). The CHANGELOG is the presence record: a branch carrying
+    №N's work carries №N's bullet; a commit that merely MENTIONS №N
+    (the follow-up / cherry-pick form) carries no bullet."""
+    p = repo / "CHANGELOG.md"
+    if not p.exists():
+        return []
+    return [int(m.group(1)) for m in CHANGELOG_BULLET_RE.finditer(p.read_text(encoding="utf-8"))]
+
+
+def machine_range_end(hist: list[int], cl: list[int]) -> int:
+    """№992 (issue #2031): the presence criterion — the range describes
+    what the TREE carries, decided by TWO machine sources:
+
+    (a) the BASE history — the merged record (the merge-base with
+        main): what landed before the branch cut. A patch slice cut
+        from an old tag carries the tag's history (the live case:
+        release/0.40.1 → №1-№965), even though a cherry-picked commit
+        on it MENTIONS №976;
+    (b) the tree's CHANGELOG bullets — the declared register: a branch
+        that CARRIES a naryad's work carries its bullet (the №971
+        docs-lane rule).
+
+    A naryad NUMBER MENTION in a branch commit moves NOTHING by itself
+    («follow-up к №N» ≠ №N is present). On main both sources equal the
+    full-history scan — the behavior is pinned unchanged (the issue's
+    point 5)."""
+    return max(hist + cl) if (hist or cl) else 0
 
 
 def extract(llms: str, pattern: str) -> int | None:
@@ -124,19 +180,35 @@ def check_repo(repo: Path) -> list[str]:
             "runs in the agent-index (blocking) CI job (fetch-depth: 0)",
         )
     else:
-        hist = git_history_naryads(repo)
-        if not hist:
+        # №992 (issue #2031): the range derives from the BASE history
+        # (the merge-base with main) + the tree's CHANGELOG bullets —
+        # a naryad number MENTION in a branch commit (the follow-up /
+        # cherry-pick form) moves nothing. The base-unavailable shape
+        # (a bare copy, no origin/main) falls back to the full branch
+        # history loudly — today's semantics, never a silent pass.
+        mb = base_merge_base(repo)
+        hist = history_naryads_up_to(repo, mb)
+        cl = changelog_naryads(repo)
+        if mb is None:
+            print(
+                "agent-index-gate: note — the base (merge-base with origin/main) is "
+                "unavailable here; the range machine falls back to the FULL branch "
+                "history (the pre-№992 semantics, loudly)",
+            )
+        if not hist and not cl:
             problems.append(
-                "naryad sequence: the git history has no naryad-numbered subjects "
-                "(shallow clone? the agent-index CI job needs fetch-depth: 0)"
+                "naryad sequence: neither the base history nor the CHANGELOG carries "
+                "naryad numbers (shallow clone? the agent-index CI job needs "
+                "fetch-depth: 0)"
             )
         else:
-            highest = max(hist)
+            highest = machine_range_end(hist, cl)
             stated_end = int(stated_range.group(1))
             if stated_end != highest:
                 problems.append(
                     f"llms.txt: the naryad range drifted — stated №1-№{stated_end}, "
-                    f"the machine says №1-№{highest} (the merged-history scan)"
+                    f"the machine says №1-№{highest} (the base-history + CHANGELOG "
+                    f"scan, №992: a mention in a branch commit is not presence)"
                 )
 
     # The bridge copy: byte-for-byte.
@@ -240,9 +312,31 @@ def self_test() -> int:
             print("self-test: the dangling-link trap did NOT trip")
             failed = True
 
+        # №992 (issue #2031) — the patch-slice fixture: the base history
+        # ends at №965, a branch commit MENTIONS №976 (the follow-up /
+        # cherry-pick form), the tree's CHANGELOG stops at №951. The
+        # range must be №965: the base history carries the truth, the
+        # mention moves nothing, the CHANGELOG understates (the live
+        # release/0.40.1 shape). The mutation — the pre-№992 form
+        # (the max over ALL branch messages) — would say №976: the pin
+        # must catch the difference, or it is blind.
+        base_hist = list(range(965, 940, -1))  # №965..№941
+        cl_nums = [951, 950, 949]
+        got = machine_range_end(base_hist, cl_nums)
+        if got != 965:
+            print(f"self-test: the patch-slice fixture must say №965, got №{got}")
+            failed = True
+        pre992 = max(base_hist + [976])  # the old form: any mention counts
+        if pre992 == got:
+            print("self-test: the №992 pin is blind — the mention-driven form agrees")
+            failed = True
+        if pre992 != 976:
+            print("self-test: the pre-№992 form must say №976 on the fixture")
+            failed = True
+
     if failed:
         return 1
-    print("agent-index-gate self-test: all tamper traps spring")
+    print("agent-index-gate self-test: all tamper traps spring (incl. the №992 patch-slice pin)")
     return 0
 
 

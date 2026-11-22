@@ -168,21 +168,48 @@ def stars_growth(live: dict, base: dict) -> float | None:
     return ((live.get("stars") or 0) - b) / b
 
 
+def pin_issue(node_id: str, token: str) -> bool:
+    """The pin through the GraphQL pinIssue mutation — the REST pins
+    endpoint is absent for this account (404 even for an admin PAT,
+    verified 22.11); the mutation is the only pin surface."""
+    req = urllib.request.Request(
+        "https://api.github.com/graphql",
+        method="POST",
+        data=json.dumps({
+            "query": "mutation($id: ID!) { pinIssue(input: {issueId: $id}) { issue { number } } }",
+            "variables": {"id": node_id},
+        }).encode(),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json", "User-Agent": CRATE_UA},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            out = json.load(r)
+        if out.get("errors"):
+            print(f"::warning::pinIssue: {out['errors'][0].get('message', '')[:120]}")
+            return False
+        return True
+    except (urllib.error.HTTPError, urllib.error.URLError) as e:
+        print(f"::warning::pinIssue failed: {e}")
+        return False
+
+
 def digest_issue(repo: str, token: str, dry: bool) -> int | None:
     """The pinned digest issue: found, created, pinned; None = the API refused."""
     data, st = http_json(f"https://api.github.com/repos/{repo}/issues?state=all&per_page=50", token)
     if isinstance(data, list):
         for it in data:
             if it.get("title") == DIGEST_TITLE and "pull_request" not in it:
-                return it["number"]
+                return it["number"]  # found — pinned by the first run
     body = (
         "The pinned weekly digest of the I&W watchlist (№993, gh#2036 — the "
         "observation-only lane over the six external repositories). Every "
         "Monday 09:00 MSK the `watchlist-weekly` workflow leaves exactly one "
         "comment here: the week's report, the per-scenario levels, the flags. "
         "A quiet week is a one-liner «всё на baseline» — the week is never "
-        "unseen (the №979 visibility rule). The report files ride the rolling "
-        "digest PR (main is protected by design). The registry: "
+        "unseen (the №979 visibility rule). The report files ride the "
+        "`watchlist-digest` branch (the digest PR opens manually at the merge "
+        "time — GitHub Actions cannot create pull requests in this repo by "
+        "the owner's setting). The registry: "
         "docs/watchlist/registry.md; the baseline: docs/watchlist/baseline.json."
     )
     if dry:
@@ -196,20 +223,15 @@ def digest_issue(repo: str, token: str, dry: bool) -> int | None:
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
-            num = json.load(r)["number"]
+            created = json.load(r)
     except urllib.error.HTTPError as e:
         print(f"::warning::digest issue create failed: {e.code}")
         return None
-    pin = urllib.request.Request(
-        f"https://api.github.com/repos/{repo}/issues/{num}/pin",
-        method="PUT",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "User-Agent": CRATE_UA},
-    )
-    try:
-        urllib.request.urlopen(pin, timeout=30)
+    num, node_id = created["number"], created.get("node_id")
+    if node_id and pin_issue(node_id, token):
         print(f"digest issue #{num} created and pinned")
-    except urllib.error.HTTPError as e:
-        print(f"::warning::digest issue #{num} created but NOT pinned (status {e.code}) — pin it manually")
+    else:
+        print(f"::warning::digest issue #{num} created but NOT pinned — pin it manually")
     return num
 
 

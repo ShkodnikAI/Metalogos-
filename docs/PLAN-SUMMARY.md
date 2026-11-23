@@ -3,7 +3,7 @@
 > Publisher's derived artifact (access mode §16.0-7 of plan canon v2): the list of phases,
 > the current wave, criteria. The plan canon is held by the coordinator (private office repo); the public
 > repository does not contain the canon. Updated by the publisher in sync with canon edits.
-> Updated: 2026-11-05.
+> Updated: 2026-11-23.
 >
 > The R38 subphase→minor-version binding is REPLACED (the plan-canon
 > §13.13; the owner's decision, gh#1793 / naryad №899 — the ADR-0189

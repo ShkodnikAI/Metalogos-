@@ -72,6 +72,7 @@ fn save(name: &str, db: &std::path::Path) -> (ReflexModel, AttestInput) {
             ("a".to_string(), "pos".to_string()),
             ("b".to_string(), "neg".to_string()),
         ],
+        rollback_rule: None,
     };
     persist::save_model_to_db(&model, name, db, Some(&input)).expect("save");
     (model, input)

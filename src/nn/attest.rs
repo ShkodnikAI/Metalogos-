@@ -160,6 +160,16 @@ pub struct AttestSpecInput {
 pub struct AttestInput {
     pub spec: AttestSpecInput,
     pub examples: Vec<(String, String)>,
+    /// №995 (ADR-0200 W7): the LAST mutate session's `rollback_if` clause
+    /// in the canonical word form `metric op threshold` — the session
+    /// rule captured as stored state beside the certificate (the
+    /// `rollback_json` column + the `reflex.rollback-rules` ledger
+    /// anchor). Deliberately NOT part of `AttestSpecInput`: it does not
+    /// enter `spec_hash` — the certificate §4 bytes are stable (the W1
+    /// never-cut lane), the capture is the audit mirror, not an attested
+    /// fact. `None` — no mutate session ran for this pattern, or its
+    /// clause was absent.
+    pub rollback_rule: Option<String>,
 }
 
 /// Load/save verification policy. Read from the environment at the
@@ -225,7 +235,8 @@ CREATE TABLE IF NOT EXISTS reflex_attestation (
   ledger_seq      INTEGER,
   created_at      INTEGER NOT NULL,
   superseded      INTEGER NOT NULL DEFAULT 0,
-  spec_json       TEXT NOT NULL DEFAULT ''
+  spec_json       TEXT NOT NULL DEFAULT '',
+  rollback_json   TEXT NOT NULL DEFAULT ''
 );
 ";
 
@@ -235,7 +246,19 @@ pub fn ensure_attestation_table(conn: &rusqlite::Connection) -> Result<(), Strin
             "reflex attest: failed to ensure reflex_attestation table: {}",
             e
         )
-    })
+    })?;
+    // №995 (ADR-0200 W7): the rollback-rule capture column — the additive
+    // form (a pre-W7 database gains the column and keeps every row; the
+    // CREATE above does not extend an existing table, the ALTER does).
+    if let Err(e) = conn.execute_batch(
+        "ALTER TABLE reflex_attestation ADD COLUMN rollback_json TEXT NOT NULL DEFAULT '';",
+    ) {
+        let msg = format!("{}", e);
+        if !msg.contains("duplicate column name") {
+            return Err(format!("reflex attest: rollback_json migration: {}", msg));
+        }
+    }
+    Ok(())
 }
 
 // ── Canonical spec string + spec_hash ────────────────────────────────
@@ -868,6 +891,35 @@ pub fn write_attestation(
         )
     })?;
 
+    // №995 (ADR-0200 W7): the mutate session's rollback_if clause rides
+    // BESIDE the certificate — the cert JSON bytes are UNTOUCHED (the
+    // capture is stored state, not a §4 key; the §10.8(b) deferred item
+    // executed). When the session carried a clause, a ledger record
+    // anchors its sha256 (tamper-evident: the `rollback_json` mirror
+    // column cross-checks against the chain); the failure is the same
+    // loud save-error class — the capture rides the artifact transaction,
+    // never a silent save.
+    let rollback_json = attest.rollback_rule.clone().unwrap_or_default();
+    if !rollback_json.is_empty() {
+        let rule_sha = sha256_hex(rollback_json.as_bytes());
+        crate::ledger::append_record(
+            "action",
+            "runtime",
+            "reflex.rollback-rules",
+            &model.name,
+            &rule_sha,
+            None,
+        )
+        .map_err(|e| {
+            format!(
+                "reflex_save: rollback-rules ledger write failed: {} — the weights are \
+                 NOT saved (the capture rides the artifact transaction; a loud error, \
+                 never a silent save)",
+                e
+            )
+        })?;
+    }
+
     // 2. The certificate WITH the ledger seq (the anchor is part of the
     //    stored cert).
     let cert = build_certificate(
@@ -895,8 +947,8 @@ pub fn write_attestation(
     .map_err(|e| format!("reflex attest: supersede previous: {}", e))?;
     conn.execute(
         "INSERT INTO reflex_attestation \
-         (model, spec_hash, data_hash, embed_signature, weights_sha256, cert_json, ledger_seq, created_at, superseded, spec_json) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9)",
+         (model, spec_hash, data_hash, embed_signature, weights_sha256, cert_json, ledger_seq, created_at, superseded, spec_json, rollback_json) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10)",
         rusqlite::params![
             model.name,
             s_hash,
@@ -907,6 +959,7 @@ pub fn write_attestation(
             record.seq as i64,
             now,
             spec_json,
+            rollback_json,
         ],
     )
     .map_err(|e| format!("reflex attest: insert row: {}", e))?;
@@ -926,6 +979,10 @@ pub struct StoredCert {
     pub cert_json: String,
     pub ledger_seq: Option<i64>,
     pub spec_json: String,
+    /// №995: the mutate session's rollback_if clause capture (the audit
+    /// mirror; `""` when the session carried no clause — the pre-W7 rows
+    /// and the clause-less sessions read the same empty form).
+    pub rollback_json: String,
 }
 
 pub fn current_cert(
@@ -935,7 +992,7 @@ pub fn current_cert(
     ensure_attestation_table(conn)?;
     let mut stmt = conn
         .prepare(
-            "SELECT seq, spec_hash, data_hash, embed_signature, weights_sha256, cert_json, ledger_seq, spec_json \
+            "SELECT seq, spec_hash, data_hash, embed_signature, weights_sha256, cert_json, ledger_seq, spec_json, rollback_json \
              FROM reflex_attestation WHERE model = ?1 AND superseded = 0 ORDER BY seq DESC LIMIT 1",
         )
         .map_err(|e| format!("reflex attest: prepare query: {}", e))?;
@@ -949,6 +1006,7 @@ pub fn current_cert(
             cert_json: row.get(5)?,
             ledger_seq: row.get(6)?,
             spec_json: row.get(7)?,
+            rollback_json: row.get(8)?,
         })
     });
     match res {
@@ -1626,6 +1684,19 @@ pub fn verdict_to_struct(verdict: &AttestVerdict) -> crate::interpreter::Value {
 /// the data filter word `none` keeps the W1 `unfiltered` shape).
 pub const CODE_ENABLEMENT_UNFILTERED: &str = "[ATTESTATION_ENABLEMENT_UNFILTERED]";
 
+/// №995 (ADR-0200 W7, decision 3): the enablement gate's teacher-policy
+/// refusal — the W6 §8(a) deferred candidate EXECUTED (named, not silent).
+/// The forged teacher story refuses with the same
+/// `[ATTESTATION_TEACHER_MISMATCH]` the verify path carries; the honest
+/// non-permissive teacher (the block agrees with the registry, the class
+/// is not OSI or `training_on_output_allowed` is false) refuses the
+/// ENABLEMENT with this code — decision 3's word: owner decision 3
+/// refuses distillation from a non-permissive teacher, and the
+/// enablement is the distill lane's policy boundary. The verify path
+/// keeps its marker shape (decision 5's `ok: true` semantics — the W1
+/// never-cut lane); the registry row rides §11.
+pub const CODE_ENABLEMENT_TEACHER_POLICY: &str = "[ATTESTATION_ENABLEMENT_TEACHER_POLICY]";
+
 /// №994 (ADR-0200 W6): the effective attestation level of a STORED
 /// certificate — decision 5's dominance predicate, the same shape the
 /// verify path computes inline (the data level dominates: the filter
@@ -1650,6 +1721,29 @@ pub fn effective_level_from_cert(cert_json: &str) -> String {
         .and_then(|l| l.as_str())
         .unwrap_or("unsigned")
         .to_string()
+}
+
+/// №995 (ADR-0200 W7): the enablement gate's teacher-policy check —
+/// decision 3 enforced at the enablement boundary. One machine truth,
+/// three outcomes: the forged story → the `[ATTESTATION_TEACHER_MISMATCH]`
+/// refusal (the SAME check the verify path runs — shared code, not a
+/// second implementation); the honest non-permissive teacher → the
+/// `[ATTESTATION_ENABLEMENT_TEACHER_POLICY]` refusal naming the teacher,
+/// the class and the flag; a pattern with no teacher (the direct
+/// reflex_train — the §7.3 null + the machine-true reason, or no lineage
+/// at all) → `Ok(())`: decision 3 is vacuous without a teacher, the gate
+/// proceeds (the E3/E4 input discipline still applies).
+pub fn teacher_policy_gate(cert_json: &str) -> Result<(), String> {
+    match check_teacher_block(cert_json) {
+        Err(mismatch) => Err(mismatch),
+        Ok(Some(line)) => Err(format!(
+            "{} owner decision 3: {} — the differential enablement refuses: the \
+             teacher policy is enforced at the enablement boundary (ADR-0200 W7), \
+             the verify path keeps its marker shape",
+            CODE_ENABLEMENT_TEACHER_POLICY, line
+        )),
+        Ok(None) => Ok(()),
+    }
 }
 
 /// №994 (ADR-0200 W6): the gate inputs — the recorded E3/E4 facts. The

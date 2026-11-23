@@ -1633,6 +1633,43 @@ fn try_auto_unfreeze(
     Ok(true)
 }
 
+/// №995 (ADR-0200 W7): the STALE drift signal feeds the lifecycle
+/// hysteresis — the W5 record's §8.8(a) deferred candidate EXECUTED
+/// (named, never silent). The verify verdict and its policy are UNTOUCHED
+/// (decision 4/5 shape: the loud marker, the strict refusal, the
+/// allow_stale bypass — exactly as W1 built them); the drift signal
+/// feeds the SAME violation ring the hub refusals feed, so a pattern
+/// whose certificate drifted from its live declarations is auto-frozen
+/// for the distill moves after the threshold, while serving continues
+/// (the W5 contract). Best-effort by contract: an error here is
+/// returned to the caller — the load lane prints it loudly, never a
+/// load failure. The pattern without a distill lineage never reaches
+/// this fn (the load lane feeds only the patterns that carry one).
+pub fn note_attestation_stale(
+    db_path: &std::path::Path,
+    pattern: &str,
+    now: u64,
+) -> Result<(), String> {
+    #[allow(clippy::disallowed_methods)]
+    let conn = rusqlite::Connection::open(db_path).map_err(|e| {
+        format!(
+            "distill stale-note: failed to open db '{}': {}",
+            db_path.display(),
+            e
+        )
+    })?;
+    ensure_distill_store(&conn)?;
+    // The audit journal in the load lane is the runtime ledger (the
+    // process-local journal, ADR-0167) — trace_distill does the stderr
+    // half; the closure does the journal half. The same bytes, both
+    // sinks (the W5 trace contract).
+    let audit = |l: String| {
+        crate::ledger::record("distill.trace", "runtime", "reflex", &l);
+    };
+    record_violation(&conn, pattern, "ATTESTATION_STALE", now, &audit)?;
+    Ok(())
+}
+
 /// The violation feed (the hysteresis input): the refusal sites call
 /// this with their code. A single violation is refusal-only (no state
 /// change); crossing the threshold inside the window auto-freezes (the
@@ -2241,6 +2278,28 @@ pub fn enable_differential(
             crate::nn::attest::CODE_ENABLEMENT_UNFILTERED,
             pattern
         );
+        crate::ledger::record(
+            "distill.enablement-refused",
+            "runtime",
+            "reflex",
+            &format!("pattern={};{}", pattern, reason),
+        );
+        trace_distill(
+            audit,
+            &format!("enable-differential pattern={} REFUSED {}", pattern, reason),
+        );
+        return Err(reason);
+    }
+
+    // №995 (ADR-0200 W7, decision 3): the teacher-policy enforcement —
+    // the §10.8(a) deferred candidate executed. The forged teacher story
+    // refuses (the SAME check the verify path runs); the honest
+    // non-permissive teacher refuses the enablement with the new policy
+    // code. Zero writes on refusal (the certificate row stays
+    // byte-identical); the refusal is ledger-recorded and rides
+    // --trace-distill. A pattern with no teacher (the §7.3 null + the
+    // reason) passes: decision 3 is vacuous without a teacher.
+    if let Err(reason) = crate::nn::attest::teacher_policy_gate(&stored.cert_json) {
         crate::ledger::record(
             "distill.enablement-refused",
             "runtime",

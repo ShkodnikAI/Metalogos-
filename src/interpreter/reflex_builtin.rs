@@ -122,13 +122,21 @@ impl Interpreter {
                 .unwrap_or(false)
         })?;
         let d = lp.distill.as_ref()?;
-        let examples = self
-            .distill_states
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(pattern_name)
-            .map(|s| s.examples.clone())
-            .unwrap_or_default();
+        let (examples, rollback_rule) = {
+            let states = self
+                .distill_states
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let s = states.get(pattern_name);
+            (
+                s.map(|s| s.examples.clone()).unwrap_or_default(),
+                self.mutate_rollback_rules
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get(pattern_name)
+                    .cloned(),
+            )
+        };
         Some(crate::builtins::attest::attest_input_from_learnable(
             pattern_name,
             &lp.prompt,
@@ -140,6 +148,7 @@ impl Interpreter {
             d.min_accuracy,
             d.margin,
             examples,
+            rollback_rule,
         ))
     }
 

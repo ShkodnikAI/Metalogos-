@@ -575,3 +575,193 @@ named, never silent):
    interlock, the no-certificate refusal, the trace bytes on the audit
    sink, the gate-line JSON shape (the nulls carrying the
    null-with-reason fields).
+
+## §11. The W7 record — the audit lane (№995, 2026-11-23)
+
+The W7 slot landed (the dispatch wave В102 — W-AF; the dependencies
+W3b/W5 closed by №975/№990). §5 names W7's deliverable: «The audit
+rules, the threat model, the limitations; the final check_id list lives
+here». This section IS that deliverable: the registry below is the
+final check_id list of the line, machine-checked two-way against the
+tree (`tests/naryad_995_audit.rs` — the census: every bracketed
+`ATTESTATION_*`/`DISTILL_*` code literal in the tree lives here, every
+machine-visible row here lives in the tree; the other subsystems'
+bracketed event words ([AUDIT]/[TRACE]/… — the audit line's own
+vocabulary) and the other subsystems' ledger/env words are OUT of this
+registry's scope by design — §11.6(iii). The №971 rule: a new machine
+word lands IN THE SAME PR). The deferred §10 items (a)–(d) are
+executed, not verdicts-only — each with its honest boundary named.
+Deviations are named, never silent.
+
+### The W7 implementation record
+
+1. **(a) The `rollback_if` capture — EXECUTED** (the §10.8(b) deferred
+   item). The mutate session's clause is stored state: the canonical
+   word `metric op threshold` (the word = the operator's canonical
+   spelling — `CompareOp::canonical_word` on the TW, the same word set
+   over `ConditionOp` on the VM; both lanes build byte-identical
+   strings, the parity is the leak-suite's). The capture lives in
+   `mutate_rollback_rules` maps on BOTH lanes (the session fact is the
+   MUTATE session's, not the declaration's — the clause rides the
+   `mutate` statement, so the compile-time `CompiledLearnableInfo`
+   stays untouched and the `.mbc` compat is unthreatened; the VM's
+   `reset_for_reuse` clears the map with the same per-request
+   discipline as `distill_states`). The save path captures it BESIDE
+   the certificate: the `rollback_json` column (additive — a pre-W7
+   database gains the column and keeps every row) + the
+   `reflex.rollback-rules` ledger record anchoring the rule's sha256
+   (tamper-evident: the mirror cross-checks against the chain). The
+   capture rides the artifact transaction — a ledger failure is the
+   same loud save error class (§4: never a silent save). **The
+   certificate §4 bytes are UNTOUCHED** — the rule does not enter
+   `AttestSpecInput` or `spec_hash` (the never-cut lane; the leak-suite
+   pins the content parity with and without the capture). The capture
+   is the audit mirror, not an attested fact (the threat class TM-AT-5
+   says so; LIM-AT-5). The certificate's own §4 key `rollback_if`
+   (null-with-reason since W1/№826) stays as written — the bytes do not
+   move; the capture rides beside.
+2. **(b) The `ATTESTATION_STALE` drift signal feeds the lifecycle
+   hysteresis — EXECUTED** (the §10.8(a) deferred candidate). The load
+   lane (`reflex_load`) feeds the SAME violation ring the hub refusals
+   feed (`distill_hub::note_attestation_stale` → `record_violation`,
+   the code `ATTESTATION_STALE`) on BOTH paths that saw a stale
+   verdict: the bypassed-ok load (allow_stale) and the refused load.
+   The verify verdict and its policy are UNTOUCHED (decision 4/5
+   shape: the loud marker, the strict refusal, the bypass — exactly as
+   W1 built them; the leak-suite pins the reason bytes). The threshold
+   (2, the W5 default) inside the window auto-freezes the pattern for
+   the distill moves; serving continues. Best-effort by contract: a
+   feed error prints loudly and never becomes a load failure. Patterns
+   without a distill lineage are never fed (no pattern name — decision
+   3 and the lifecycle are both vacuous without one).
+3. **(c) The teacher-policy enforcement (decision 3) at the enablement
+   gate — EXECUTED** (the W6 §8(a) deferred candidate). The gate runs
+   AFTER the level gate, BEFORE the flip:
+   `attest::teacher_policy_gate` wraps the SAME `check_teacher_block`
+   the verify path runs (one machine truth, no second implementation).
+   Three outcomes: the forged story refuses with the SAME
+   `[ATTESTATION_TEACHER_MISMATCH]`; the honest non-permissive teacher
+   (the block agrees with the registry, the class is not OSI or
+   `training_on_output_allowed` is false) refuses the ENABLEMENT with
+   the new `[ATTESTATION_ENABLEMENT_TEACHER_POLICY]` (the reason names
+   the teacher, the class and the flag); a pattern with no teacher
+   (the §7.3 null + the machine-true reason, or no lineage) passes —
+   decision 3 is vacuous without a teacher, the E3/E4 discipline still
+   applies. Zero writes on refusal; the refusal is ledger-recorded
+   (`distill.enablement-refused`) and rides `--trace-distill`. The
+   verify path keeps its marker shape (decision 5's boundary — the
+   W1 never-cut lane).
+4. **(d) The mutation sweep — EXECUTED** (the §10.8(c) deferred item;
+   not weaker than the №990 form). `scripts/mutation_verify_995.sh`:
+   M1 the teacher-policy gate dropped from the enablement → the
+   leak-suite reds; M2 the STALE feed removed from the load lane → the
+   leak-suite reds; M3 the capture write dropped from the save path →
+   the leak-suite reds. Each mutation is the inverse-replace, each
+   restores byte-identically (the script diffs the file after restore).
+5. **The honest deviations.** (i) The enablement gate reads the STORED
+   certificate without re-anchoring (the W6 shape) — a DB-level cert
+   swap that keeps the anchor story consistent shows at the VERIFY lane
+   (the anchor evidence), not at the enablement; the class is named
+   (TM-AT-4, LIM-AT-6), the boundary is the verify's, and the gate's
+   teacher check is the provenance CONSISTENCY check (the forged story
+   refuses at the gate too). (ii) The capture's canonical word carries
+   the threshold as Rust's `f64` Display — both lanes produce identical
+   bytes by construction; the parity test pins it. (iii) The registry's
+   scan scope is the bracketed `ATTESTATION_*`/`DISTILL_*` families
+   over the WHOLE tree (no other subsystem uses these families) and
+   the ledger/env words over THE LINE'S files (listed in §11.2) — the
+   other subsystems' words are out of this registry's scope by design,
+   the boundary is stated here.
+
+### The check_id registry (§11.1)
+
+Every refusal/gate/event code the line emits, its site, its policy,
+its slot. `Scan ✓` — the census finds the literal in the tree (two-way
+machine-checked); `—` — a vocabulary word documented for completeness,
+not a bracketed code.
+
+| check_id | Site (the emission fn) | Policy | Slot | Scan |
+|---|---|---|---|---|
+| ATTESTATION_STALE | attest.rs `verify_attestation` (the load gate, the CLI report) | the spec drift: the loud marker; strict refuses; allow_stale bypasses with the loud audit line + a ledger record every use; W7: the drift feeds the lifecycle ring (the §11.6 record, (b)) | W1 (the capture W7) | ✓ |
+| ATTESTATION_DATA_CHANGED | attest.rs (the verify + the load note) | informational, never a refusal (the data fact, not a spec fact) | W1 | ✓ |
+| ATTESTATION_EMBED_MISMATCH | attest.rs | hard refusal (the feature-extractor signature moved) | W1 | ✓ |
+| ATTESTATION_WEIGHTS_CHANGED | attest.rs | always-loud refusal (the weights bytes moved) | W1 | ✓ |
+| ATTESTATION_ANCHOR_MISMATCH | attest.rs | loud refusal, both policies — positive tamper evidence (the certificate rewritten under a live anchor) | №832 | ✓ |
+| ATTESTATION_NONE | attest.rs (the load gate, the enablement gate) | the no-certificate level: warn + `cert: none` (lenient), the strict refusal (decision 4); the enablement refuses | W1 | ✓ |
+| ATTESTATION_UNSIGNED | attest.rs | the unsigned level: the loud warning (lenient), the strict refusal (decision 4) | W1 | ✓ |
+| ATTESTATION_TEACHER_MISMATCH | attest.rs `check_teacher_block` (the verify, the CLI, the W7 policy gate) | the forged provenance story: loud refusal (an unknown class word or backend, a class/flag/weights disagreement with the registry, a stripped or reason-less null block) | №975 (W3b) | ✓ |
+| ATTESTATION_FILTER_CHANGED | attest.rs | informational (the dataset filter word moved — the curriculum state, never a spec fact) | №989 (W4) | ✓ |
+| ATTESTATION_ENABLEMENT_UNFILTERED | attest.rs + distill_hub.rs `enable_differential` | the enablement refusal: the effective level `unfiltered` (decision 5's dominance), zero writes, ledger-recorded | №994 (W6) | ✓ |
+| ATTESTATION_ENABLEMENT_TEACHER_POLICY | attest.rs `teacher_policy_gate` + distill_hub.rs | the enablement refusal: the honest non-permissive teacher (decision 3 enforced at the enablement boundary — W7), zero writes, ledger-recorded | №995 (W7) | ✓ |
+| DISTILL_FROZEN | distill_hub.rs `lifecycle_gate` | the lifecycle interlock: a Frozen pattern refuses every distill move (train, curriculum, enablement); serving continues | №990 (W5) | ✓ |
+| DISTILL_TEACHER_UNLICENSED | backends.rs `distill_teacher_gate_for` (the pure SSOT) + llm.rs + learnable.rs + vm.rs + distill_hub.rs | the training-run refusal: no registry record (default-deny, ADR-0163 §2.1), a non-permissive class, the flag false; cut-order: NEVER cut (§5) | №975 (W3b) | ✓ |
+| DISTILL_SHADOW | distill_hub.rs | the event line (the shadow-distill report — the stderr posture, no refusal, no schema claims) | the shadow lane (№495) | ✓ |
+| DISTILL_SOURCE_HELD_OUT | distill_hub.rs (the vocabulary word `held-out`) | the source vocabulary: the rows the teacher did not generate — the refutation instrument, never training data (the Never-cut invariant); not a bracketed code | №989 (W4) | — |
+
+### The line's ledger records (§11.2)
+
+The scan scope for this section: `src/nn/attest.rs`, `src/nn/persist.rs`,
+`src/distill_hub.rs`, `src/interpreter/learnable.rs`,
+`src/interpreter/hooks.rs`, `src/interpreter/reflex_builtin.rs`,
+`src/backends.rs`, `src/llm.rs`, `src/builtins/attest.rs`,
+`src/builtins/reflex.rs`, `src/vm.rs`, `metalogos-server/src/bin/mlog.rs`.
+
+| record | Emitter | Slot |
+|---|---|---|
+| reflex.attest | attest.rs `write_attestation` (the save lane's anchor, the ledger-first order) | W1 |
+| reflex.attest-flip | attest.rs `flip_calibration_tx` (the enablement flip's anchor) | №994 (W6) |
+| reflex.rollback-rules | attest.rs `write_attestation` (the capture's sha anchor — the tamper-evident mirror) | №995 (W7) |
+| distill.trace | distill_hub.rs (the `--trace-distill` journal half; the load lane's feed journals here) | №990 (W5) |
+| distill.freeze | distill_hub.rs (the explicit freeze + the hysteresis auto-freeze) | №990 (W5) |
+| distill.auto-unfreeze | distill_hub.rs (the bounded auto-exit) | №990 (W5) |
+| distill.unfreeze | distill_hub.rs (the explicit command; the re-freeze lock clears) | №990 (W5) |
+| distill.frozen-refused | distill_hub.rs `lifecycle_gate` | №990 (W5) |
+| distill.teacher-refused | distill_hub.rs + llm.rs + learnable.rs + vm.rs | №975 (W3b) |
+| distill.enablement-refused | distill_hub.rs `enable_differential` (the unfiltered refusal, the teacher-policy refusal, the no-certificate refusal) | №994 (W6) + №995 (W7) |
+| distill.enablement | distill_hub.rs (the successful flip) | №994 (W6) |
+| distill.rejected | distill_hub.rs + learnable.rs + vm.rs (the propose-and-refute rejects) | №989 (W4) |
+| distill.training-started | distill_hub.rs + learnable.rs | the distill line (№205-era) |
+| distill.training-finished | distill_hub.rs + learnable.rs | the distill line (№205-era) |
+| distill.curriculum-quarantine | distill_hub.rs (the quarantine machine ids) | №989 (W4) |
+
+### The line's environment variables (§11.3)
+
+The scan scope: the same file list as §11.2.
+
+| variable | Reader | Slot |
+|---|---|---|
+| METALOGOS_ATTEST_STRICT | attest.rs `AttestPolicy::from_env` (decision 4: the missing/unsigned certificate refuses) | W1 |
+| METALOGOS_ATTEST_ALLOW_STALE | attest.rs (the serve-path stale bypass — the loud audit line + a ledger record every use) | W1 |
+| METALOGOS_DISTILL_FREEZE_THRESHOLD | distill_hub.rs (the hysteresis threshold, default 2) | №990 (W5) |
+| METALOGOS_DISTILL_FREEZE_WINDOW_SECS | distill_hub.rs (the hysteresis window, default 3600) | №990 (W5) |
+| METALOGOS_DISTILL_AUTO_UNFREEZE_COOLDOWN_SECS | distill_hub.rs (the cooldown, default 86400 — the 24h) | №990 (W5) |
+| METALOGOS_TRACE_DISTILL | distill_hub.rs `distill_trace_enabled` (the CLI flag sets it — one SSOT) | №990 (W5) |
+
+### The limitations mirrors (§11.4)
+
+Every ACTIVE honest limitation of the line carries its id HERE and its
+mirror row in `docs/limitations.md` (the №674 form; IN SYNC by id —
+machine-checked).
+
+| id | The limitation (the ADR anchor) | Slot |
+|---|---|---|
+| LIM-AT-1 | Tamper-evident, not tamper-proof (§6.3): an attacker with the ledger key AND the DB forges a consistent history — the line's threat model says so, the documentation says so | W1 (§6.3) |
+| LIM-AT-2 | The cross-process anchor: the runtime ledger is process-local (ADR-0167) — a cross-process verify honestly reports `anchor not found` and demotes the level to `unsigned`; the exported chain rides `ledger verify --expect-key` for the external audit | №832 |
+| LIM-AT-3 | `uncalibrated` until the W6 flip: the pre-W6 saves and the withheld flips (the E3 number missing) carry the literal — the flip is per-pattern, gated on the recorded E3/E4 artifacts | W1→№994 (W6) |
+| LIM-AT-4 | The offline lane without the hub has no durable lifecycle (the W5 record, 8(c)): the STALE feed needs the persist DB (the `distill_states` table); the pure in-memory lane keeps the per-process anti-retry throttle only | №990 (W5) + №995 (W7) |
+| LIM-AT-5 | The rollback capture is the audit mirror, NOT an attested fact: it does not enter `spec_hash`, the certificate bytes do not cover it, the ledger sha anchor makes its tampering EVIDENT (not impossible); the pre-W7 rows and the clause-less sessions read the empty form | №995 (W7) |
+| LIM-AT-6 | The enablement gate reads the STORED certificate only (no re-anchor at the gate — the W6 shape): a DB-level certificate swap that keeps the anchor story consistent shows at the VERIFY lane (the anchor evidence), not at the enablement; the teacher check at the gate is the provenance-consistency half | №994 (W6) + №995 (W7) |
+
+### The threat-model classes (§11.5)
+
+The line's dated threat classes (the №985 form: each row names its
+date); the full dated table lives in `docs/threat-model.md` (the
+section «The attestation line»), mirrored here by id.
+
+| id | The class (the vector → the evidence half → the residual) | Slot |
+|---|---|---|
+| TM-AT-1 | The attestation table rewritten under a live anchor → the anchor comparison disagrees → `[ATTESTATION_ANCHOR_MISMATCH]`, loud refusal, both policies (the positive tamper evidence) | №832 |
+| TM-AT-2 | The ledger-key+DB attacker forges a consistent history → the evidence half holds (the chain verifies) → the RESIDUAL: the consistent forgery is not detectable by the line — tamper-evident, not tamper-proof (§6.3, LIM-AT-1) | W1 |
+| TM-AT-3 | The forged teacher provenance story → the registry disagreement → `[ATTESTATION_TEACHER_MISMATCH]` at verify AND at the enablement gate (W7); the honest non-permissive teacher is not a mismatch — it is decision 3's policy refusal at the enablement boundary | №975 + №995 (W7) |
+| TM-AT-4 | The DB-level certificate swap (the anchor-consistent rewrite: the stored cert replaced wholesale) → the verify lane's anchor/spec evidence fires on the next verify; the enablement gate (the stored-cert read) refuses the forged-teacher form, the swap class is the verify's evidence boundary (LIM-AT-6) | №994 + №995 (W7) |
+| TM-AT-5 | The rollback-capture mirror tampering (the `rollback_json` column edited in the DB) → the ledger sha anchor disagrees with the mirror → tamper-EVIDENT (the cross-check); the capture is the audit mirror, not an attested fact (LIM-AT-5) | №995 (W7) |

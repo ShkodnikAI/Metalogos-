@@ -253,6 +253,12 @@ pub struct Vm {
     /// Mirrors `Interpreter::distill_states` but without Mutex (VM is
     /// single-threaded per request — `call_llm` is `&mut self`).
     distill_states: HashMap<String, crate::interpreter::types::DistillRuntimeState>,
+    /// №995 (ADR-0200 W7): the LAST mutate session's `rollback_if` clause
+    /// per pattern (the canonical word `metric op threshold`, the word =
+    /// `ConditionOp`'s canonical spelling) — the VM counterpart of the TW's
+    /// `mutate_rollback_rules`; the save path captures it beside the
+    /// certificate.
+    mutate_rollback_rules: HashMap<String, String>,
     /// №495: the server-level distillation hub (serve path). Injected at
     /// route checkout, cleared by `reset_for_reuse` — a checked-in VM
     /// rests hub-free (the same discipline as the per-request context).
@@ -470,6 +476,7 @@ impl Vm {
             origin_decls: HashMap::new(),
             memory_persist_path: None,
             distill_states: HashMap::new(),
+            mutate_rollback_rules: HashMap::new(),
             distill_hub: None,
         }
     }
@@ -833,6 +840,10 @@ impl Vm {
         self.vision_registry = crate::vision::VisionRegistry::new();
         // Distillation runtime state (№205): per-pattern training state.
         self.distill_states = HashMap::new();
+        // №995: the mutate-session rollback rule is the same class of
+        // per-run session state — request A's clause never reaches
+        // request B (the same per-request clear distill_states gets).
+        self.mutate_rollback_rules = HashMap::new();
 
         // ── 3. security-sensitive single-value state ──
         // №392: the deny event being handled is Some exactly while an
@@ -3944,6 +3955,10 @@ impl Vm {
             .get(&info.name)
             .map(|s| s.examples.clone())
             .unwrap_or_default();
+        // №995 (ADR-0200 W7): the mutate session's rollback_if clause —
+        // the canonical word the VM's mutate handler captured (the SAME
+        // shape the TW lane captures; the parity is the leak-suite's).
+        let rollback_rule = self.mutate_rollback_rules.get(&info.name).cloned();
         Some(crate::builtins::attest::attest_input_from_learnable(
             &info.name,
             &info.prompt,
@@ -3955,6 +3970,7 @@ impl Vm {
             info.distill_min_accuracy.unwrap_or(0.85),
             info.distill_margin.unwrap_or(0.05),
             examples,
+            rollback_rule,
         ))
     }
 
@@ -4990,6 +5006,28 @@ impl Vm {
         // (ADR-0112); the mock message carries no baseline.
         let metric_name = rollback_metric.unwrap_or("accuracy");
         let gated = matches!((rollback_op, rollback_threshold), (Some(_), Some(_)));
+        // №995 (ADR-0200 W7): the session's rollback_if clause is captured
+        // as stored state — the canonical word `metric op threshold` (the
+        // word = the bytecode ConditionOp's canonical spelling via
+        // condition_op_word, the SAME word set the TW lane spells over
+        // CompareOp). The capture records the RULE the session ran under,
+        // whether the mutation is kept or rolled back; a clause-less
+        // session removes the entry (the LAST session's rule is the
+        // state). The save path carries it beside the certificate (the
+        // rollback_json column + the ledger anchor) — the parity with the
+        // TW lane is the leak-suite's.
+        match (&rollback_op, &rollback_threshold) {
+            (Some(op), Some(threshold)) => {
+                let word = crate::builtins::attest::condition_op_word(op);
+                self.mutate_rollback_rules.insert(
+                    pattern_name.to_string(),
+                    format!("{} {} {}", metric_name, word, threshold),
+                );
+            }
+            _ => {
+                self.mutate_rollback_rules.remove(pattern_name);
+            }
+        }
         let mock_mode = crate::llm::mock_llm_requested();
         let (accuracy, battery_note, battery_report) = if mock_mode {
             // Mock accuracy (always 0.95 for MockLlm) — test mode only.

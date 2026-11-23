@@ -113,6 +113,7 @@ Each line is a refusal class with its pinned negative — a program in the BLOCK
 | Dual execution backend | a tree-walking interpreter and a bytecode VM, checked for output parity on every CI run |
 | Typed semantic memory | hierarchical typed records, FTS5 BM25 + cosine similarity, fused with Reciprocal Rank Fusion |
 | Self-modification | `adapt` mutates its own patterns under a sandbox, with rollback driven by measured accuracy |
+| Local model provenance | every saved reflex model carries a signed, **tamper-evident** attestation certificate (ADR-0200); `mlog attest verify` checks provenance and consistency against the live declarations — never quality; the distill lifecycle freezes patterns whose certificates drifted |
 | One-binary toolchain | run / serve / mcp-serve / compile / repl / check / audit / eval in a single binary |
 
 **Honest status.** The language core — parser, both backends, audit, serve — is the worked, tested surface; Vision has never been validated against real model weights (a hardware-bound No-Go) and Voice's generative tier is a scaffold; there is no independent security audit. The maintained, per-feature truth lives in [docs/limitations.md](docs/limitations.md) and [docs/REALITY.md](docs/REALITY.md); the deep dive behind the table is [docs/newcomer-contract.md](docs/newcomer-contract.md).

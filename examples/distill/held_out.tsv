@@ -1,0 +1,4 @@
+classify: the review is glowing, five stars	pos
+classify: broken on arrival, requested a refund	neg
+classify: decent battery life for the price	pos
+classify: stopped working after two days	neg

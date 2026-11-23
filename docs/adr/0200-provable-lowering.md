@@ -814,3 +814,94 @@ census and the leak-suite keep passing unchanged), and every number in
 the new docs is a recorded default or a measured artifact (the W9
 «numbers measured only» discipline applied already at W8). W9 remains
 the line's last step.
+
+## §13. The W9 record — the demo, the e2e, the bench (№998, 2026-11-23);
+## the line closes
+
+The W9 slot landed (the dispatch wave В104 — W-AH; deps «everything» —
+the whole line W1–W8 + E1–E4 in main). §5's word holds verbatim:
+**numbers measured only** — every number below cites the raw run logged
+next to its artifact.
+
+1. **The demo** — `examples/distill/run_line_demo.sh`: the line's user
+   path in one command, from scratch (a fresh temp dir every run; the
+   binary is `MLOG_BIN` or the debug build): the direct train + the
+   attested save → `attest verify --json` (provenance-consistent, the
+   level surfaced) → the spec-drift refusal (`[ATTESTATION_STALE]`) →
+   `curriculum build` (the held-out load, the refutation verdict) → the
+   operator freeze + the read-only status → the frozen interlock
+   (`[DISTILL_FROZEN]`) → the explicit unfreeze → `distill
+   enable-differential` refusing **`[ATTESTATION_ENABLEMENT_UNFILTERED]`
+   with zero writes** — the W6 gate as the spectacle, with the real
+   machine lines printed, not paraphrased. The fixtures:
+   `line_demo.mlog` (the reflex model and the learnable pattern share
+   the name — the enablement looks the certificate up by it),
+   `held_out.tsv`, `demo_research/` (the E3/E4 schema). The demo shows
+   provenance and consistency — it never shows or claims model quality
+   (§6.1); the honest words close the script.
+2. **The e2e** — `metalogos-server/tests/naryad_998_e2e_line.rs`: ten
+   tests against the compiled binary (no surface mocks; the LLM is never
+   reached — the fixtures train directly on labeled rows). Every refusal
+   test is RED-able: it asserts the refusal itself (the code, the exit,
+   the zero-writes content), so cutting the gate reds the test. The
+   tamper simulations ride `rusqlite` UPDATEs — the tests break the
+   ARTIFACTS, never the gates.
+3. **The §11.1 coverage: 10 of 15 check_ids by CLI e2e refusals** —
+   ATTESTATION_STALE (the drift + the loud `--allow-stale` bypass),
+   ATTESTATION_EMBED_MISMATCH, ATTESTATION_WEIGHTS_CHANGED (the W1
+   never-cut pin), ATTESTATION_NONE (the verify refusal), the UNSIGNED
+   level with the strict verdict flip (decision 4),
+   ATTESTATION_TEACHER_MISMATCH (the forged story — the W3b pin),
+   ATTESTATION_ENABLEMENT_UNFILTERED (zero writes), the
+   ENABLEMENT_TEACHER_POLICY (decision 3 at the boundary — W7),
+   DISTILL_FROZEN (the interlock + the read-only status + the only
+   exit), DISTILL_SOURCE_HELD_OUT (the vocabulary invariant — the W4
+   never-cut pin). **The five exceptions, honestly not CLI-reachable,
+   each with its existing pin:** ATTESTATION_DATA_CHANGED (the
+   informational note — the attest.rs lib tests), ATTESTATION_FILTER_
+   CHANGED (the load note, not the CLI verdict — №989's leak-suite),
+   ATTESTATION_ANCHOR_MISMATCH (the live-anchor ledger check; the CLI
+   verify runs against the process-local ledger, ADR-0167 — №832's lib
+   tests), DISTILL_SHADOW (the event line, no refusal — №495's lane),
+   DISTILL_TEACHER_UNLICENSED (the training-move gate — №975's SSOT
+   registry tests; the CLI honestly cannot reach a training move without
+   a licensed teacher, and the mock is refused by construction upstream
+   of the training attempt).
+4. **The never-cut invariants as regression**: the W1 weights-bytes pin
+   (the tamper refuses), the W3b forged-provenance pin, the W4 held-out
+   never-trains pin (the store read-back), the W5 operator-lock pin —
+   after the line closes, the e2e is their living guard.
+5. **The bench** — `scripts/w9_line_bench.sh` →
+   `docs/research/w9-line-bench-2026-11-23.md` +
+   `w9_bench_raw_run.txt` (the release profile, one coherent run, the
+   machine context recorded): `mlog attest verify --json` median 6.7 ms
+   (30 runs), `mlog distill status --json` median 5.1 ms (30), the
+   curriculum build 6.9 ms (10, a fresh DB copy each), the full attested
+   `mlog run` 12.3 ms (5) — the certificate (905 B) and the ledger
+   anchor ride the save in the same transaction, so the run scenario IS
+   the attested save path. **No before/after baseline exists for the CLI
+   verbs — they are new surface introduced by this line** (the honest
+   note recorded in the artifact). The E-series (E1–E4) measured the
+   training and calibration economics separately.
+6. **The records** — the CHANGELOG bullet №998; the llms range
+   №1-№996 → №1-№998; the PLAN-SUMMARY Wave 31 row updated (W9
+   executed); the ADR index, the agent index and the metrics table
+   regenerate in the same PR.
+
+**Deviations:** the demo shows the enablement REFUSAL (the unfiltered
+spectacle); the successful flip is pinned by №994's lib tests and needs
+a licensed permissive teacher — honestly out of the sandbox's reach, so
+it is not staged. The bench profile is release on a shared sandbox — the
+timings are indicative, not contractual (recorded in the artifact).
+
+**The line closes.** W1–W9 and E1–E4 are executed: the attestation
+certificate and its verify lane (W1, №825), the metric registry and the
+mutate-battery fix (W2′, №826), the revision (№832), the `spec`
+declaration (W3/W3b, №974/№975), the experiments E1–E4 (№988), the
+curriculum (W4, №989), the distill lifecycle (W5, №990), the
+enablement gate (W6, №994), the audit lane (W7, №995), the
+documentation and the indexes (W8, №996), the demo/e2e/bench (W9,
+№998). The cut-order of §5 ceases to operate; the never-cut invariants
+remain as regression (the e2e pokes them). The line's итог — the
+owner's act outside the naryads: the §16 registry entry and the final
+verbatim on the provable tier-lowering line.

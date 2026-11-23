@@ -1107,16 +1107,66 @@ pub fn reflex_load_dispatch(
             .to_string()
     })?;
 
-    crate::nn::persist::load_model_from_db(
+    // №995 (ADR-0200 W7): the STALE drift signal feeds the lifecycle
+    // hysteresis — the §10.8(a) deferred candidate executed (named, not
+    // silent). The verify verdict and the policy are UNTOUCHED (the
+    // marker, the strict refusal, the allow_stale bypass — exactly the
+    // W1 shape); the drift feeds the SAME violation ring the hub
+    // refusals feed. The feed fires on BOTH paths that saw a stale
+    // verdict: the bypassed-ok load (allow_stale) and the refused load
+    // (strict / no bypass) — the signal is about the CERTIFICATE, not
+    // about the load outcome. Best-effort by contract: a feed error
+    // prints loudly and never turns into a load failure (serving
+    // continues — the W5 contract). Patterns without a distill lineage
+    // carry no pattern name and are never fed.
+    let load_result = crate::nn::persist::load_model_from_db(
         registry,
         id,
         &name,
         std::path::Path::new(persist_path),
         attest,
         crate::nn::attest::AttestPolicy::from_env(),
-    )?;
+    );
+    let stale_pattern = match &load_result {
+        Ok(report) => {
+            let stale = report
+                .verdict
+                .as_ref()
+                .map(|v| v.reason.contains(crate::nn::attest::CODE_STALE))
+                .unwrap_or(false);
+            if stale {
+                attest.and_then(|a| a.spec.pattern_name.clone())
+            } else {
+                None
+            }
+        }
+        Err(e) => {
+            if e.contains(crate::nn::attest::CODE_STALE) {
+                attest.and_then(|a| a.spec.pattern_name.clone())
+            } else {
+                None
+            }
+        }
+    };
+    if let Some(pattern) = stale_pattern {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if let Err(feed_err) = crate::distill_hub::note_attestation_stale(
+            std::path::Path::new(persist_path),
+            &pattern,
+            now,
+        ) {
+            eprintln!(
+                "[reflex] load: the STALE lifecycle feed failed LOUDLY (the load itself \
+                 is unaffected): {}",
+                feed_err
+            );
+        }
+    }
 
-    Ok(Value::Reflex(id))
+    load_result.map(|_| Value::Reflex(id))
 }
 
 // ── Наряд №187: introspection builtins ──────────────────────────────

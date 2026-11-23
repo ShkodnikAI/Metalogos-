@@ -272,6 +272,31 @@ impl Interpreter {
             &battery_note,
         ));
 
+        // №995 (ADR-0200 W7): the session's rollback_if clause is captured
+        // as stored state — the canonical word `metric op threshold` (the
+        // word = CompareOp::canonical_word, the SAME word set the VM lane
+        // spells over ConditionOp). The capture records the RULE the
+        // session ran under, whether the mutation is kept or rolled back;
+        // a clause-less session removes the entry (the LAST session's
+        // rule is the state). The save path carries it beside the
+        // certificate (the rollback_json column + the ledger anchor).
+        match (&m.rollback_op, &m.rollback_threshold) {
+            (Some(op), Some(threshold)) => {
+                let word = crate::builtins::attest::compare_op_word(op);
+                if let Ok(mut rules) = self.mutate_rollback_rules.lock() {
+                    rules.insert(
+                        m.pattern_name.clone(),
+                        format!("{} {} {}", metric_name, word, threshold),
+                    );
+                }
+            }
+            _ => {
+                if let Ok(mut rules) = self.mutate_rollback_rules.lock() {
+                    rules.remove(&m.pattern_name);
+                }
+            }
+        }
+
         if kept {
             // Keep the new examples (already in place)
             // Phase 7.5: Audit log for mutate operations (after releasing mutable borrow)

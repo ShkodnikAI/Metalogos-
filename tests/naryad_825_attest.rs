@@ -79,6 +79,7 @@ fn contract_1_save_load_verify_ok_unfiltered() {
             ("a".to_string(), "pos".to_string()),
             ("b".to_string(), "neg".to_string()),
         ],
+        rollback_rule: None,
     };
     persist::save_model_to_db(&model, "AttestHead", &db, Some(&input)).expect("save");
 
@@ -163,6 +164,7 @@ fn contract_2_spec_change_stale_names_field() {
         Some(&AttestInput {
             spec: spec_for("classify the text"),
             examples: vec![],
+            rollback_rule: None,
         }),
     )
     .unwrap();
@@ -226,6 +228,7 @@ fn contract_3_weights_tamper_refused() {
         Some(&AttestInput {
             spec: spec_for("classify the text"),
             examples: vec![],
+            rollback_rule: None,
         }),
     )
     .unwrap();
@@ -278,6 +281,7 @@ fn contract_3_weights_tamper_refused() {
         Some(&AttestInput {
             spec: spec_for("classify the text"),
             examples: vec![],
+            rollback_rule: None,
         }),
         AttestPolicy::lenient(),
     )
@@ -301,6 +305,7 @@ fn contract_4_embed_signature_mismatch_refused() {
         Some(&AttestInput {
             spec: spec_for("classify the text"),
             examples: vec![],
+            rollback_rule: None,
         }),
     )
     .unwrap();
@@ -324,6 +329,7 @@ fn contract_4_embed_signature_mismatch_refused() {
         Some(&AttestInput {
             spec: spec_for("classify the text"),
             examples: vec![],
+            rollback_rule: None,
         }),
         AttestPolicy::lenient(),
     )
@@ -354,6 +360,7 @@ fn contract_5_legacy_weights_lenient_then_strict() {
         Some(&AttestInput {
             spec: spec_for("classify the text"),
             examples: vec![],
+            rollback_rule: None,
         }),
         AttestPolicy::lenient(),
     )
@@ -372,6 +379,7 @@ fn contract_5_legacy_weights_lenient_then_strict() {
         Some(&AttestInput {
             spec: spec_for("classify the text"),
             examples: vec![],
+            rollback_rule: None,
         }),
         AttestPolicy {
             strict: true,
@@ -389,6 +397,7 @@ fn contract_5_legacy_weights_lenient_then_strict() {
         Some(&AttestInput {
             spec: spec_for("classify the text"),
             examples: vec![],
+            rollback_rule: None,
         }),
     )
     .unwrap();
@@ -401,6 +410,7 @@ fn contract_5_legacy_weights_lenient_then_strict() {
         Some(&AttestInput {
             spec: spec_for("classify the text"),
             examples: vec![],
+            rollback_rule: None,
         }),
         AttestPolicy {
             strict: true,
@@ -527,6 +537,7 @@ fn contract_7_data_change_is_informational() {
         Some(&AttestInput {
             spec: spec_for("classify the text"),
             examples: vec![],
+            rollback_rule: None,
         }),
     )
     .unwrap();
@@ -726,6 +737,7 @@ fn verify_completes_under_200ms() {
         Some(&AttestInput {
             spec: spec_for("classify the text"),
             examples: vec![],
+            rollback_rule: None,
         }),
     )
     .unwrap();

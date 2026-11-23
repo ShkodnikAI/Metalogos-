@@ -361,6 +361,7 @@ fn save_and_verify(db: &std::path::Path) -> (metalogos::nn::attest::AttestVerdic
     let input = metalogos::nn::attest::AttestInput {
         spec: spec_for("classify the text"),
         examples: vec![], // empty → the manifest rides distill_samples
+        rollback_rule: None,
     };
     persist::save_model_to_db(&model, "SmokeHead", db, Some(&input)).expect("save");
     #[allow(clippy::disallowed_methods)]

@@ -259,6 +259,14 @@ pub struct Interpreter {
     distill_states: std::sync::Mutex<
         std::collections::HashMap<String, crate::interpreter::types::DistillRuntimeState>,
     >,
+    /// №995 (ADR-0200 W7): the LAST mutate session's `rollback_if` clause
+    /// per pattern, in the canonical word form `metric op threshold`
+    /// (the word = `CompareOp::canonical_word`). The save path captures
+    /// it beside the certificate (the `rollback_json` column + the
+    /// ledger anchor); the session without the clause removes the entry.
+    /// The VM keeps the SAME map with the SAME shape (the parity is the
+    /// leak-suite's).
+    mutate_rollback_rules: std::sync::Mutex<std::collections::HashMap<String, String>>,
     /// Event stream (ADR-0052): in-memory log of all operations.
     /// Each event has id, timestamp, type, source, data, duration.
     event_log: std::sync::Mutex<Vec<Event>>,
@@ -425,6 +433,7 @@ impl Interpreter {
             test_blocks: Vec::new(),
             pattern_stats: std::sync::Mutex::new(std::collections::HashMap::new()),
             distill_states: std::sync::Mutex::new(std::collections::HashMap::new()),
+            mutate_rollback_rules: std::sync::Mutex::new(std::collections::HashMap::new()),
             distill_hub: None,
             event_log: std::sync::Mutex::new(Vec::new()),
             event_next_id: std::sync::atomic::AtomicU64::new(1),

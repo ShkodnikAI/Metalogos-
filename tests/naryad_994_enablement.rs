@@ -77,6 +77,13 @@ fn spec_for(prompt: &str) -> AttestSpecInput {
 /// (decision 5's dominance: the effective level is `unfiltered`).
 #[allow(clippy::disallowed_methods)]
 fn save_unfiltered(name: &str, db: &Path) {
+    // №995 (W7): the teacher-policy gate enforces decision 3 at the
+    // enablement boundary — this suite's policy context is the
+    // permissive teacher (the mock lane's in-tree record: OSI,
+    // training_on_output_allowed = true), so the W6 flip matrix keeps
+    // testing the W6 boundary. The teacher-policy matrix itself is the
+    // W7 suite's (tests/naryad_995_audit.rs).
+    bracket_env("METALOGOS_MOCK_LLM", "1");
     let mut registry = ReflexRegistry::new();
     let id = registry.register(make_model(name, 42));
     let model = registry.get_dense(id).unwrap().snapshot_clone().unwrap();
@@ -86,6 +93,7 @@ fn save_unfiltered(name: &str, db: &Path) {
             ("a".to_string(), "pos".to_string()),
             ("b".to_string(), "neg".to_string()),
         ],
+        rollback_rule: None,
     };
     persist::save_model_to_db(&model, name, db, Some(&input)).expect("save");
 }
@@ -312,10 +320,16 @@ fn frozen_pattern_refuses_before_the_gate() {
     let db = temp.path().join("s.db");
     save_filtered("Classify", &db);
     let mut conn = open_store(&db);
+    // №995 (W7): the fixture's teacher is now the permissive mock lane,
+    // so the W5 recovery checks PASS and the bounded auto-exit would
+    // lawfully lift an automation freeze before the gate. The test's
+    // premise is the INTERLOCK ORDER (frozen refuses before the policy
+    // gate) — the operator freeze is the deterministic form: only the
+    // explicit command lifts it (№990 decision 6).
     conn.execute(
         "INSERT OR REPLACE INTO distill_states \
-         (pattern, phase, entered_at, violations, last_violation_code) \
-         VALUES ('Classify', 'frozen', 900, '', NULL)",
+         (pattern, phase, entered_at, violations, last_violation_code, operator_lock) \
+         VALUES ('Classify', 'frozen', 900, '', NULL, 1)",
         [],
     )
     .unwrap();

@@ -170,6 +170,14 @@ pub fn attest_verify_dispatch(
 /// interpreter's own compiled learnable patterns + teaching states. The
 /// canonical field mapping — the VM builds the identical struct from
 /// `CompiledLearnableInfo`.
+///
+/// №995 (ADR-0200 W7): `rollback_rule` rides as the canonical session
+/// word `metric op threshold` — the CALLER builds it from its own enum
+/// (the TW: `compare_op_word` over the AST `CompareOp`; the VM:
+/// `condition_op_word` over the bytecode `ConditionOp`) at the mutate
+/// session site; both lanes must produce byte-identical strings for the
+/// same clause (the leak-suite pins the parity). `None` — no mutate
+/// session ran for this pattern, or the clause was absent.
 #[allow(clippy::too_many_arguments)] // the field mapping IS the contract — a params struct would hide the per-field parity both lanes must keep identical
 pub fn attest_input_from_learnable(
     pattern_name: &str,
@@ -180,6 +188,7 @@ pub fn attest_input_from_learnable(
     min_accuracy: f64,
     margin: f64,
     examples: Vec<(String, String)>,
+    rollback_rule: Option<String>,
 ) -> AttestInput {
     let _ = reflex_name;
     AttestInput {
@@ -192,6 +201,7 @@ pub fn attest_input_from_learnable(
             margin: Some(margin),
         },
         examples,
+        rollback_rule,
     }
 }
 

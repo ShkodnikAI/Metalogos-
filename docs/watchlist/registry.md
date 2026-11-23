@@ -10,9 +10,14 @@ The mechanics live in `.github/workflows/watchlist-weekly.yml` (cron Mon
 09:00 MSK = 06:00 UTC, no DST in Moscow) + `scripts/watchlist_check.py`.
 The weekly trace: the digest comment in the pinned issue «I&W watchlist
 digest» (the №979 visibility rule — a scheduled workflow never leaves the
-week unseen) + the report files that ride the rolling digest PR (main is
-protected: enforce-admins, no bypass — a direct report commit to main is
-impossible by design).
+week unseen) + the report files that ride the `watchlist-digest` branch
+(main is protected: enforce-admins, no bypass — a direct report commit to
+main is impossible by design; AND GitHub Actions cannot create or approve
+pull requests in this repo by the owner's setting — verified 22.11, the
+create attempt fails with `createPullRequest` — so the digest PR opens
+manually, by the executor, when the artifacts are ready to merge). The
+issue pin goes through the GraphQL `pinIssue` mutation (the REST pins
+endpoint is absent for this account — 404 even for an admin PAT).
 
 ## The level calibration (the same for every scenario)
 

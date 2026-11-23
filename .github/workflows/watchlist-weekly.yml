@@ -26,8 +26,7 @@ on:
 
 permissions:
   contents: write        # the report/baseline commits on the digest branch
-  issues: write          # the digest comments (the №979 visibility)
-  pull-requests: write   # the rolling digest PR
+  issues: write          # the digest comments + the GraphQL pin (the №979 visibility)
 
 jobs:
   digest:
@@ -50,10 +49,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 scripts/watchlist_check.py --repo-dir .
 
-      # The rolling digest PR: one branch, force-updated weekly; the PR
-      # carries the report files and the baseline refresh through the
-      # regular CI (main's protection holds).
-      - name: Land the artifacts on the rolling digest PR
+      # The artifacts: one digest branch, force-updated weekly. The PR is
+      # NOT created here — GitHub Actions is not permitted to create or
+      # approve pull requests in this repo (the owner's setting, verified
+      # 22.11: the create attempt fails with createPullRequest). The digest
+      # PR opens manually by the executor when the artifacts are ready to
+      # merge; the digest issue carries the full report every week either way.
+      - name: Land the artifacts on the watchlist-digest branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -67,8 +69,4 @@ jobs:
           git add docs/watchlist/
           git commit -m "watchlist: the weekly digest artifacts ($(date -u +%Y-%m-%d)) (№993, gh#2036)"
           git push -q -f origin watchlist-digest
-          if gh pr view watchlist-digest --json number >/dev/null 2>&1; then
-            gh pr edit watchlist-digest --title "watchlist: the rolling I&W digest" --body "The weekly report files and the baseline refreshes ride this PR (№993, gh#2036). Merge periodically; the digest issue carries the full report every week."
-          else
-            gh pr create --base main --head watchlist-digest --title "watchlist: the rolling I&W digest" --body "The weekly report files and the baseline refreshes ride this PR (№993, gh#2036). Merge periodically; the digest issue carries the full report every week."
-          fi
+          echo "artifacts pushed to watchlist-digest; the digest PR opens manually at the merge time"

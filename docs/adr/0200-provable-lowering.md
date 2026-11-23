@@ -765,3 +765,52 @@ section «The attestation line»), mirrored here by id.
 | TM-AT-3 | The forged teacher provenance story → the registry disagreement → `[ATTESTATION_TEACHER_MISMATCH]` at verify AND at the enablement gate (W7); the honest non-permissive teacher is not a mismatch — it is decision 3's policy refusal at the enablement boundary | №975 + №995 (W7) |
 | TM-AT-4 | The DB-level certificate swap (the anchor-consistent rewrite: the stored cert replaced wholesale) → the verify lane's anchor/spec evidence fires on the next verify; the enablement gate (the stored-cert read) refuses the forged-teacher form, the swap class is the verify's evidence boundary (LIM-AT-6) | №994 + №995 (W7) |
 | TM-AT-5 | The rollback-capture mirror tampering (the `rollback_json` column edited in the DB) → the ledger sha anchor disagrees with the mirror → tamper-EVIDENT (the cross-check); the capture is the audit mirror, not an attested fact (LIM-AT-5) | №995 (W7) |
+
+## §12. The W8 record — documentation and the indexes (№996, 2026-11-23)
+
+The W8 slot landed (the dispatch wave В103 — W-AG; the dependency is
+«cross-cutting» — the whole line W1–W7 in main). §5's W8 deliverable —
+«The documentation and the indexes» — and the §6.3 obligation («the
+line's threat model says so, **the documentation says so**») are
+executed with the values taken ONLY from the code and the §11
+registry:
+
+1. **REFERENCE.md** — the CLI rows for the line's verbs the reference
+   lacked: `mlog curriculum build` (W4), `mlog distill
+   {freeze,unfreeze,status}` (W5), `mlog distill enable-differential`
+   (W6), the global `--trace-distill` (W5); the environment-variable
+   table carries the §11.3 six (`METALOGOS_ATTEST_STRICT`,
+   `METALOGOS_ATTEST_ALLOW_STALE`,
+   `METALOGOS_DISTILL_FREEZE_THRESHOLD` (default 2, the sub-1 values
+   fall back),
+   `METALOGOS_DISTILL_FREEZE_WINDOW_SECS` (default 3600),
+   `METALOGOS_DISTILL_AUTO_UNFREEZE_COOLDOWN_SECS` (default 86400 —
+   the 24h), `METALOGOS_TRACE_DISTILL`). W1/W2′/W3 rows existed and
+   were verified against the code (no rewrite).
+2. **README** — the «What's Inside» capability row for the line, with
+   the honest words: the certificate is tamper-evident; `mlog attest
+   verify` checks provenance and consistency, **never quality** (§6.1)
+   — the §6.3 obligation now lives in the public docs, not only in the
+   ADR.
+3. **CHANGELOG** — the line's surface section (W1–W7, the user-facing
+   recap) + the `METALOGOS_ATTEST_STRICT` Migration note under
+   [Unreleased]: the lenient default is the §6.6 transitional window,
+   the strict flip is announced as part of the W1 contract (the
+   attest.rs record's word), the early opt-in documented.
+4. **PLAN-SUMMARY** — the line's wave row (the В100–В103 dispatches,
+   the line's naryads, the remaining W9) in the wave ledger; the
+   header date synced.
+5. **The doc-sync machine** — `tests/naryad_996_docs.rs`: the
+   REFERENCE rows ↔ the code surface (the CLI verbs and the six env
+   variables), the README honest words, the CHANGELOG Migration note,
+   the PLAN-SUMMARY row. The W7 census machine (`tests/naryad_995_audit.rs`)
+   keeps answering for the machine words — the two machines compose.
+6. **The indexes** — the ADR index regenerated; llms.txt №1-№995 →
+   №1-№996; the metrics table regenerated — all in the same PR.
+
+**Deviations:** none beyond the slot — the line's CODE is untouched
+(the W8 boundary: docs/indexes/doc-sync tests only; the check_id
+census and the leak-suite keep passing unchanged), and every number in
+the new docs is a recorded default or a measured artifact (the W9
+«numbers measured only» discipline applied already at W8). W9 remains
+the line's last step.

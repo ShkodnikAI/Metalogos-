@@ -1,0 +1,85 @@
+machine: Intel(R) Xeon(R) Processor; profile: release; date: 2026-11-23
+binary: /home/z/my-project/metalogos-work/repo/target/release/mlog (mlog mlog 0.40.0
+grammar rev: 1)
+== scenario 1: attest verify x30 ==
+verify_run 6891us
+verify_run 7561us
+verify_run 7200us
+verify_run 6759us
+verify_run 6714us
+verify_run 6656us
+verify_run 6726us
+verify_run 6670us
+verify_run 6530us
+verify_run 6601us
+verify_run 6640us
+verify_run 6557us
+verify_run 6715us
+verify_run 6860us
+verify_run 7382us
+verify_run 6903us
+verify_run 6678us
+verify_run 6885us
+verify_run 6650us
+verify_run 6609us
+verify_run 6506us
+verify_run 6510us
+verify_run 6578us
+verify_run 6436us
+verify_run 6706us
+verify_run 6419us
+verify_run 6710us
+verify_run 6828us
+verify_run 6849us
+verify_run 6941us
+== scenario 2: distill status x30 ==
+status_run 5526us
+status_run 5329us
+status_run 5223us
+status_run 5312us
+status_run 5314us
+status_run 5219us
+status_run 5028us
+status_run 5018us
+status_run 5001us
+status_run 5143us
+status_run 5241us
+status_run 4965us
+status_run 5234us
+status_run 5059us
+status_run 4926us
+status_run 4968us
+status_run 5240us
+status_run 5042us
+status_run 5024us
+status_run 5102us
+status_run 5066us
+status_run 5120us
+status_run 5123us
+status_run 5131us
+status_run 5015us
+status_run 5034us
+status_run 5015us
+status_run 5029us
+status_run 5111us
+status_run 5091us
+== scenario 3: curriculum build x10 (fresh db copy each) ==
+build_run 6982us
+build_run 7046us
+build_run 6976us
+build_run 6745us
+build_run 6777us
+build_run 6605us
+build_run 6807us
+build_run 7031us
+build_run 6781us
+build_run 7002us
+== scenario 4: sizes ==
+cert_json_bytes 905
+weights_blob_bytes 502
+== scenario 5: train+save x5 (fresh dir each) ==
+train_save_run 12575us
+train_save_run 12271us
+train_save_run 12702us
+train_save_run 11937us
+train_save_run 12117us

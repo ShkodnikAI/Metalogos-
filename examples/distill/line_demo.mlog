@@ -1,0 +1,53 @@
+// ADR-0200 W9 (naryad №998): the line demo — a minimal save → verify
+// tour on the line's own surface. The pattern trains DIRECTLY on labeled
+// rows (no LLM teacher — deterministic, reproducible offline); the save
+// writes the attestation certificate + the reflex.attest ledger anchor
+// in the same transaction. The reflex model and the learnable pattern
+// share the name `Classify` — the attestation model name IS the pattern
+// name (the enablement surface looks the certificate up by it).
+//
+// Companion of examples/distill/attest_hello.mlog (W1). This file is
+// documentation, not a pinned-output contract (examples/ is outside the
+// golden loop). Run it through examples/distill/run_line_demo.sh — the
+// script drives the full user path: run → attest verify → the spec
+// drift refusal → curriculum build → the distill lifecycle → the
+// enable-differential unfiltered refusal.
+
+memory { persist: "line_demo.db" }
+
+reflex Classify {
+  input: embedding(4)
+  layers: [dense(8, "relu"), dense(2, "softmax")]
+  labels: ["pos", "neg"]
+  seed: 42
+}
+
+learnable pattern Classify(text: String) -> String {
+  prompt: "classify the text"
+  distill_to: Classify
+  distill_after: 100
+}
+
+pattern Drive(_x: String) -> String {
+  // Rows are [features..., class_idx] — 4 features + the label index.
+  let data = [
+    [0.0, 0.1, 0.2, 0.0, 0.0],
+    [0.2, 0.0, 0.1, 0.1, 0.0],
+    [0.1, 0.2, 0.0, 0.2, 0.0],
+    [5.0, 5.1, 5.2, 5.0, 1.0],
+    [5.2, 5.0, 5.1, 5.1, 1.0],
+    [5.1, 5.2, 5.0, 5.2, 1.0],
+    [0.3, 0.0, 0.1, 0.0, 0.0],
+    [0.0, 0.3, 0.2, 0.1, 0.0],
+    [5.3, 5.0, 5.1, 5.0, 1.0],
+    [5.0, 5.3, 5.2, 5.1, 1.0],
+    [5.2, 5.1, 5.3, 5.2, 1.0],
+    [5.1, 5.2, 5.0, 5.3, 1.0]
+  ]
+  let _t = reflex_train(Classify, data, 200.0, "accuracy", 0.85)
+  let _s = reflex_save(Classify)
+  let v = attest_verify(Classify)
+  return "ok=" + to_string(v.ok) + ";level=" + v.level
+}
+
+flow Main { input: String = "x" -> Drive -> output }

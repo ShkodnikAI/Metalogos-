@@ -1,0 +1,1 @@
+{"experiment":"e4","teacher_rows":[{"backend":"mock-deterministic","agreement_with_majority_baseline":0.0,"reason":"the W6 enablement gate must not read it as one"},{"backend":"qwen25-vl-7b","agreement_with_majority_baseline":null,"reason":"not measured yet"}]}

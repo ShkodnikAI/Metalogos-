@@ -255,7 +255,7 @@ pub struct Vm {
     distill_states: HashMap<String, crate::interpreter::types::DistillRuntimeState>,
     /// №995 (ADR-0200 W7): the LAST mutate session's `rollback_if` clause
     /// per pattern (the canonical word `metric op threshold`, the word =
-    /// `ConditionOp`'s canonical spelling) — the VM mirror of the TW's
+    /// `ConditionOp`'s canonical spelling) — the VM counterpart of the TW's
     /// `mutate_rollback_rules`; the save path captures it beside the
     /// certificate.
     mutate_rollback_rules: HashMap<String, String>,
@@ -842,7 +842,7 @@ impl Vm {
         self.distill_states = HashMap::new();
         // №995: the mutate-session rollback rule is the same class of
         // per-run session state — request A's clause never reaches
-        // request B (the mirror of the distill_states clear above).
+        // request B (the same per-request clear distill_states gets).
         self.mutate_rollback_rules = HashMap::new();
 
         // ── 3. security-sensitive single-value state ──

@@ -960,10 +960,45 @@ enum DistillCmd {
         #[arg(long)]
         json: bool,
     },
+    /// Enable the differential (measured-calibration) mode for the
+    /// pattern (ADR-0200 W6, №994). The gate refuses `unfiltered`
+    /// (decision 5's dominance: the data filter word `none`) with the
+    /// machine code `[ATTESTATION_ENABLEMENT_UNFILTERED]`; a filtered
+    /// pattern's `eval.calibration` flips from the literal
+    /// "uncalibrated" to the measured E3 value through the №530-atomic
+    /// transaction. The inputs are ONLY the recorded E3/E4 artifacts
+    /// (`docs/research/`); a missing number is null-with-reason, never
+    /// silent. The refusal and the flip ride `--trace-distill` (the
+    /// same bytes to stderr and the audit journal). The verify path is
+    /// untouched (the W1 never-cut lane).
+    EnableDifferential {
+        /// The learnable pattern name (the attestation model name)
+        #[arg(long)]
+        pattern: String,
+        /// The SQLite store path (the `reflex_attestation` row lives
+        /// here)
+        #[arg(long)]
+        db: PathBuf,
+        /// The directory with the recorded E3/E4 artifacts
+        #[arg(long, default_value = "docs/research")]
+        research_dir: PathBuf,
+        /// Machine-readable one-line JSON verdict ONLY
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn cmd_distill(cmd: DistillCmd) {
     let (op, pattern, db_path, reason, json) = match cmd {
+        DistillCmd::EnableDifferential {
+            pattern,
+            db,
+            research_dir,
+            json,
+        } => {
+            cmd_enable_differential(pattern, db, research_dir, json);
+            return;
+        }
         DistillCmd::Freeze {
             pattern,
             db,
@@ -1047,6 +1082,71 @@ fn backend_echo(tag: &str) {
         .unwrap_or(false)
     {
         eprintln!("[backend: {tag}]");
+    }
+}
+
+/// №994 (ADR-0200 W6): the differential enablement CLI lane — the gate
+/// line is the last output line (the same convention as the lifecycle
+/// ops); the refusal exits 1 with the machine code on stderr.
+fn cmd_enable_differential(pattern: String, db: PathBuf, research_dir: PathBuf, json: bool) {
+    #[allow(clippy::disallowed_methods)]
+    let mut conn = match rusqlite::Connection::open(&db) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("error: cannot open db '{}': {}", db.display(), e);
+            std::process::exit(1);
+        }
+    };
+    if let Err(e) = metalogos::distill_hub::ensure_distill_store(&conn) {
+        eprintln!("error: {}", e);
+        std::process::exit(1);
+    }
+
+    // The audit sink: the journal lines to stderr (the CLI lane's audit
+    // journal — the same [AUDIT]/[TRACE] form the hub prints).
+    let audit = |line: String| {
+        eprintln!("{}", line);
+    };
+    let now = metalogos::distill_hub::distill_now_secs();
+
+    let result = metalogos::distill_hub::enable_differential(
+        &mut conn,
+        &pattern,
+        &research_dir,
+        now,
+        &audit,
+    );
+
+    match result {
+        Ok(v) => {
+            if json {
+                println!("{}", v.gate_line());
+            } else {
+                println!("pattern: {}", v.pattern);
+                println!("level: {}", v.level);
+                println!("flipped: {}", v.flipped);
+                println!(
+                    "calibration_ece: {}",
+                    v.calibration_ece
+                        .map(|x| x.to_string())
+                        .unwrap_or_else(|| "null".into())
+                );
+                println!("calibration_reason: {}", v.calibration_reason);
+                println!(
+                    "baseline_agreement: {}",
+                    v.baseline_agreement
+                        .map(|x| x.to_string())
+                        .unwrap_or_else(|| "null".into())
+                );
+                println!("baseline_reason: {}", v.baseline_reason);
+                println!("reason: {}", v.reason);
+                println!("{}", v.gate_line());
+            }
+        }
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
     }
 }
 

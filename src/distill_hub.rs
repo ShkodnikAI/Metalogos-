@@ -2120,3 +2120,188 @@ pub fn curriculum_build(
     ));
     Ok(verdict)
 }
+
+// ===========================================================================
+// №994 (ADR-0200 W6, the dispatch wave В101 — W-AE): the differential
+// enablement gate — the policy enforcer at the enablement boundary
+// (decision 5's). A pattern whose effective attestation level is
+// `unfiltered` (the data filter word is `none` — decision 5's dominance)
+// REFUSES the differential enablement with the machine code
+// `[ATTESTATION_ENABLEMENT_UNFILTERED]`; a filtered pattern proceeds and
+// `eval.calibration` flips from the literal "uncalibrated" to the
+// measured E3 value through the №530-atomic transaction (the certificate
+// row and the ledger anchor in one commit). The gate inputs are ONLY the
+// recorded E3/E4 artifacts (`docs/research/`) — read without
+// recomputation; a missing number is null-with-reason, never silent.
+// The refusal and the flip are visible in `--trace-distill` (the same
+// bytes to stderr and the audit journal). The lifecycle interlock
+// composes: a Frozen pattern refuses the enablement like any other
+// distill move. The verify path is untouched (the W1 never-cut lane —
+// decision 5's `ok: true` semantics stay as-is; the gate governs the
+// ENABLEMENT, not the verify).
+// ===========================================================================
+
+/// The W6 enablement verdict — the gate line's source.
+#[derive(Debug)]
+pub struct EnablementVerdict {
+    pub ok: bool,
+    pub pattern: String,
+    pub level: String,
+    pub flipped: bool,
+    pub calibration_ece: Option<f64>,
+    pub calibration_reason: String,
+    pub baseline_agreement: Option<f64>,
+    pub baseline_reason: String,
+    pub reason: String,
+}
+
+impl EnablementVerdict {
+    /// The gate line — the same `{"gate":"distill-<op>",...}` form the
+    /// lifecycle verdicts use; the JSON nulls carry the null-with-reason
+    /// inputs (the reason lines name them).
+    pub fn gate_line(&self) -> String {
+        serde_json::json!({
+            "gate": "distill-enable-differential",
+            "ok": self.ok,
+            "pattern": self.pattern,
+            "level": self.level,
+            "flipped": self.flipped,
+            "calibration_ece": self.calibration_ece,
+            "calibration_reason": self.calibration_reason,
+            "baseline_agreement": self.baseline_agreement,
+            "baseline_reason": self.baseline_reason,
+            "reason": self.reason,
+        })
+        .to_string()
+    }
+}
+
+/// №994 (ADR-0200 W6): the differential enablement gate. Errors carry
+/// the machine code and the named field/reason; a refusal writes
+/// nothing. The flip runs inside one transaction — the №530 atomicity
+/// (no new windows between the gate and the write).
+#[allow(clippy::disallowed_methods)]
+pub fn enable_differential(
+    conn: &mut rusqlite::Connection,
+    pattern: &str,
+    research_dir: &std::path::Path,
+    now: u64,
+    audit: &dyn Fn(String),
+) -> Result<EnablementVerdict, String> {
+    // The lifecycle interlock first (W5): a Frozen pattern refuses the
+    // enablement like any other distill move.
+    lifecycle_gate(conn, pattern, now, audit)?;
+
+    // The gate inputs — the recorded E3/E4 facts only.
+    let facts = crate::nn::attest::read_research_facts(research_dir);
+    trace_distill(
+        audit,
+        &format!(
+            "enable-differential pattern={} inputs ece={} agreement={}",
+            pattern,
+            facts
+                .calibration_ece
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "null".into()),
+            facts
+                .baseline_agreement
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "null".into()),
+        ),
+    );
+
+    // The level predicate — decision 5's boundary.
+    let Some(stored) = crate::nn::attest::current_cert(conn, pattern)? else {
+        let reason = format!(
+            "{} pattern '{}' carries no attestation certificate (saved before W1) — the \
+             differential enablement refuses: the field `level` is unknown and the \
+             provenance story cannot be checked",
+            crate::nn::attest::CODE_NONE,
+            pattern
+        );
+        crate::ledger::record(
+            "distill.enablement-refused",
+            "runtime",
+            "reflex",
+            &format!("pattern={};{}", pattern, reason),
+        );
+        trace_distill(
+            audit,
+            &format!("enable-differential pattern={} REFUSED {}", pattern, reason),
+        );
+        return Err(reason);
+    };
+    let level = crate::nn::attest::effective_level_from_cert(&stored.cert_json);
+    if level == "unfiltered" {
+        let reason = format!(
+            "{} pattern '{}' has the effective level `unfiltered` (the data filter word \
+             is `none` — decision 5's dominance) — the differential enablement refuses: \
+             the field `level`, the measured calibration cannot dominate unfiltered \
+             data; verify stays on decision 5's terms (the marker, not the gate)",
+            crate::nn::attest::CODE_ENABLEMENT_UNFILTERED,
+            pattern
+        );
+        crate::ledger::record(
+            "distill.enablement-refused",
+            "runtime",
+            "reflex",
+            &format!("pattern={};{}", pattern, reason),
+        );
+        trace_distill(
+            audit,
+            &format!("enable-differential pattern={} REFUSED {}", pattern, reason),
+        );
+        return Err(reason);
+    }
+
+    // The flip — through the №530-atomic transaction; withheld with the
+    // reason when E3 carries no measured number (null-with-reason, the
+    // certificate stays "uncalibrated", the report is loud).
+    let (flipped, reason) = match facts.calibration_ece {
+        Some(ece) => {
+            let tx = conn
+                .transaction()
+                .map_err(|e| format!("enable-differential: transaction: {}", e))?;
+            let outcome = crate::nn::attest::flip_calibration_tx(&tx, pattern, ece)?;
+            tx.commit()
+                .map_err(|e| format!("enable-differential: commit: {}", e))?;
+            trace_distill(
+                audit,
+                &format!(
+                    "enable-differential pattern={} FLIPPED eval.calibration={} \
+                     ledger_seq={} cert_sha={}",
+                    pattern, outcome.ece, outcome.ledger_seq, outcome.new_cert_sha
+                ),
+            );
+            (
+                true,
+                format!(
+                    "eval.calibration flipped to the measured E3 value {} (the №530-atomic \
+                     flip, the ledger anchor seq {})",
+                    outcome.ece, outcome.ledger_seq
+                ),
+            )
+        }
+        None => (false, facts.calibration_reason.clone()),
+    };
+    crate::ledger::record(
+        "distill.enablement",
+        "runtime",
+        "reflex",
+        &format!(
+            "pattern={};level={};flipped={};{}",
+            pattern, level, flipped, reason
+        ),
+    );
+    Ok(EnablementVerdict {
+        ok: true,
+        pattern: pattern.to_string(),
+        level,
+        flipped,
+        calibration_ece: facts.calibration_ece,
+        calibration_reason: facts.calibration_reason,
+        baseline_agreement: facts.baseline_agreement,
+        baseline_reason: facts.baseline_reason,
+        reason,
+    })
+}

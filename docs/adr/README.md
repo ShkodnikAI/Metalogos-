@@ -261,3 +261,4 @@ real ADRs (№309/№320/№412) before the booking.
 | 0221 | Terminal Stop 1.0 — the 1.0 Assembly Record: the Terminal Stop of the Phase 8 Train, the 1.0 Gate Definition, and the Aggregate Machine Fact TERMINAL_STOP (the W-T Wave Record) | Accepted** (the wave-85 acceptance |
 | 0222 | The C2PA contour completion — the generation-path egress manifest | Accepted (2026-11-11 |
 | 0223 | The `spec` declaration — the code-level form of the attestation spec | Accepted (2026-11-18) |
+| 0224 | Phase 7 «Edge deepening + verifier» — the line ADR (the edge profile as a measured surface + the verifier depth) | Proposed (the owner's verbatim gate before В106 |

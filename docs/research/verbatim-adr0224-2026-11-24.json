@@ -1,0 +1,21 @@
+{
+  "record": "the owner's verbatim verdict on ADR-0224 (the В106 gate) — the machine-readable registration",
+  "naryad": "№1003",
+  "issue": "gh#2066",
+  "date": "2026-11-24",
+  "approved_by": "the owner, «Утверждаю дословно» 24.11 (trace 1a20d64082426f71)",
+  "provenance": "composed by the executor 24.11 as the recommendation draft on the measured facts of ADR-0224 §1/§3 and docs/research/edge-inventory-2026-11-24.md; approved verbatim",
+  "language_note": "the verbatim is Russian by nature (the owner's words); the docs_language_lint (English-only, the frozen allowlist) counts whole-file Cyrillic, so the inline Wave-form registration (the №999 shape) exceeds the 2% threshold — the verbatim lives here as data (the lint's own carve-out: string literals that are data may stay); PLAN-SUMMARY Wave 33 carries the English registration record and the English rendering; growing the allowlist requires an owner decision",
+  "registered_verbatim": "«Согласен с рекомендацией исполнителя. ADR-0224 принимаю (Proposed → Accepted) в редакции `8b5b76cbd2` дословно. Слоты §5 фиксирую: W2 — CI-раннер-прогоны инвентарных чисел (size/startup/RSS на раннере, артефакт на каждый релиз) и определение workload-level startup; W3 — CI-гейты на size/startup/RSS и возобновляемый bench, бюджеты фиксирую вербатимой после измеренных W2-чисел — до этого бюджеты не изобретать (numbers measured only); W4 — кросс-платформенные сборки darwin/windows/arm64 — опционально, первая на отсечение. Cut-order и never-cut из §5 ADR-0224 — без изменений: provenance-цепочка SHA256SUMS/BUILD-INFO и e2e/attest покроение поставляемого бинарника не режутся никогда; «нет прогона на платформе» — правило naming линии. В106 открывается по вербатиме; ADR-0178 не растёт; продуктовый код — только в слотах, где он назван.»",
+  "machine_check": {
+    "registered == verified": true,
+    "required_substrings": [
+      "numbers measured only",
+      "В106 открывается по вербатиме",
+      "8b5b76cbd2",
+      "W2",
+      "W3",
+      "W4"
+    ]
+  }
+}

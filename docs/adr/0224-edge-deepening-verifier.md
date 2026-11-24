@@ -31,7 +31,7 @@ Already covers (measured, linked):
 
 Absent (named, not silent):
 
-1. No CI gate on size / startup / RSS — the numbers exist only as one-off measurements, nothing fails when they regress.
+1. No CI gate on size / startup / RSS — the W2 lane now produces the numbers per run (the first: run 45444498682, 24.11: 0.003 s / 75.3 MiB / 37 318 352 B, ubuntu26-azure; the sandbox 0.003 s / 25.0 MiB remains a separate recorded run), but nothing fails when they regress yet — that is W3, the owner's verbatim.
 2. No recurring bench gate — the 6.7 ms verify median is a single 23.11 record, not a re-run lane.
 3. No cross-platform builds or verification — one artifact family, one platform.
 4. No workload-level startup measurement (the 0.003 s is the CLI floor `--help`, not an interpreted-program run).
@@ -54,7 +54,7 @@ The reuse posture: the W1–W9 harness (attest/e2e/bench) carries the edge-profi
 | № | Scope | Depends on | Note |
 |---|---|---|---|
 | W1 | This wave (№1001): the ADR skeleton + the edge inventory (docs/research/edge-inventory-2026-11-24.md) + the verifier junction (§3) | an accepted ADR-0200 line closure | Executed by this naryad; zero product code |
-| W2 | The CI-runner runs of the inventory numbers: size/startup/RSS measured on the runner (the release binary built by CI), an E-form artifact per release run + the workload-level startup definition (§3.4) | the owner's verbatim 24.11 (Wave 33) | Execution — naryad №1004 (gh#2067, волна В106 — W2); no budgets in W2 |
+| W2 | The CI-runner runs of the inventory numbers: size/startup/RSS measured on the runner (the release binary built by CI), an E-form artifact per release run + the workload-level startup definition (§3.4) | the owner's verbatim 24.11 (Wave 33) | Executed — №1004 (gh#2067, волна В106 — W2): the machine (PR #2069) + the first runner run 45444498682 (0.003 s / 75.3 MiB / 37 318 352 B; ubuntu26-azure); no budgets in W2 |
 | W3 | The CI gates on size/startup/RSS + the recurring bench (the attest verify lane becomes a re-run lane) | the measured W2 numbers | the budgets are fixed by the owner's verbatim AFTER the W2 numbers — no budgets invented before (numbers measured only) |
 | W4 | The cross-platform builds darwin/windows/arm64 — optional | the owner's call | The first to cut in the cut-order below |
 

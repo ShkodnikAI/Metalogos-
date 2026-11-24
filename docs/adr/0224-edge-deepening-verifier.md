@@ -1,6 +1,6 @@
 # ADR-0224: Phase 7 «Edge deepening + verifier» — the line ADR (the edge profile as a measured surface + the verifier depth)
 
-**Status:** Proposed (the owner's verbatim gate before В106 — the В105 dispatch gh#2060: «Волна В106 — только после вердикта»; the ADR-before-code rule — the ADR-0205 precedent)
+**Status:** Accepted (the owner's verbatim 24.11 — registered verbatim in docs/PLAN-SUMMARY.md Wave 33, naryad №1003 gh#2066; the В106 gate passed; the ADR-before-code rule — the ADR-0205 precedent)
 **Date:** 2026-11-24
 **Naryad:** №1001 (issue #2061, волна В105 — W-AI, the line-forming wave 1 of Phase 7)
 **Depends on:** ADR-0200 (the verifier machine this line re-uses — attest/e2e/bench against the compiled binary), §13 ADR-0200 (the provable-lowering line closed W1–W9 + E1–E4, squash `6804aad37`), №998 (the W9 bench artifacts: docs/research/w9-line-bench-2026-11-23.md — the verify median 6.7 ms), the release provenance chain (SHA256SUMS / BUILD-INFO.txt / SBOM per release), №996 (the REFERENCE/README doc surface)
@@ -50,7 +50,9 @@ The reuse posture: the W1–W9 harness (attest/e2e/bench) carries the edge-profi
 | № | Scope | Depends on | Note |
 |---|---|---|---|
 | W1 | This wave (№1001): the ADR skeleton + the edge inventory (docs/research/edge-inventory-2026-11-24.md) + the verifier junction (§3) | an accepted ADR-0200 line closure | Executed by this naryad; zero product code |
-| W2+ | **Unfixed by the dispatch** — per gh#2060: «слоты W2+ фиксируются в §5 ADR, не диспетчером»; the candidates named in §3 absent-list (the size/startup/RSS gates; the recurring bench; the cross-platform builds) wait for the owner's verbatim | the verbatim | The gate before В106 |
+| W2 | The CI-runner runs of the inventory numbers: size/startup/RSS measured on the runner (the release binary built by CI), an E-form artifact per release run + the workload-level startup definition (§3.4) | the owner's verbatim 24.11 (Wave 33) | Execution — naryad №1004 (gh#2067, волна В106 — W2); no budgets in W2 |
+| W3 | The CI gates on size/startup/RSS + the recurring bench (the attest verify lane becomes a re-run lane) | the measured W2 numbers | the budgets are fixed by the owner's verbatim AFTER the W2 numbers — no budgets invented before (numbers measured only) |
+| W4 | The cross-platform builds darwin/windows/arm64 — optional | the owner's call | The first to cut in the cut-order below |
 
 Cut order if the line trims: the cross-platform builds first → the recurring bench → the size/startup gates. **Never cut:** the artifact provenance chain (SHA256SUMS/BUILD-INFO) and the e2e/attest coverage of the shipped binary.
 

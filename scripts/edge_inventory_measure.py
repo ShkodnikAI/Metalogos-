@@ -92,12 +92,15 @@ def main() -> int:
     ap.add_argument("--txt", default=None, help="the human-readable artifact path")
     a = ap.parse_args()
     token = os.environ.get("GH_TOKEN", "")
-    hdr = {"Accept": "application/octet-stream"}
+    ua = {"User-Agent": "edge-inventory-measure"}
+    hdr_json = {"Accept": "application/vnd.github+json", **ua}
+    hdr_asset = {"Accept": "application/octet-stream", **ua}
     if token:
-        hdr["Authorization"] = "Bearer " + token
+        hdr_json["Authorization"] = "Bearer " + token
+        hdr_asset["Authorization"] = "Bearer " + token
 
-    def api(url):
-        req = urllib.request.Request(url, headers=hdr)
+    def api(url, asset=False):
+        req = urllib.request.Request(url, headers=hdr_asset if asset else hdr_json)
         with urllib.request.urlopen(req, timeout=300) as r:
             return r.read()
 
@@ -108,11 +111,11 @@ def main() -> int:
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     bin_path = out / "mlog"
-    data = api(assets["mlog-linux-x86_64"]["url"])
+    data = api(assets["mlog-linux-x86_64"]["url"], asset=True)
     bin_path.write_bytes(data)
     size_bytes = len(data)
-    sums = api(assets["SHA256SUMS"]["url"]).decode()
-    info = api(assets["BUILD-INFO.txt"]["url"]).decode()
+    sums = api(assets["SHA256SUMS"]["url"], asset=True).decode()
+    info = api(assets["BUILD-INFO.txt"]["url"], asset=True).decode()
     sha = subprocess.run(["sha256sum", str(bin_path)],
                          capture_output=True, text=True).stdout.split()[0]
     assert sha in sums, f"SHA256 mismatch: {sha}"

@@ -84,5 +84,28 @@ class BuildArtifact(unittest.TestCase):
         self.assertEqual(self._art(env)["platform"]["honest_label"], "CI-runner run")
 
 
+class WorkloadPins(unittest.TestCase):
+    """№1005 (gh#2071, В106 — W2+): the §3.4 workload pin — the drift
+    tripwire: the pinned files must match byte-for-byte on every lane."""
+
+    def test_pins_match_repo_files(self):
+        self.assertTrue(em.workload_pins_ok(),
+                        "the §3.4 workload pins drifted from the repo files")
+
+    def test_workload_matches_trailing_newline_only(self):
+        self.assertTrue(em.workload_matches(open(em.WORKLOAD_EXPECTED[0]).read() + "\n"))
+        self.assertFalse(em.workload_matches("phase 0: extract,load\n"))
+
+    def test_artifact_carries_workload_block(self):
+        wl = {"program": em.WORKLOAD_PROGRAM[0], "status": "verified",
+              "median_s": 0.007, "runs_s": [0.007] * 5, "runs": 5}
+        with mock.patch.dict(os.environ, {}, clear=True):
+            art = em.build_artifact(REL, "96d2db1b", 37318352,
+                                    "rustc 1.100.0\n", [0.003] * 5, 25 * 1024, 5, wl)
+        self.assertEqual(art["measurement"]["workload"]["status"], "verified")
+        self.assertEqual(art["measurement"]["workload"]["median_s"], 0.007)
+        self.assertIn("gh#2071", art["naryad"])
+
+
 if __name__ == "__main__":
     unittest.main()

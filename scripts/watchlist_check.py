@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """№993 (gh#2036) — the weekly I&W watchlist digest.
 
-Reads the six watched repositories through the public GitHub/crates.io APIs
+Reads the seven watched repositories through the public GitHub/crates.io APIs
 (the GITHUB_TOKEN raises the rate limits; no secrets beyond it), compares
 the live numbers against docs/watchlist/baseline.json, classifies the week
 per docs/watchlist/registry.md (the Yellow/Orange/Red calibration), and
@@ -43,7 +43,8 @@ CRATE_UA = "metalogos-iw-watchlist (naryad 993, gh#2036)"
 
 CRATES_CRATE = "rust-anything"
 
-# The registry order — the scenario ids are stable (WL-01..WL-06).
+# The registry order — the scenario ids are stable (WL-01..WL-07;
+# WL-07 obra/superpowers added by №997 — the owner's 23.11 verdict).
 SCENARIOS = [
     ("WL-01", "erkamyaman/rust-anything", True),
     ("WL-02", "TauricResearch/TradingAgents", False),
@@ -51,6 +52,7 @@ SCENARIOS = [
     ("WL-04", "NVIDIA/auto-ontology", False),
     ("WL-05", "deepset-ai/haystack", False),
     ("WL-06", "MervinPraison/PraisonAI", False),
+    ("WL-07", "obra/superpowers", False),
 ]
 
 # The level calibration (registry.md): the per-scenario trigger set.

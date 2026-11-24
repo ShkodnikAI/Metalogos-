@@ -1,4 +1,4 @@
-# I&W watchlist — the six-scenario registry (№993, gh#2036)
+# I&W watchlist — the seven-scenario registry (№993, gh#2036; WL-07 added by №997 — the owner's 23.11 verdict «Согласен с твое рекомендацией», the 23.11 pre-study r74/r75 cuts, outside the ADR-0200 line)
 
 The observation-only lane born from the owner's 22.11 decision («поставим на
 отслеживание, если нужно потом внедрим») about the six external repositories
@@ -89,6 +89,21 @@ workflow commit (the smooth growth is the new normal).
 - **Horizons:** T-30 — the weekly growth; T-90 — the releases;
   T-180 — the fork ratio; T-365 — the stars trajectory.
 - **Baseline 22.11:** 9379★, v4.8.0.
+
+### WL-07 — obra/superpowers (the composable-skills methodology)
+
+- **Signals:** the stars, the releases, the push pulse (crates.io N/A —
+  not a crate).
+- **The adoption interest:** the methodology over 15 composable skills
+  (TDD, writing-plans, subagent-driven, two-stage review) — the donor
+  patterns for the skill layer; the release cadence (2–6 weeks) is the
+  tempo signal.
+- **Horizons:** T-30 — the weekly growth; T-90 — the release cadence;
+  T-180 — the fork ratio; T-365 — the stars trajectory.
+- **Baseline 23.11:** 324691★, v7.0.2 (the pre-study 23.11: 28 805
+  forks, 361 open issues, MIT, Shell, created 09.10.2025; the adoption
+  stays Red-trigger only — the donor patterns (a)–(в) are named
+  triggers, each a separate naryad).
 
 ## The monthly review (the first Monday of the month)
 

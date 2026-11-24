@@ -36,6 +36,10 @@ Absent (named, not silent):
 3. No cross-platform builds or verification — one artifact family, one platform.
 4. No workload-level startup measurement (the 0.003 s is the CLI floor `--help`, not an interpreted-program run).
 
+### 3.4 The workload-level startup (the W2 definition — what counts as a program run)
+
+The CLI floor (0.003 s, `--help`) measures the arg-parse path only. The **workload-level startup** is defined as: the wall-clock from the process spawn to the first observable effect of an **interpreted program run** — the completion of a pinned non-trivial evaluation that exercises the VM (not the CLI surface) — measured by the same methodology (the median of N spawns, `perf_counter`) on the named platform, with the workload program pinned in the artifact (byte-identical input, the number reproducible). The measurement itself lands in a W2+ step: the definition first — the number does not exist until the run is recorded (numbers measured only).
+
 The reuse posture: the W1–W9 harness (attest/e2e/bench) carries the edge-profile checks in the W2+ slots unchanged — no new machine is introduced by this ADR; the slots decide which checks graduate from measurement to gate.
 
 ## 4. The honesty words (line-wide)

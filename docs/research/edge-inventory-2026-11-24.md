@@ -29,7 +29,7 @@ The artifact runs on linux x86_64 with glibc 2.41 (5/5 spawns exit 0); the prove
 ## The honest gaps («нет прогона» — named, not silent)
 
 1. **No other platform exists**: the releases carry linux-x86_64 only — no darwin / windows / arm64 artifacts, no runs on any of them.
-2. **No CI-runner startup/RSS artifact**: the 0.003 s / 25.0 MiB above are the executor's sandbox numbers (the same linux-x86_64 class, a different machine); the runner-side measurement was never taken.
+2. **No CI-runner startup/RSS artifact** (the machine lands, the numbers do not exist yet): the 0.003 s / 25.0 MiB above are the executor's sandbox numbers (the same linux-x86_64 class, a different machine). The W2 machine is `.github/workflows/edge-profile.yml` (№1004, non-blocking): per run it re-verifies the SHA256 chain and measures size/startup/RSS ON the runner, uploading the E-form artifact (JSON + txt; `scripts/edge_inventory_measure.py`, the self-test `scripts/test_edge_inventory_measure.py`). The first runner-run numbers are recorded in THIS file with the run link in the next recording commit — numbers measured only, not before.
 3. **No CI gates on size/startup/RSS**: nothing fails when these numbers regress (ADR-0224 §3.1).
 4. **No recurring bench**: the verifier numbers (the `attest verify` median 6.7 ms — the w9 bench, 23.11) are a single recorded session, not a re-run lane (ADR-0224 §3.2).
 5. **No workload-level startup**: the CLI floor only (ADR-0224 §3.4).

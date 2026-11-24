@@ -1,0 +1,54 @@
+# The edge-profile lane (№1004, gh#2067 — волна В106 — W2; ADR-0224 §5 W2).
+# The W2 slot: the inventory numbers (size/startup/RSS) measured ON the CI
+# runner, an E-form artifact per run. NON-BLOCKING by design: W3 (the gates,
+# the budgets) is the owner's verbatim AFTER the measured W2 numbers —
+# nothing here gates a merge and nothing here invents a budget.
+# The run: downloads the release binary, re-verifies the SHA256 against the
+# release SHA256SUMS (the provenance chain re-checked on every run), measures
+# and uploads the E-form artifact (JSON + txt).
+name: Edge profile (non-blocking)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The release tag to measure (default v0.40.1)"
+        required: false
+        default: "v0.40.1"
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  edge-profile:
+    name: edge-profile (non-blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Measure the release binary on this runner
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          if [ -z "$TAG" ]; then TAG="${{ inputs.tag }}"; fi
+          if [ -z "$TAG" ]; then TAG="v0.40.1"; fi
+          mkdir -p edge-profile
+          python3 scripts/edge_inventory_measure.py \
+            --tag "$TAG" --runs 5 \
+            --json edge-profile/edge-profile.json \
+            --txt edge-profile/edge-profile.txt
+          cat edge-profile/edge-profile.txt
+
+      - name: Upload the E-form artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-profile
+          path: |
+            edge-profile/edge-profile.json
+            edge-profile/edge-profile.txt
+          retention-days: 90

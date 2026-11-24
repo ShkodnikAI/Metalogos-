@@ -20,7 +20,7 @@
 | Peak RSS, `--help` | **25.0 MiB** (getrusage `RUSAGE_CHILDREN` max) | the same sandbox | `resource.getrusage` after the runs |
 | Binary size | **37 318 352 B** | the release asset (platform-independent fact) | the asset metadata + the downloaded bytes |
 
-**The startup number is the CLI floor** (`--help` — the arg-parse path), not an interpreted-program run; a workload-level startup measurement does not exist yet (ADR-0224 §3.4).
+**The startup number is the CLI floor** (`--help` — the arg-parse path); the workload-level startup now has a machine and a first recorded runner run (№1005 — the gap 5 below; ADR-0224 §3.4).
 
 ## What works unchanged (the machine facts)
 
@@ -32,7 +32,7 @@ The artifact runs on linux x86_64 with glibc 2.41 (5/5 spawns exit 0); the prove
 2. **No CI-runner startup/RSS artifact — the first run recorded 24.11 (№1004)**: the 0.003 s / 25.0 MiB above are the executor's sandbox numbers (a different machine — see the runner run below). The W2 machine is `.github/workflows/edge-profile.yml` (№1004, non-blocking): per run it re-verifies the SHA256 chain and measures size/startup/RSS ON the runner, uploading the E-form artifact (JSON + txt; `scripts/edge_inventory_measure.py`, the self-test `scripts/test_edge_inventory_measure.py`). **The first runner run**: https://github.com/ShkodnikAI/Metalogos-/actions/runs/45444498682 (the push of merge-commit 983cf1fa, 24.11): release v0.40.1, the SHA256 re-verified on the runner (066c3f9ac4b7bcaab3072812eef14a07b368bf1d758dcb9b10ee009f9791afba); startup --help median **0.003 s** (5 runs), peak RSS **75.3 MiB**, size **37 318 352 B**; platform: CI-runner run (kernel 7.0.0-1020-azure, image ubuntu26, runner GitHub Actions 1000141364). The runner RSS (75.3 MiB) vs the sandbox (25.0 MiB) — the platform difference is real and now has two recorded runs, one per platform; the budgets stay unset (W3 — the owner's verbatim after the measured numbers).
 3. **No CI gates on size/startup/RSS**: nothing fails when these numbers regress (ADR-0224 §3.1).
 4. **No recurring bench**: the verifier numbers (the `attest verify` median 6.7 ms — the w9 bench, 23.11) are a single recorded session, not a re-run lane (ADR-0224 §3.2).
-5. **No workload-level startup**: the CLI floor only (ADR-0224 §3.4).
+5. **No workload-level startup — RESOLVED 24.11: the first measurement recorded (№1005)**: the §3.4 definition in execution — the pinned program `examples/dag_demo.mlog` (sha256 pin `ae89af54…3da599`), the expected effect `examples/dag_demo.expected` (pin `9337ffb9…d9cc2624`); the pin gate in `scripts/edge_inventory_measure.py` (a mismatch = a loud «pin-mismatch», NO numbers recorded; a run counts only when the effect is verified — stdout == expected). **The first runner run**: https://github.com/ShkodnikAI/Metalogos-/actions/runs/45467303310 (the push of merge-commit 8bebdd81, 24.11): **median 0.004 s** (5 runs: 0.004×5, the effect verified each run), the pins verified ON the runner; platform: CI-runner run (kernel 7.0.0-1016-aws). The fleet differs from the №1004 runner run (7.0.0-1020-azure) — the honest label carries the fleet variance, no cross-fleet average is invented. The sandbox rehearsal (0.005 s) — the honest label, not recorded as an inventory number. The budgets stay unset (W3 — the owner's verbatim after the measured numbers).
 
 ## The verdict posture
 

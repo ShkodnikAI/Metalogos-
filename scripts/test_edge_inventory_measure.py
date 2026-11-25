@@ -16,7 +16,8 @@ _spec = importlib.util.spec_from_file_location("edge_inventory_measure", R / "sc
 em = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(em)
 
-REL = {"tag_name": "v0.40.1", "created_at": "2026-11-21T20:25:47Z",
+SOURCE = {"kind": "release", "tag": "v0.40.1",
+          "created_at": "2026-11-21T20:25:47Z",
        "target_commitish": "245fe99610"}
 
 
@@ -45,24 +46,31 @@ class Median(unittest.TestCase):
 
 
 class BuildArtifact(unittest.TestCase):
-    def _art(self, label_env=None):
+    def _art(self, label_env=None, rss_kib=25 * 1024, source=None):
+        if source is None:
+            source = SOURCE
         if label_env is None:
             ctx = mock.patch.dict(os.environ, {}, clear=True)
         else:
             ctx = mock.patch.dict(os.environ, label_env, clear=True)
         with ctx:
-            return em.build_artifact(REL, "96d2db1b", 37318352,
+            return em.build_artifact(source, "mlog-linux-x86_64", "96d2db1b",
+                                     "verified-against-the-release-SHA256SUMS" if source["kind"] == "release"
+                                     else "computed-from-the-built-file (a local build; no SHA256SUMS check)",
+                                     37318352,
                                      "rustc 1.100.0\n", [0.003, 0.003, 0.003, 0.003, 0.005],
-                                     25 * 1024, 5)
+                                     rss_kib, 5)
 
     def test_required_keys_and_e_form(self):
         art = self._art()
-        for key in ("artifact", "form", "release", "asset", "sha256_verified",
-                    "build_info_verbatim", "measurement", "platform", "budgets"):
+        for key in ("artifact", "form", "source", "asset", "sha256",
+                    "sha256_source", "build_info_verbatim", "measurement",
+                    "platform", "budgets"):
             self.assertIn(key, art)
         self.assertEqual(art["artifact"], "edge-profile")
         self.assertIn("only from this recorded run", art["form"])
-        self.assertTrue(art["sha256_verified"])
+        self.assertEqual(art["source"]["kind"], "release")
+        self.assertEqual(art["sha256_source"], "verified-against-the-release-SHA256SUMS")
         self.assertEqual(art["asset"]["size_bytes"], 37318352)
 
     def test_measurement_shape(self):
@@ -71,6 +79,16 @@ class BuildArtifact(unittest.TestCase):
         self.assertEqual(m["runs"], 5)
         self.assertEqual(len(m["startup_help_runs_s"]), 5)
         self.assertEqual(m["peak_rss_children_max_mib"], 25.0)
+
+    def test_rss_none_on_os_without_getrusage(self):
+        m = self._art(rss_kib=None)["measurement"]
+        self.assertIsNone(m["peak_rss_children_max_mib"])
+
+    def test_local_build_source_is_named_not_silent(self):
+        art = self._art(source={"kind": "local-build"})
+        self.assertEqual(art["source"]["kind"], "local-build")
+        self.assertIn("no SHA256SUMS check", art["sha256_source"])
+        self.assertEqual(art["asset"]["name"], "mlog-linux-x86_64")
 
     def test_no_budgets_line_is_carried(self):
         art = self._art()
@@ -100,8 +118,10 @@ class WorkloadPins(unittest.TestCase):
         wl = {"program": em.WORKLOAD_PROGRAM[0], "status": "verified",
               "median_s": 0.007, "runs_s": [0.007] * 5, "runs": 5}
         with mock.patch.dict(os.environ, {}, clear=True):
-            art = em.build_artifact(REL, "96d2db1b", 37318352,
-                                    "rustc 1.100.0\n", [0.003] * 5, 25 * 1024, 5, wl)
+            art = em.build_artifact(SOURCE, "mlog-linux-x86_64", "96d2db1b",
+                                    "verified-against-the-release-SHA256SUMS",
+                                    37318352, "rustc 1.100.0\n",
+                                    [0.003] * 5, 25 * 1024, 5, wl)
         self.assertEqual(art["measurement"]["workload"]["status"], "verified")
         self.assertEqual(art["measurement"]["workload"]["median_s"], 0.007)
         self.assertIn("gh#2071", art["naryad"])

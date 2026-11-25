@@ -1,0 +1,10 @@
+# Naryad No1007 (issue #2078, volna В106 — W4 follow-up): the S3.4 pinned
+# examples must survive byte-identical on EVERY checkout lane. The GitHub
+# Windows runners configure core.autocrlf=true, which converts LF to CRLF
+# on checkout and breaks the sha256 pin identity (the first cross run
+# 45549890075: workload PIN MISMATCH — the tripwire held, no numbers
+# recorded). Scoped to exactly the two pinned files: NOT a repo-wide
+# text=auto normalization — file trees are never rewritten silently.
+# The linux lanes are unaffected (the index blobs are already LF).
+examples/dag_demo.mlog text eol=lf
+examples/dag_demo.expected text eol=lf

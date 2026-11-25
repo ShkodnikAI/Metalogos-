@@ -123,7 +123,7 @@ class BudgetVerdicts(unittest.TestCase):
 
     def test_workload_over_budget_fails(self):
         v = em.budget_verdicts(37_318_352, 0.003, 25.0,
-                               {"status": "verified", "median_s": 0.02})
+                               {"status": "verified", "median_s": 0.04})
         self.assertTrue(any(ok is False for _, ok in v))
 
 

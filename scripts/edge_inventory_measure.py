@@ -101,7 +101,8 @@ def median(values: list[float]) -> float:
 # the owner's verbatim delegated the numbers (the full quote is carried in
 # every E-artifact via OWNER_VERBATIM_W3 below) and the gate values are
 # agent-proposed per ADR-0224 §5 W3, each 2-3x the worst measured W2/W4
-# value (workload 0.004-0.006 s; CLI-floor 0.002-0.011 s; RSS 19.5-75.7
+# value (workload 0.004-0.016 s — re-baselined №1009 after the first
+# windows workload run: 16 ms; CLI-floor 0.002-0.011 s; RSS 19.5-75.7
 # MiB; size 31 899 648-37 318 352 B) — they catch ~2x regressions, not
 # runner noise. The size gate is deliberately tight (~1.2x): the binary
 # size is the earliest bloat signal. A gate FAIL exits 2 (the lanes are
@@ -109,7 +110,7 @@ def median(values: list[float]) -> float:
 OWNER_VERBATIM_W3 = ("я доверяю твоим рекомендациям, при том что все "
                      "решения должны идти только на улучшения")
 BUDGETS = {
-    "workload_median_ms": 10.0,
+    "workload_median_ms": 30.0,  # №1009: was 10 (linux-only data); the windows run measured 16 ms
     "cli_floor_median_ms": 25.0,
     "peak_rss_mib": 150.0,
     "size_bytes": 45_000_000,

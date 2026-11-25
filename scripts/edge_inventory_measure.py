@@ -247,7 +247,8 @@ def main() -> int:
                          info, times, rss, a.runs, workload)
     if a.json:
         Path(a.json).parent.mkdir(parents=True, exist_ok=True)
-        Path(a.json).write_text(json.dumps(art, ensure_ascii=False, indent=2) + "\n")
+        Path(a.json).write_text(json.dumps(art, ensure_ascii=False, indent=2) + "\n",
+                         encoding="utf-8")  # windows: the default cp1252 cannot encode «№»
         print("artifact json:", a.json)
     if a.txt:
         Path(a.txt).parent.mkdir(parents=True, exist_ok=True)
@@ -266,7 +267,8 @@ def main() -> int:
                if workload["status"] == "verified"
                else "workload: PIN MISMATCH — no workload numbers recorded\n")
             + f"platform: {label['honest_label']} | kernel {label['kernel']}\n"
-            "budgets: none (ADR-0224 §5 W3 — the owner's verbatim after the W2 numbers)\n")
+            "budgets: none (ADR-0224 §5 W3 — the owner's verbatim after the W2 numbers)\n",
+            encoding="utf-8")  # windows: the default cp1252 cannot encode «№»
         print("artifact txt:", a.txt)
     return 0
 

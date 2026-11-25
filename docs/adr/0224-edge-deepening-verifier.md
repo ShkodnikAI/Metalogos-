@@ -14,7 +14,7 @@ The machine facts this ADR builds on (measured 2026-11-24, the full numbers and 
 
 - The CI-built release artifact exists per release with a machine-verifiable provenance chain: `mlog-linux-x86_64` **37 318 352 bytes (35.59 MiB)** (the release v0.40.1 asset, created 2026-11-21), SHA256 verified against the release `SHA256SUMS`, `BUILD-INFO.txt` carries rustc 1.100.0 / LLVM 23.1.5 / the runner image ubuntu24 20261116.133.1 / `cargo build --release --locked -p metalogos-server --bin mlog`, plus the CycloneDX SBOM (`.cdx.json`).
 - Startup (median of 5 runs, `--help`, exit 0): **0.003 s**; peak RSS (getrusage children max): **25.0 MiB** — measured on the executor's sandbox (linux x86_64, kernel 5.10.134, glibc 2.41). **Honest label: NOT a CI-runner run** — the runner numbers do not exist as artifacts (named gap, §3).
-- The releases carry **linux-x86_64 only** — no darwin / windows / arm64 artifacts (honest: no run exists on any other platform).
+- The releases carry **linux-x86_64 only**; the CI-level per-platform runs landed (№1006, run 45549890075): **linux-arm64** (35 377 504 B, startup 0.003 s, workload 0.006 s verified, RSS 19.5 MiB — repeatable across runs) and **windows-x86_64** (31 899 648 B, startup 0.011 s, RSS n/a honestly, workload pin-mismatch — the §3.4 tripwire held, no numbers recorded) recorded with the run links in the inventory (§3 item 1); **darwin — нет прогона** (the macOS fleet allocation), no numbers invented.
 
 ## 2. Goals and non-goals
 

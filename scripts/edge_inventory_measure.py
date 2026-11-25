@@ -97,6 +97,56 @@ def median(values: list[float]) -> float:
     return s[len(s) // 2]
 
 
+# №1008 (gh#2080, ADR-0224 §5 W3 RESOLVED 25.11): the budgets are live —
+# the owner's verbatim delegated the numbers (the full quote is carried in
+# every E-artifact via OWNER_VERBATIM_W3 below) and the gate values are
+# agent-proposed per ADR-0224 §5 W3, each 2-3x the worst measured W2/W4
+# value (workload 0.004-0.006 s; CLI-floor 0.002-0.011 s; RSS 19.5-75.7
+# MiB; size 31 899 648-37 318 352 B) — they catch ~2x regressions, not
+# runner noise. The size gate is deliberately tight (~1.2x): the binary
+# size is the earliest bloat signal. A gate FAIL exits 2 (the lanes are
+# non-blocking — visibility, no release block).
+OWNER_VERBATIM_W3 = ("я доверяю твоим рекомендациям, при том что все "
+                     "решения должны идти только на улучшения")
+BUDGETS = {
+    "workload_median_ms": 10.0,
+    "cli_floor_median_ms": 25.0,
+    "peak_rss_mib": 150.0,
+    "size_bytes": 45_000_000,
+}
+
+
+def budget_verdicts(size_bytes, med_s, rss_mib, workload):
+    """The W3 gate verdicts: a list of (gate, ok); ok: True/False/None
+    (None = no number measured — RSS without getrusage, a workload
+    pin-mismatch; N/A is the honest form of numbers-measured-only)."""
+    v = []
+    ok = size_bytes <= BUDGETS["size_bytes"]
+    v.append((f"size_bytes <= {BUDGETS['size_bytes']}: "
+              f"{'PASS' if ok else 'FAIL'} ({size_bytes} measured)", ok))
+    if med_s is not None:
+        ms = med_s * 1000.0
+        ok = ms <= BUDGETS["cli_floor_median_ms"]
+        v.append((f"cli_floor_ms <= {BUDGETS['cli_floor_median_ms']:g}: "
+                  f"{'PASS' if ok else 'FAIL'} ({ms:.1f} measured)", ok))
+    else:
+        v.append(("cli_floor_ms: N/A (no measurement)", None))
+    if rss_mib is not None:
+        ok = rss_mib <= BUDGETS["peak_rss_mib"]
+        v.append((f"peak_rss_mib <= {BUDGETS['peak_rss_mib']:g}: "
+                  f"{'PASS' if ok else 'FAIL'} ({rss_mib:.1f} measured)", ok))
+    else:
+        v.append(("peak_rss_mib: N/A (no getrusage on this OS)", None))
+    if workload and workload.get("status") == "verified":
+        wms = workload["median_s"] * 1000.0
+        ok = wms <= BUDGETS["workload_median_ms"]
+        v.append((f"workload_ms <= {BUDGETS['workload_median_ms']:g}: "
+                  f"{'PASS' if ok else 'FAIL'} ({wms:.1f} measured)", ok))
+    else:
+        v.append(("workload_ms: N/A (no workload number recorded)", None))
+    return v
+
+
 def build_artifact(source: dict, asset_name: str, sha: str, sha256_source: str,
                    size_bytes: int, build_info: str, times: list[float],
                    rss_kib: int | None, runs: int,
@@ -123,8 +173,14 @@ def build_artifact(source: dict, asset_name: str, sha: str, sha256_source: str,
             "workload": workload,
         },
         "platform": honest_label(),
-        "budgets": ("none — the budgets are the owner's verbatim after the "
-                    "measured W2 numbers (ADR-0224 §5 W3; numbers measured only)"),
+        "budgets": ("ADR-0224 §5 W3 RESOLVED 25.11 (№1008, gh#2080) — the "
+                    "owner's verbatim: «" + OWNER_VERBATIM_W3 + "» (the "
+                    "delegation; the gate values agent-proposed, 2-3x the "
+                    "worst measured W2/W4 value; numbers measured only): "
+                    + "; ".join(g for g, _ in budget_verdicts(
+                        size_bytes, median(times),
+                        None if rss_kib is None else rss_kib / 1024.0,
+                        workload))),
     }
 
 
@@ -245,6 +301,9 @@ def main() -> int:
 
     art = build_artifact(source, asset_name, sha, sha256_source, size_bytes,
                          info, times, rss, a.runs, workload)
+    verdicts = budget_verdicts(size_bytes, med,
+                               None if rss is None else rss / 1024.0,
+                               workload)
     if a.json:
         Path(a.json).parent.mkdir(parents=True, exist_ok=True)
         Path(a.json).write_text(json.dumps(art, ensure_ascii=False, indent=2) + "\n",
@@ -267,9 +326,16 @@ def main() -> int:
                if workload["status"] == "verified"
                else "workload: PIN MISMATCH — no workload numbers recorded\n")
             + f"platform: {label['honest_label']} | kernel {label['kernel']}\n"
-            "budgets: none (ADR-0224 §5 W3 — the owner's verbatim after the W2 numbers)\n",
+            + "budgets (ADR-0224 §5 W3 RESOLVED 25.11, №1008 — the owner's "
+              "verbatim delegation; the values 2-3x the worst measured; "
+              "numbers measured only):\n"
+            + "".join("  " + g + "\n" for g, _ in verdicts),
             encoding="utf-8")  # windows: the default cp1252 cannot encode «№»
         print("artifact txt:", a.txt)
+    failed = [g for g, ok in verdicts if ok is False]
+    if failed:
+        print("BUDGET FAIL (ADR-0224 §5 W3, №1008):", "; ".join(failed))
+        return 2
     return 0
 
 

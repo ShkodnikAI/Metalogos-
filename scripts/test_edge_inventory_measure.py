@@ -2,7 +2,7 @@
 """№1004 (gh#2067, волна В106 — W2): the edge_inventory_measure self-test —
 the honest platform label (a CI-runner run only when the Actions env says
 so), the median math (the №998 bench convention) and the E-form artifact
-shape (the required keys, the sha256-verified flag, the no-budgets line).
+shape (the required keys, the sha256-verified flag, the W3 budgets line — №1008: the gates live, the owner's verbatim carried).
 Stdlib unittest — no new dependencies;
 run: python3 -I scripts/test_edge_inventory_measure.py"""
 import importlib.util
@@ -90,16 +90,42 @@ class BuildArtifact(unittest.TestCase):
         self.assertIn("no SHA256SUMS check", art["sha256_source"])
         self.assertEqual(art["asset"]["name"], "mlog-linux-x86_64")
 
-    def test_no_budgets_line_is_carried(self):
+    def test_w3_budgets_line_is_carried(self):
         art = self._art()
-        self.assertIn("none", art["budgets"])
-        self.assertIn("numbers measured only", art["budgets"])
+        self.assertIn("W3 RESOLVED", art["budgets"])
+        self.assertIn("я доверяю твоим рекомендациям", art["budgets"])
+        self.assertIn("PASS", art["budgets"])
+        self.assertIn("N/A", art["budgets"])  # the fixture passes workload=None
+
+
 
     def test_platform_label_propagates(self):
         self.assertEqual(self._art()["platform"]["honest_label"],
                          "not a CI runner (this machine)")
         env = {"GITHUB_RUN_ID": "1"}
         self.assertEqual(self._art(env)["platform"]["honest_label"], "CI-runner run")
+
+
+class BudgetVerdicts(unittest.TestCase):
+    """№1008 (gh#2080): the W3 gate verdicts — PASS/FAIL/N-A, numbers only."""
+
+    def test_size_fail_and_others_pass(self):
+        v = dict(em.budget_verdicts(46_000_000, 0.003, 25.0, None))
+        self.assertTrue(all("FAIL" in g for g in v if "size_bytes" in g))
+        self.assertTrue(all("PASS" in g for g in v if "cli_floor_ms" in g))
+
+    def test_na_where_no_number(self):
+        v = em.budget_verdicts(37_318_352, 0.003, None,
+                               {"status": "pin-mismatch"})
+        oks = [ok for _, ok in v]
+        self.assertIn(None, oks)
+        self.assertTrue(all(ok is not False for ok in oks))
+
+    def test_workload_over_budget_fails(self):
+        v = em.budget_verdicts(37_318_352, 0.003, 25.0,
+                               {"status": "verified", "median_s": 0.02})
+        self.assertTrue(any(ok is False for _, ok in v))
+
 
 
 class WorkloadPins(unittest.TestCase):

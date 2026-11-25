@@ -19,11 +19,16 @@ Usage:
 import argparse
 import json
 import os
-import resource
+import platform
 import subprocess
 import time
 import urllib.request
 from pathlib import Path
+
+try:
+    import resource
+except ImportError:  # Windows: no getrusage — the RSS is honestly not measured
+    resource = None
 
 API = "https://api.github.com/repos/ShkodnikAI/Metalogos-"
 
@@ -60,8 +65,13 @@ def workload_matches(stdout: str) -> bool:
 def honest_label() -> dict:
     """The platform label: a CI-runner run only when the Actions env says so."""
     run_id = os.environ.get("GITHUB_RUN_ID")
-    kernel = subprocess.run(["uname", "-r"], capture_output=True,
-                            text=True).stdout.strip()
+    try:
+        kernel = subprocess.run(["uname", "-r"], capture_output=True,
+                                text=True).stdout.strip()
+    except (FileNotFoundError, OSError):  # Windows: no uname
+        kernel = f"{platform.system()} {platform.release()} {platform.machine()}".strip()
+    if not kernel:
+        kernel = f"{platform.system()} {platform.release()} {platform.machine()}".strip()
     if run_id:
         return {
             "honest_label": "CI-runner run",
@@ -87,25 +97,29 @@ def median(values: list[float]) -> float:
     return s[len(s) // 2]
 
 
-def build_artifact(rel: dict, sha: str, size_bytes: int, build_info: str,
-                   times: list[float], rss_kib: int, runs: int,
+def build_artifact(source: dict, asset_name: str, sha: str, sha256_source: str,
+                   size_bytes: int, build_info: str, times: list[float],
+                   rss_kib: int | None, runs: int,
                    workload: dict | None = None) -> dict:
-    """The E-form artifact: the numbers only from this recorded run."""
+    """The E-form artifact: the numbers only from this recorded run.
+    source: {"kind": "release", "tag", "created_at", "commit"} or
+    {"kind": "local-build"} (the W4 lane — the sha is computed from the
+    built file, no SHA256SUMS check — named, not silent)."""
     return {
         "artifact": "edge-profile",
         "form": "E (the numbers only from this recorded run)",
-        "naryad": "№1004 + №1005 (gh#2067, gh#2071, волна В106 — W2/W2+)",
-        "release": {"tag": rel["tag_name"], "created_at": rel["created_at"],
-                    "commit": rel["target_commitish"]},
-        "asset": {"name": "mlog-linux-x86_64", "size_bytes": size_bytes},
-        "sha256_verified": True,
+        "naryad": "№1004-№1006 (gh#2067, gh#2071, gh#2074, волна В106 — W2/W2+/W4)",
+        "source": source,
+        "asset": {"name": asset_name, "size_bytes": size_bytes},
         "sha256": sha,
+        "sha256_source": sha256_source,
         "build_info_verbatim": build_info.strip(),
         "measurement": {
             "startup_help_median_s": round(median(times), 3),
             "startup_help_runs_s": [round(t, 3) for t in times],
             "runs": runs,
-            "peak_rss_children_max_mib": round(rss_kib / 1024, 1),
+            "peak_rss_children_max_mib": (round(rss_kib / 1024, 1)
+                                          if rss_kib is not None else None),
             "workload": workload,
         },
         "platform": honest_label(),
@@ -117,6 +131,10 @@ def build_artifact(rel: dict, sha: str, size_bytes: int, build_info: str,
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", default="v0.40.1")
+    ap.add_argument("--binary", default=None,
+                    help="measure a locally built binary instead of a release "
+                         "asset (the W4 lane; the sha256 is computed, no "
+                         "SHA256SUMS check — named in the artifact)")
     ap.add_argument("--runs", type=int, default=5)
     ap.add_argument("--out", default="/tmp/edge-inventory")
     ap.add_argument("--json", default=None, help="the E-form artifact path")
@@ -135,25 +153,44 @@ def main() -> int:
         with urllib.request.urlopen(req, timeout=300) as r:
             return r.read()
 
-    rel = json.loads(api(API + f"/releases/tags/{a.tag}"))
-    print("release:", rel["tag_name"], "| created:", rel["created_at"],
-          "| commit:", rel["target_commitish"])
-    assets = {x["name"]: x for x in rel["assets"]}
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    bin_path = out / "mlog"
-    data = api(assets["mlog-linux-x86_64"]["url"], asset=True)
-    bin_path.write_bytes(data)
-    size_bytes = len(data)
-    sums = api(assets["SHA256SUMS"]["url"], asset=True).decode()
-    info = api(assets["BUILD-INFO.txt"]["url"], asset=True).decode()
-    sha = subprocess.run(["sha256sum", str(bin_path)],
-                         capture_output=True, text=True).stdout.split()[0]
-    assert sha in sums, f"SHA256 mismatch: {sha}"
-    print("sha256 verified:", sha)
-    print("--- BUILD-INFO (verbatim) ---")
-    print(info.strip())
-    print("--- measurement ---")
+    if a.binary:
+        # The W4 lane (№1006): a locally built binary — no download, the
+        # sha256 computed from the built file (no SHA256SUMS check — named).
+        bin_path = Path(a.binary).resolve()
+        assert bin_path.exists(), f"the binary is missing: {bin_path}"
+        size_bytes = bin_path.stat().st_size
+        sha = sha256_of(str(bin_path))
+        info = "(a local build — no BUILD-INFO)"
+        source = {"kind": "local-build"}
+        asset_name = bin_path.name
+        sha256_source = "computed-from-the-built-file (a local build; no SHA256SUMS check)"
+        print("local build:", asset_name, "| size:", size_bytes)
+        print("sha256 computed:", sha, "(no SHA256SUMS check — a local build)")
+    else:
+        rel = json.loads(api(API + f"/releases/tags/{a.tag}"))
+        print("release:", rel["tag_name"], "| created:", rel["created_at"],
+              "| commit:", rel["target_commitish"])
+        assets = {x["name"]: x for x in rel["assets"]}
+        bin_path = out / "mlog"
+        data = api(assets["mlog-linux-x86_64"]["url"], asset=True)
+        bin_path.write_bytes(data)
+        size_bytes = len(data)
+        sums = api(assets["SHA256SUMS"]["url"], asset=True).decode()
+        info = api(assets["BUILD-INFO.txt"]["url"], asset=True).decode()
+        sha = subprocess.run(["sha256sum", str(bin_path)],
+                             capture_output=True, text=True).stdout.split()[0]
+        assert sha in sums, f"SHA256 mismatch: {sha}"
+        source = {"kind": "release", "tag": rel["tag_name"],
+                  "created_at": rel["created_at"],
+                  "commit": rel["target_commitish"]}
+        asset_name = "mlog-linux-x86_64"
+        sha256_source = "verified-against-the-release-SHA256SUMS"
+        print("sha256 verified:", sha)
+        print("--- BUILD-INFO (verbatim) ---")
+        print(info.strip())
+        print("--- measurement ---")
     bin_path.chmod(0o755)
     times = []
     for _ in range(a.runs):
@@ -161,11 +198,13 @@ def main() -> int:
         r = subprocess.run([str(bin_path), "--help"], capture_output=True)
         times.append(time.perf_counter() - t0)
         assert r.returncode == 0, "the binary failed to run"
-    rss = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+    rss = (resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+           if resource is not None else None)
     med = median(times)
     print(f"startup --help: median {med:.3f}s over {a.runs} runs "
           f"({[f'{t:.3f}' for t in times]})")
-    print(f"peak RSS (children max): {rss / 1024:.1f} MiB")
+    print(f"peak RSS (children max): "
+          f"{f'{rss / 1024:.1f} MiB' if rss is not None else 'not measured on this OS (no getrusage)'}")
 
     workload = None
     if workload_pins_ok():
@@ -173,7 +212,8 @@ def main() -> int:
         for _ in range(a.runs):
             t0 = time.perf_counter()
             r = subprocess.run([str(bin_path), "run", WORKLOAD_PROGRAM[0]],
-                               capture_output=True, text=True)
+                               capture_output=True, text=True,
+                               encoding="utf-8", errors="replace")
             wtimes.append(time.perf_counter() - t0)
             assert r.returncode == 0, "the workload run failed"
             assert workload_matches(r.stdout), "the workload effect mismatch"
@@ -203,7 +243,8 @@ def main() -> int:
         print("honest: these are THIS machine's numbers, not the CI runner's;")
     print("no other platform has a run (see ADR-0224 §3).")
 
-    art = build_artifact(rel, sha, size_bytes, info, times, rss, a.runs, workload)
+    art = build_artifact(source, asset_name, sha, sha256_source, size_bytes,
+                         info, times, rss, a.runs, workload)
     if a.json:
         Path(a.json).parent.mkdir(parents=True, exist_ok=True)
         Path(a.json).write_text(json.dumps(art, ensure_ascii=False, indent=2) + "\n")
@@ -212,10 +253,14 @@ def main() -> int:
         Path(a.txt).parent.mkdir(parents=True, exist_ok=True)
         Path(a.txt).write_text(
             "edge-profile (the E-form; numbers only from this recorded run)\n"
-            f"release {rel['tag_name']} ({rel['created_at']}, commit {rel['target_commitish']})\n"
-            f"asset mlog-linux-x86_64: {size_bytes} bytes; sha256 verified: {sha}\n"
+            + ("release " + rel["tag_name"] + " (" + rel["created_at"]
+               + ", commit " + rel["target_commitish"] + ")\n"
+               if source["kind"] == "release"
+               else "source: local build (no release, no BUILD-INFO)\n")
+            + f"asset {asset_name}: {size_bytes} bytes; "
+              f"sha256 {('verified: ' if source['kind'] == 'release' else 'computed: ')}{sha}\n"
             f"startup --help median {med:.3f}s over {a.runs} runs; "
-            f"peak RSS {rss / 1024:.1f} MiB\n"
+            f"peak RSS {f'{rss / 1024:.1f} MiB' if rss is not None else 'not measured on this OS (no getrusage)'}\n"
             + (f"workload (§3.4, pins verified): median {workload['median_s']:.3f}s "
                f"over {workload['runs']} runs, the effect verified each run\n"
                if workload["status"] == "verified"

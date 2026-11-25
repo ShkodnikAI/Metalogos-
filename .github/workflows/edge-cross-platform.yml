@@ -1,0 +1,62 @@
+# The edge cross-platform lane (№1006, gh#2074 — волна В106 — W4; ADR-0224 §5 W4).
+# The W4 slot: the cross-platform builds darwin/windows/arm64 on NATIVE
+# runners (no cross-linking, host-target builds: target/release/), each platform gets ITS OWN RUN (ADR-0224 §4:
+# a platform without its own run is named «нет прогона», never «works»).
+# NON-BLOCKING by design; the triggers are release/dispatch only (the fleet
+# cost is honest — not on every push). ZERO changes to the release
+# provenance chain: SHA256SUMS/BUILD-INFO/SBOM of a release are never cut
+# and not extended here — extending them with the new platforms is a
+# separate later step with its own provenance review. The per-platform
+# artifact records the sha256 as COMPUTED from the built file (no
+# SHA256SUMS check — named, not silent).
+name: Edge cross-platform (non-blocking)
+
+on:
+  workflow_dispatch: {}
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  cross-platform:
+    name: cross ${{ matrix.name }} (non-blocking)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: darwin-arm64, os: macos-14, bin: target/release/mlog, py: python3 }
+          - { name: darwin-x86_64, os: macos-13, bin: target/release/mlog, py: python3 }
+          - { name: windows-x86_64, os: windows-latest, bin: target/release/mlog.exe, py: python }
+          - { name: linux-arm64, os: ubuntu-24.04-arm, bin: target/release/mlog, py: python3 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build mlog natively for this platform
+        shell: bash
+        run: |
+          cargo build --release -p metalogos-server --bin mlog
+          ls -l '${{ matrix.bin }}'
+
+      - name: Measure the built binary on this runner (its own run)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p edge-cross
+          ${{ matrix.py }} scripts/edge_inventory_measure.py \
+            --binary '${{ matrix.bin }}' --runs 5 \
+            --json edge-cross/edge-cross.json \
+            --txt edge-cross/edge-cross.txt
+          cat edge-cross/edge-cross.txt
+
+      - name: Upload the per-platform E-form artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-cross-${{ matrix.name }}
+          path: |
+            edge-cross/edge-cross.json
+            edge-cross/edge-cross.txt
+          retention-days: 90

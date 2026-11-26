@@ -1,0 +1,64 @@
+name: Artifact checksums (non-blocking)
+
+# Наряд №1011 (issue #2085, P2, [ci][process]): SHA256SUMS-манифест артефактов.
+# ТОЛЬКО workflow_dispatch — никогда не на push/PR, вне required checks
+# (non-blocking по построению, прецедент edge-profile/stress-audit-ops).
+# Лane собирает свежие артефакты репо, считает SHA256 каждого zip-а и
+# публикует артефакт artifact-checksums (SHA256SUMS + MANIFEST).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  checksums:
+    runs-on: ubuntu-latest
+    steps:
+      - name: collect artifacts, hash, publish SHA256SUMS
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p zips out
+          page=1
+          while : ; do
+            resp="artifacts_page_${page}.json"
+            curl -sf -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/actions/artifacts?per_page=100&page=${page}" > "$resp"
+            count=$(jq '.artifacts | length' "$resp")
+            jq -r '.artifacts[] | select(.expired == false) | [.id, .name, .size_in_bytes, .created_at, .head_sha, (.workflow_run.run_id|tostring)] | @tsv' \
+              "$resp" >> artifact_list.tsv
+            [ "$count" -lt 100 ] && break
+            page=$((page+1))
+            [ "$page" -gt 5 ] && break
+          done
+          total=$(wc -l < artifact_list.tsv)
+          echo "artifacts to hash: ${total}"
+          # качаем и хэшируем каждый zip; имя включает id — имена артефактов могут повторяться
+          while IFS=$'\t' read -r id name size created sha runid; do
+            safe=$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '_')
+            fn="zips/${safe}_${id}.zip"
+            curl -sfL -H "Authorization: Bearer ${GH_TOKEN}" \
+              "https://api.github.com/repos/${REPO}/actions/artifacts/${id}/zip" -o "$fn"
+            h=$(sha256sum "$fn" | cut -d' ' -f1)
+            echo "${h}  ${safe}_${id}.zip" >> out/SHA256SUMS
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$size" "$created" "$sha" "$runid" >> out/MANIFEST.tsv
+          done < artifact_list.tsv
+          {
+            echo "generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "artifacts hashed: ${total}"
+            echo "column order: artifact_id, name, size_bytes, created_at, head_sha, run_id"
+          } > out/README.txt
+          ls -la out
+          test -s out/SHA256SUMS || { echo "::warning::no artifacts hashed (nothing fresh)"; }
+      - name: upload the checksums artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-checksums
+          path: out/

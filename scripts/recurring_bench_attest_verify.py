@@ -140,6 +140,11 @@ def run_bench(binary: str, runs: int) -> tuple[dict | None, str]:
                       f"(expected {PROGRAM_PIN[0]} {PROGRAM_PIN[1][:12]}…, "
                       f"{HELD_OUT_PIN[0]} {HELD_OUT_PIN[1][:12]}…)")
     import hashlib
+    # The runs below pass cwd=td (a temp dir) — Popen resolves the
+    # executable AFTER the chdir, so a relative --bin path would break
+    # (the first dispatch run 45871772500 failed exactly this way:
+    # FileNotFoundError 'target/release/mlog'). Resolve it up front.
+    binary = str(Path(binary).resolve())
     with open(binary, "rb") as f:
         bin_sha = hashlib.sha256(f.read()).hexdigest()
 

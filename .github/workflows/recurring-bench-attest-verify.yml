@@ -37,7 +37,13 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build the release mlog binary
-        run: cargo build -q -p metalogos-server --release --bin mlog
+        run: |
+          cargo build -q -p metalogos-server --release --bin mlog
+          test -x target/release/mlog || {
+            echo "::error::the release mlog binary is not at target/release/mlog after the build"
+            ls -la target/release/ 2>/dev/null | head -20 || true
+            exit 1
+          }
 
       - name: The self-test of the bench logic (no numbers from it)
         run: python3 scripts/test_recurring_bench_attest_verify.py

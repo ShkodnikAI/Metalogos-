@@ -1,0 +1,65 @@
+# The recurring bench: attest verify (№1010, gh#2085 — волна В107;
+# ADR-0224 §5 W3 recurring-bench follow-up).
+# The last §5 slot: the w9 bench scenario (`mlog attest verify --json`,
+# the median over N spawns) becomes a re-run lane — weekly on schedule
+# (recurring by definition) and per manual dispatch (the form of the
+# existing lanes). NON-BLOCKING: nothing here gates a merge; a budget
+# FAIL exits 2 for visibility (the №1008 gate form, not the №1008 gates
+# — this lane's own budget, agent-proposed 2-3× the worst measured
+# 6.7 ms). The baseline 6.7 ms (w9, 23.11) is not re-baselined here: a
+# baseline rewrite only via a new run artifact + an ADR-0224 §3 record.
+name: "Recurring bench: attest verify (non-blocking)"
+
+on:
+  schedule:
+    - cron: "0 3 * * 1" # Mondays 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "The number of timed verify spawns (default 30)"
+        required: false
+        default: "30"
+
+permissions:
+  contents: read
+
+jobs:
+  recurring-bench:
+    name: recurring-bench-attest-verify (non-blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build the release mlog binary
+        run: cargo build -q -p metalogos-server --release --bin mlog
+
+      - name: The self-test of the bench logic (no numbers from it)
+        run: python3 scripts/test_recurring_bench_attest_verify.py
+
+      - name: Run the recurring bench
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          mkdir -p recurring-bench
+          python3 scripts/recurring_bench_attest_verify.py \
+            --bin target/release/mlog \
+            --runs "${{ inputs.runs || '30' }}" \
+            --json recurring-bench/recurring-bench.json \
+            --txt recurring-bench/recurring-bench.txt
+          cat recurring-bench/recurring-bench.txt
+
+      - name: Upload the E-form artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recurring-bench-attest-verify
+          path: |
+            recurring-bench/recurring-bench.json
+            recurring-bench/recurring-bench.txt
+          retention-days: 90

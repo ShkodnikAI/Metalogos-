@@ -34,12 +34,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: build the audit_ops test binary
-        run: cargo test -p metalogos-server --lib audit_ops --no-run
+        run: cargo test -p metalogos --lib audit_ops --no-run
       - name: the stress loop under full-core load
         run: |
-          BIN=$(find target/debug/deps -maxdepth 1 -name 'metalogos_server-*' -type f -executable | head -1)
+          BIN=$(find target/debug/deps -maxdepth 1 -type f -executable -name 'metalogos-*' 2>/dev/null | head -1)
           if [ -z "$BIN" ]; then
-            echo "::error::no metalogos_server test binary found in target/debug/deps"
+            BIN=$(find target/debug/build -maxdepth 5 -type f -executable -name 'metalogos-*' 2>/dev/null | head -1)
+          fi
+          if [ -z "$BIN" ]; then
+            echo "::error::no metalogos lib test binary found under target/debug"
             exit 1
           fi
           echo "stress binary: $BIN"

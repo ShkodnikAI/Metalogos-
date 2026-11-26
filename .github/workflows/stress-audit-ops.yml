@@ -1,0 +1,75 @@
+# The stress lane for the audit_ops «poison» tests (№1012, gh#2090 — edge/test-flake
+# P1, [ci][process]). The evidence gap (gh#2090): the failing step's full output was
+# never captured — the rerun-failed-jobs replays the ORIGINAL event snapshot (the
+# №1013 lesson, 25-26.11: a corrected PR title never reaches the gate through a
+# rerun) and the runner wipes the step log once attempt 2 goes green. This lane
+# closes the gap ON the runner where both appearances lived: the audit_ops test
+# binary runs in a loop (default 50) under full-core CPU-busy load; every run's
+# full output is kept as an artifact; the panics at src/audit_ops.rs:220 are the
+# EXPECTED path (the intentional poison inside catch_unwind — the helper must
+# survive them); the job exits 1 only on a real test failure or an uncaught panic.
+# NON-BLOCKING by design (the edge-profile precedent): workflow_dispatch only —
+# it never runs on push/PR and is not in the required checks; no budget invented,
+# no product code.
+name: Stress audit_ops (non-blocking)
+
+on:
+  workflow_dispatch:
+    inputs:
+      loops:
+        description: "audit_ops binary runs under load"
+        default: "50"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  stress-audit-ops:
+    name: stress audit_ops loop (non-blocking)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: build the audit_ops test binary
+        run: cargo test -p metalogos-server --lib audit_ops --no-run
+      - name: the stress loop under full-core load
+        run: |
+          BIN=$(find target/debug/deps -maxdepth 1 -name 'metalogos_server-*' -type f -executable | head -1)
+          if [ -z "$BIN" ]; then
+            echo "::error::no metalogos_server test binary found in target/debug/deps"
+            exit 1
+          fi
+          echo "stress binary: $BIN"
+          CORES=$(nproc)
+          LOOPS="${{ inputs.loops || '50' }}"
+          FAILS=0
+          mkdir -p stress-logs
+          i=1
+          while [ "$i" -le "$LOOPS" ]; do
+            NAME=$(printf '%03d' "$i")
+            # the load regime: a CPU-busy spinner per core while the binary runs
+            for _ in $(seq 1 "$CORES"); do
+              timeout 120 bash -c 'while :; do :; done' &
+            done
+            if ! "$BIN" audit_ops --test-threads 4 > "stress-logs/run_${NAME}.log" 2>&1; then
+              FAILS=$((FAILS+1))
+              echo "::error::run ${NAME} FAILED — the full log goes to the artifact"
+              cat "stress-logs/run_${NAME}.log"
+            fi
+            wait || true
+            grep -h "^test result" "stress-logs/run_${NAME}.log" | tail -1 || true
+            i=$((i+1))
+          done
+          echo "=== stress summary: ${FAILS} failed of ${LOOPS} runs ==="
+          if [ "$FAILS" -gt 0 ]; then
+            exit 1
+          fi
+      - name: upload the stress logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-audit-ops-logs
+          path: stress-logs/

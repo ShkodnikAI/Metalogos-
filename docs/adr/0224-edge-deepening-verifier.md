@@ -42,6 +42,8 @@ The CLI floor (0.003 s, `--help`) measures the arg-parse path only. The **worklo
 
 The reuse posture: the W1–W9 harness (attest/e2e/bench) carries the edge-profile checks in the W2+ slots unchanged — no new machine is introduced by this ADR; the slots decide which checks graduate from measurement to gate.
 
+**The line closure (registered 2026-11-27 by №1016, PR of that date):** the Phase 7 line is closed and accepted by the owner's word — «Продолжи А» 2026-11-27 (the variant A of the №1015 package; the verbatim data record docs/research/verbatim-phase7-closure-2026-11-27.json, registered == verified): absent-1..4 RESOLVED (the recurring bench — the re-run lane, the first run [45878416003](https://github.com/ShkodnikAI/Metalogos-/actions/runs/45878416003) median 3.28 ms, PASS), the §5 slots W1–W4 executed (darwin — «нет прогона» stays an owner's call), the never-cut held by the whole line. The date was deferred by №1014 («the closure verdict itself is the owner's act») and is written here by that word as the following act. The junction this ADR built carries forward into the next line («Verifier-first agent actions», the В109 wave opened by the same word) — the slots above stay as the recorded history, nothing re-opened.
+
 ## 4. The honesty words (line-wide)
 
 1. An edge number without a run link does not exist (the «numbers measured only» rule — the §13.12 W9 precedent).

@@ -1,8 +1,7 @@
-# The next-line decision package (№1015, gh#2097 — волна В108)
+# The next-line decision package (№1015, gh#2097 — wave В108)
 
 Recorded: 2026-11-27. The dispatch: gh#2095 (the owner's directive 26.11:
-«Проверь что сделано на репо Металогос и заводи следующую волну нарядов
-согласно стратегического плана развития языка Металогос»). Purpose: to
+the RU verbatim published in gh#2095 (the data record, not duplicated here)). Purpose: to
 prepare the owner's choice of the next line AFTER the Phase 7 closure
 (№1014, gh#2096). Zero product code; no phase is opened or promised here —
 the opening is a dispatch act by the owner's word. Every number carries its
@@ -111,7 +110,7 @@ owner's call.
    as the composition layer for methodology packs. Dependencies: the
    skill-index surface; the watch's own maturity.
 
-## 4. The recommendation draft (форма №1599 — the A/B/C for the owner)
+## 4. The recommendation draft (the №1599 form — the A/B/C for the owner)
 
 - **A (recommended): close Phase 7 by the owner's verbatim (№1014's draft
   in gh#2084) and open the next line as «Verifier-first agent actions»**

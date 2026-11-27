@@ -1,0 +1,22 @@
+{
+  "record": "the owner's word closing the Phase 7 line «Edge deepening + verifier» and choosing the next line by the variant A — the machine-readable registration",
+  "naryad": "№1016",
+  "issues": "gh#2084 (the closure draft), gh#2095 (the A/B/C package)",
+  "date": "2026-11-27",
+  "approved_by": "the owner, «Продолжи А» 2026-11-27 (the chat; no trace id — the chat word, named here verbatim)",
+  "provenance": "composed by the executor as the closure recommendation draft (gh#2084 comment 7209577268, форма №1599) and the A/B/C next-line package (gh#2095 comment 7209577610; docs/research/next-line-package-2026-11-27.md); the variant A chosen by the owner's word 2026-11-27",
+  "language_note": "the verbatim is Russian by nature (the owner's words); it lives here as data; the registrations in ADR-0224/PLAN-SUMMARY carry the English rendering",
+  "registered_verbatim": "«Продолжи А»",
+  "machine_check": {
+    "registered == verified": true,
+    "required_substrings": [
+      "Продолжи А"
+    ]
+  },
+  "what_the_word_decides": [
+    "the Phase 7 closure per the gh#2084 draft: the line is closed and accepted (ADR-0224 §3 absent-1..4 RESOLVED; the recurring bench re-run lane live, the first run 45878416003 median 3.28 ms PASS; the §5 slots W1–W4 executed — darwin «нет прогона» stays an owner's call; the never-cut held by the whole line)",
+    "the verbatim date 2026-11-27 is written into ADR-0224 §3 by this №1016 act (the act the №1014 naryad deferred)",
+    "the next line opens as «Verifier-first agent actions» (the variant A of the №1015 package): the Phase 7 verifier junction (the attest/e2e/bench lanes, the provenance chain, the recurring bench) extended to the serve/agent-action path; the wave В109 issued by this word; the hygiene queue (the panic-print mute, the stress-lane speedup) rides its В1",
+    "the SHA256SUMS cross-platform extension stays OUT of В1 (it needs its provenance review per the never-cut §5) — a separate naryad only after that review"
+  ]
+}

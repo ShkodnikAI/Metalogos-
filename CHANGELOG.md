@@ -6,10 +6,26 @@ All notable changes to the Metalogos project.
 
 A PATCH cut of the 0.40.1 line, prepared on the owner's directive
 (the wave-16 order of 2026-11-27: ship the №1018 fix to the consumer
-fleet). It fixes ONE checker defect and changes nothing else: no
-language change, no builtin, no gate change, no dependency change.
-The 0.40.1 tree is otherwise carried over verbatim, so the diff
-against `v0.40.1` is the fix plus the version stamp.
+fleet). It fixes ONE checker defect, replaces ONE dependency and
+changes nothing else: no language change, no builtin, no gate
+change, no documented behaviour. The 0.40.1 tree is otherwise
+carried over verbatim, so the diff against `v0.40.1` is the fix, the
+lock entry and the version stamp.
+
+### Security
+
+- `url` 2.5.8 -> 2.5.9 in `Cargo.lock` (RUSTSEC-2026-0592): in `url`
+  2.5.8 and earlier, `Url::origin()` handled a `blob:` URL by parsing
+  its path as another URL and calling itself on the result regardless
+  of the inner scheme — each `blob:` prefix cost one stack frame with
+  no nesting limit, so `Url::origin()` on untrusted input can
+  overflow the stack, aborting the whole process (a stack overflow is
+  not caught by `catch_unwind()`). 2.5.9 follows the URL Standard: the
+  inner URL's origin is taken only for `http`/`https`/`file`, an
+  opaque origin otherwise, and `Url::origin()` never calls itself.
+  The advisory was published after the `v0.40.1` tag, which is why
+  the release CI could not have caught it; the main line already
+  carries 2.5.9 (the same resolution).
 
 Why the cut exists: the published `v0.40.1` binary applies the №802
 allow-comment suppression per FILE on the `check --root` path — the

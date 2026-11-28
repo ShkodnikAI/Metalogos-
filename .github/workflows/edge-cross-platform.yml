@@ -33,7 +33,7 @@ jobs:
           - { name: linux-arm64, os: ubuntu-24.04-arm, bin: target/release/mlog, py: python3 }
           - { name: linux-x86_64, os: ubuntu-24.04, bin: target/release/mlog, py: python3 }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build mlog natively for this platform
         shell: bash

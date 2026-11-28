@@ -54,7 +54,7 @@ jobs:
           cat edge-cross/edge-cross.txt
 
       - name: Upload the per-platform E-form artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: edge-cross-${{ matrix.name }}
           # №1020 (P1a): the built binary rides its own-run artifact — the

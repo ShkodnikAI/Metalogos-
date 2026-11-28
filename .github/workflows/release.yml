@@ -58,6 +58,7 @@ jobs:
       contents: write      # attach assets to the release (upload step only)
       id-token: write      # OIDC token for the Sigstore-signed attestations
       attestations: write  # persist the attestations on the repository
+      actions: read        # №1020 (P1b): list/download the edge-cross own-run artifacts
     steps:
       - name: Resolve tag and mode
         id: tag
@@ -175,6 +176,64 @@ jobs:
         run: |
           sha256sum mlog-linux-x86_64 mlog-linux-x86_64.cdx.json BUILD-INFO.txt > SHA256SUMS
           cat SHA256SUMS
+
+      - name: Cross-platform checksums (the own-run rule, №1020 P1b)
+        # The review gate (docs/research/shasums-provenance-review-2026-11-28.md,
+        # P1): every non-x86_64 platform gets a checksum line built from ITS
+        # OWN edge-cross run artifact for THIS commit — the platform's binary
+        # is probed (`file`), the probe must agree with the expected platform,
+        # only then is the hash written. A platform whose own run is absent
+        # for this commit gets a «нет прогона» comment line, never a hash
+        # inferred, copied across commits, or trusted from a name. The race
+        # with the `release: published` edge-cross run resolves the same way:
+        # until that run's artifact lands, the line stays «нет прогона»
+        # (a dispatch upload=true backfill on the same tag picks the hashes up
+        # once the run finished). The binaries themselves are NOT attached to
+        # the release — hashes only (the asset policy is unchanged).
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          for p in linux-arm64 darwin-arm64 darwin-x86_64 windows-x86_64; do
+            line=""
+            aid=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
+              --jq ".artifacts[] | select(.name == \"edge-cross-${p}\" and .expired == false and .workflow_run.head_sha == \"${SHA}\") | .id" \
+              | head -1 || true)
+            if [ -n "$aid" ]; then
+              rm -rf cross && mkdir cross
+              if gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${aid}/zip" > cross/a.zip 2>/dev/null && unzip -q -o cross/a.zip -d cross; then
+                bin=$(find cross -type f \( -name mlog -o -name mlog.exe \) | head -1)
+                if [ -n "$bin" ]; then
+                  case "$(file -b "$bin")" in
+                    *"ELF 64-bit"*"ARM aarch64"*) got=linux-arm64 ;;
+                    *"ELF 64-bit"*"x86-64"*)      got=linux-x86_64 ;;
+                    *"Mach-O"*"arm64"*)           got=darwin-arm64 ;;
+                    *"Mach-O"*"x86_64"*)          got=darwin-x86_64 ;;
+                    *"PE32+"*"x86-64"*)           got=windows-x86_64 ;;
+                    *)                            got=unknown ;;
+                  esac
+                  if [ "$got" = "$p" ]; then
+                    line="$(sha256sum "$bin" | cut -d' ' -f1)  mlog-${p}"
+                    echo "mlog-${p}: hashed from artifact ${aid} (probe ok)"
+                  else
+                    echo "::warning::platform probe mismatch for edge-cross-${p}: probe said ${got} — no hash line (the own-run rule)"
+                  fi
+                else
+                  echo "::warning::no mlog binary inside edge-cross-${p} artifact ${aid} (a pre-№1020 artifact?) — no hash line"
+                fi
+              else
+                echo "::warning::edge-cross-${p} artifact ${aid} download/zip failed — no hash line"
+              fi
+            fi
+            if [ -n "$line" ]; then
+              echo "$line" >> dist/SHA256SUMS
+            else
+              echo "# mlog-${p}: нет прогона (the own-run rule: no verified edge-cross artifact for ${SHA:0:12})" >> dist/SHA256SUMS
+            fi
+          done
+          echo "--- SHA256SUMS (final) ---"
+          cat dist/SHA256SUMS
 
       - name: Publish digests and SBOM facts as annotations
         # Readable through the checks API without downloading the artifact,

@@ -57,7 +57,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: edge-cross-${{ matrix.name }}
+          # №1020 (P1a): the built binary rides its own-run artifact — the
+          # release lane hashes IT (P1b), so the artifact must carry the
+          # bytes, not only the inventory. The name matches the matrix:
+          # target/release/mlog (linux/darwin), target/release/mlog.exe (win).
           path: |
+            ${{ matrix.bin }}
             edge-cross/edge-cross.json
             edge-cross/edge-cross.txt
           retention-days: 90

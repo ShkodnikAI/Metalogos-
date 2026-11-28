@@ -47,12 +47,40 @@ jobs:
               "https://api.github.com/repos/${REPO}/actions/artifacts/${id}/zip" -o "$fn"
             h=$(sha256sum "$fn" | cut -d' ' -f1)
             echo "${h}  ${safe}_${id}.zip" >> out/SHA256SUMS
-            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$size" "$created" "$sha" "$runid" >> out/MANIFEST.tsv
+            # №1020 (P2): the platform column is VERIFIED, not trusted — the
+            # binfmt probe on the inner binary, never the artifact name (a
+            # probe/name disagreement is a warning, the probe wins). An
+            # artifact without a mlog binary inside carries none/-.
+            plat="none"; inner="-"
+            rm -rf probe && mkdir probe
+            if unzip -q -o "$fn" -d probe 2>/dev/null; then
+              b=$(find probe -type f \( -name mlog -o -name mlog.exe \) | head -1)
+              if [ -n "$b" ]; then
+                case "$(file -b "$b")" in
+                  *"ELF 64-bit"*"ARM aarch64"*) plat=linux-arm64 ;;
+                  *"ELF 64-bit"*"x86-64"*)      plat=linux-x86_64 ;;
+                  *"Mach-O"*"arm64"*)           plat=darwin-arm64 ;;
+                  *"Mach-O"*"x86_64"*)          plat=darwin-x86_64 ;;
+                  *"PE32+"*"x86-64"*)           plat=windows-x86_64 ;;
+                  *)                            plat=unknown ;;
+                esac
+                inner=$(sha256sum "$b" | cut -d' ' -f1)
+                case "$name" in
+                  *"$plat"*) : ;;
+                  *) echo "::warning::platform probe ${plat} is not in artifact name ${name} (probe wins)" ;;
+                esac
+                echo "${inner}  mlog-${plat}_${id}" >> out/SHA256SUMS-INNER
+              fi
+            else
+              echo "::warning::artifact ${id} (${name}) is not a zip — container hash only"
+            fi
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$size" "$created" "$sha" "$runid" "$plat" "$inner" >> out/MANIFEST.tsv
           done < artifact_list.tsv
           {
             echo "generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "artifacts hashed: ${total}"
-            echo "column order: artifact_id, name, size_bytes, created_at, head_sha, run_id"
+            echo "column order: artifact_id, name, size_bytes, created_at, head_sha, run_id, platform, inner_binary_sha256"
+            echo "SHA256SUMS hashes the artifact zip containers; SHA256SUMS-INNER hashes the inner mlog binaries (probe-verified platform in the name), one line per binary-bearing artifact."
           } > out/README.txt
           ls -la out
           test -s out/SHA256SUMS || { echo "::warning::no artifacts hashed (nothing fresh)"; }

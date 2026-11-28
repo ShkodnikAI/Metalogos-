@@ -158,8 +158,8 @@ fn n1018_check_root_eq_file_sees_the_module_allow_comment() {
         DEP_SANCTIONED,
     );
     let source = fs::read_to_string(&root_path).expect("read root");
-    let result = metalogos::check_program_with_root(&source, Some(root_path.as_path()))
-        .expect("parse ok");
+    let result =
+        metalogos::check_program_with_root(&source, Some(root_path.as_path())).expect("parse ok");
     let rendered = format!("{:?}", result.errors);
     assert_eq!(
         unchecked_count(&rendered),
@@ -221,7 +221,11 @@ fn n1018_check_root_no_cross_module_laundering() {
 #[test]
 fn n1018_check_no_root_form_unchanged() {
     let dir = tmp_dir("no_root");
-    let root_path = write_root_with_dep(&dir, "flow Main { input: String = \"x\" -> Leaf -> output }\n", DEP_SANCTIONED);
+    let root_path = write_root_with_dep(
+        &dir,
+        "flow Main { input: String = \"x\" -> Leaf -> output }\n",
+        DEP_SANCTIONED,
+    );
     let _ = root_path;
     let result = metalogos::check_program_with_root(ENTRY_CALLS_DEP, None).expect("parse ok");
     let rendered = format!("{:?}", result.errors);

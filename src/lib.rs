@@ -351,6 +351,10 @@ pub fn check_program_with_root(
     // (or nothing) — captured on the static-resolution path below, ridden
     // by the AnalysisResult.
     let mut imported_profile_error_954: Option<String> = None;
+    // №XXXX (the check --root suppression surface): the import groups for
+    // the per-module №802 filter — the same geometry the №897 run gate
+    // uses (lib.rs enforce_run_gates). Empty when no root.
+    let mut module_groups_953: Vec<semantic::ImportModuleGroup> = Vec::new();
 
     // If no root file, just check the file in isolation
     // №954 (the office CI form `mlog check app.mlog --root app.mlog`): when
@@ -388,12 +392,27 @@ pub fn check_program_with_root(
                 &semantic::ImportModuleGroup::flattened_capability_profiles(&module_groups),
             )
             .err();
-            let mut merged = module_decls;
-            merged.extend(parsed_root);
             // №954: the root==file detection rides the SOURCE text — the
             // checked file's declarations are then already present in the
             // merged list; no second copy.
             same_source_954 = source == root_source;
+            // №XXXX: the groups carry the imports' sources into the
+            // per-module №802 filter below; the root file's own body
+            // joins them as a group of its own (its allow-comments
+            // sanction its own findings). Skipped when the checked file
+            // IS the root — the entry bank owns that text already, and
+            // double-banking would inflate the sanctioned multiset (the
+            // laundering hole the per-(code, variable) quota closes).
+            module_groups_953 = module_groups;
+            if !same_source_954 {
+                module_groups_953.push(semantic::ImportModuleGroup {
+                    declarations: parsed_root.clone(),
+                    source: root_source.clone(),
+                    capability_profiles: Vec::new(),
+                });
+            }
+            let mut merged = module_decls;
+            merged.extend(parsed_root);
             merged
         }
         None => vec![],
@@ -402,7 +421,9 @@ pub fn check_program_with_root(
     // Merge: root declarations first, then the file being checked
     let mut all_decls = root_decls;
     if !same_source_954 {
-        all_decls.extend(declarations);
+        // №1018: cloned — `declarations` stays owned by the entry bank of
+        // the per-module №802 filter below.
+        all_decls.extend(declarations.clone());
     }
 
     let mut result = semantic::check_program(&all_decls);
@@ -413,9 +434,28 @@ pub fn check_program_with_root(
             .errors
             .push(semantic::SpannedError::at(e, ast::Span::unknown()));
     }
-    // №802: the allow-comment suppressions map to the CHECKED file's
-    // lines (the merged root decls keep their own spans).
-    result.errors = semantic::filter_suppressed_unchecked(result.errors, source);
+    // №802: the allow-comment suppressions. №XXXX: they apply PER MODULE —
+    // the №897 geometry on the check --root path. The checked file is the
+    // entry; the groups carry the imports and (when the root is a
+    // different file) the root's own body. A group whose source is the
+    // entry's own text is dropped from the bank (the entry bank owns it —
+    // double-banking would inflate the sanctioned multiset; the
+    // fail-closed direction is under-banking). Without this, an
+    // allow-comment sitting in an imported module is invisible to the
+    // filter (it matches the CHECKED file's text only) and `mlog check
+    // leaf.mlog --root root.mlog` reports the module's own sanctioned
+    // reads — the checked surface and the run gate disagree (the №897
+    // bug shape, one path later).
+    let groups_for_filter: Vec<semantic::ImportModuleGroup> = module_groups_953
+        .into_iter()
+        .filter(|g| g.source != source)
+        .collect();
+    result.errors = semantic::filter_suppressed_unchecked_per_module(
+        result.errors,
+        &declarations,
+        source,
+        &groups_for_filter,
+    );
     Ok(result)
 }
 

@@ -45,7 +45,7 @@ jobs:
           cat edge-profile/edge-profile.txt
 
       - name: Upload the E-form artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: edge-profile
           path: |

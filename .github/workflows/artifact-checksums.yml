@@ -86,7 +86,7 @@ jobs:
           test -s out/SHA256SUMS || { echo "::warning::no artifacts hashed (nothing fresh)"; }
       - name: upload the checksums artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: artifact-checksums
           path: out/

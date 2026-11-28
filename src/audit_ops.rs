@@ -214,11 +214,50 @@ mod tests {
 
     /// Genuinely poison the log mutex: panic while a guard is held (the
     /// same fallback path the backends hit when a poisoned log races).
+    ///
+    /// №1017 (gh#2090 follow-up): the expected-path panic printed its full
+    /// hook output (message + backtrace) into every CI run — the noise class
+    /// that read as a failure twice (the gh#2090 appearances). The hook is
+    /// muted for THIS window only: a panic whose payload is exactly this
+    /// poison message prints one replacement line instead of the trace; any
+    /// other panic (a real one) still goes through the previous hook — the
+    /// signal is not lost. The mute windows are serialized by a mutex so the
+    /// parallel poison tests (`--test-threads 4`) cannot interleave
+    /// take/set/restore and leave a muted hook installed after the window
+    /// (a lost-signal hazard); the mutex survives its own poisoning via
+    /// `into_inner` — this helper panics while holding locks by design.
     fn poison(l: &std::sync::Mutex<Vec<Event>>) {
+        static POISON_MUTE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _order = POISON_MUTE.lock().unwrap_or_else(|e| e.into_inner());
+        // The Arc wrap: the previous hook is SHARED between the mute closure
+        // and the restore call — a bare Box moves into the closure and the
+        // restore loses it (E0382, caught by CI on the first shape). Send and
+        // Sync are the prelude traits, not std::sync items (E0405, the second
+        // shape); the restore goes through a closure that CALLS the Arc
+        // (`set_hook` needs a Box of the hook trait, and there is no
+        // `From<Arc<_>> for Box<_>`).
+        let prev_hook: std::sync::Arc<dyn Fn(&std::panic::PanicHookInfo<'_>) + Send + Sync> =
+            std::sync::Arc::from(std::panic::take_hook());
+        let prev_for_closure = prev_hook.clone();
+        std::panic::set_hook(Box::new(move |info| {
+            let msg = info
+                .payload()
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()));
+            if msg == Some("poison the log for the fallback-path test") {
+                eprintln!(
+                    "[poison-hook] the expected poison panic suppressed (the fallback-path test)"
+                );
+            } else {
+                prev_for_closure(info);
+            }
+        }));
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _guard = l.lock().unwrap();
             panic!("poison the log for the fallback-path test");
         }));
+        std::panic::set_hook(Box::new(move |info| prev_hook(info)));
     }
 
     // ── deny_event_or_reason ────────────────────────────────────────

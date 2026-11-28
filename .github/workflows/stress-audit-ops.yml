@@ -53,15 +53,23 @@ jobs:
           i=1
           while [ "$i" -le "$LOOPS" ]; do
             NAME=$(printf '%03d' "$i")
-            # the load regime: a CPU-busy spinner per core while the binary runs
+            # the load regime: a CPU-busy spinner per core while the binary runs.
+            # №1017: the spinners are KILLED right after the binary exits (the
+            # PIDs are remembered) — the previous shape waited out the full
+            # `timeout 120` per iteration (~120 s/iter, ~100 min per 50-loop
+            # session); the kill makes an iteration the length of the test run
+            # itself (~20 s) — the timeout 120 stays as the runaway backstop.
+            SPIDS=""
             for _ in $(seq 1 "$CORES"); do
               timeout 120 bash -c 'while :; do :; done' &
+              SPIDS="$SPIDS $!"
             done
             if ! "$BIN" audit_ops --test-threads 4 > "stress-logs/run_${NAME}.log" 2>&1; then
               FAILS=$((FAILS+1))
               echo "::error::run ${NAME} FAILED — the full log goes to the artifact"
               cat "stress-logs/run_${NAME}.log"
             fi
+            kill $SPIDS 2>/dev/null || true
             wait || true
             grep -h "^test result" "stress-logs/run_${NAME}.log" | tail -1 || true
             i=$((i+1))

@@ -2,6 +2,49 @@
 
 All notable changes to the Metalogos project.
 
+## [0.40.2] - 2026-11-28
+
+A PATCH cut of the 0.40.1 line, prepared on the owner's directive
+(the wave-16 order of 2026-11-27: ship the №1018 fix to the consumer
+fleet). It fixes ONE checker defect and changes nothing else: no
+language change, no builtin, no gate change, no dependency change.
+The 0.40.1 tree is otherwise carried over verbatim, so the diff
+against `v0.40.1` is the fix plus the version stamp.
+
+Why the cut exists: the published `v0.40.1` binary applies the №802
+allow-comment suppression per FILE on the `check --root` path — the
+multi-module walker merged the whole import graph's declarations into
+the semantic pass but ran the suppression filter against the CHECKED
+file's text only, so an allow-comment sitting in an IMPORTED module
+was invisible. The run gate applies the same filter per module since
+№897 — the checked surface and the run gate disagreed (the exact
+disagreement the lib.rs №802 note forbids). The production-scale
+repro: the fosved-acc fleet at the pinned `v0.40.1` — 21
+UNCHECKED_RESULT findings on the `mlog check app.mlog --root app.mlog`
+form, every one carrying a sanctioned allow-comment in its own module;
+0 findings on the run gate; 0 per-file.
+
+### Fixed
+
+- `check --root` (the multi-module walker) applies the №802
+  allow-comment suppression PER MODULE — the №897 geometry, the
+  documented surface (№1018, issue #2115, cherry-picked onto the patch
+  line). The regression test
+  `tests/naryad_1018_check_root_suppression.rs` carries the six-case
+  battery (the №772 red-before form: the module's comment sanctions
+  through `check --root`, the unsanctioned negative stays red, the
+  root==file office form, the root's own body, no cross-module
+  laundering, the no-root form unchanged); the №897 (6/6) and №953
+  (4/4) suites stay green on the patch tree.
+- Migration: none — a program whose finding was suppressed by a
+  comment in ANOTHER module was mis-scanned, not correct; the
+  documented per-module suppression surface is now honoured
+  uniformly. The plain no-root `mlog check` form keeps its
+  single-file semantics.
+
+security: no — a checker-precision fix; the suppression scope
+tightens to the documented per-module form. BREAKING: none.
+
 ## [0.40.1] - 2026-11-21
 
 A PATCH cut of the 0.40.0 line, published on the owner's explicit order
